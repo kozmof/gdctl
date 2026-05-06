@@ -18,14 +18,6 @@ Inside a devcontainer, `127.0.0.1` means the container itself. To reach Godot ru
 export GDCTL_BRIDGE_HOST=host.docker.internal
 ```
 
-If a project was previously configured with:
-
-```text
-godot_tcp_bridge/host = "0.0.0.0"
-```
-
-the addon will preserve that setting across updates. New projects default to `127.0.0.1`.
-
 ## 2. Token Flow
 
 After enabling the Godot addon, open the **gdctl Bridge** dock in Godot and copy the export command:
