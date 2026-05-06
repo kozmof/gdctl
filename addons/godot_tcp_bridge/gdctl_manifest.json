@@ -5,6 +5,7 @@
     "plugin.cfg",
     "bridge_plugin.gd",
     "bridge_server.gd",
+    "addon_update.gd",
     "node_commands.gd",
     "typed_values.gd",
     "gdctl_manifest.json"

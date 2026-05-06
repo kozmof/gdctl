@@ -201,7 +201,7 @@ It must be tested manually on a disposable project before updating the normal ad
 ## 7. Current Property Editing Step
 
 The bridge bootstrap and projectless update loop are working. Logical scene paths are working.
-The addon server has started moving reusable logic out of `bridge_server.gd`. Typed CLI/Godot value conversion now lives in `addons/godot_tcp_bridge/typed_values.gd`, and node mutations/property commands now live in `addons/godot_tcp_bridge/node_commands.gd`.
+The addon server has started moving reusable logic out of `bridge_server.gd`. Typed CLI/Godot value conversion now lives in `addons/godot_tcp_bridge/typed_values.gd`, node mutations/property commands now live in `addons/godot_tcp_bridge/node_commands.gd`, and bridge self-update logic now lives in `addons/godot_tcp_bridge/addon_update.gd`.
 
 The next implemented bridge primitive is:
 
