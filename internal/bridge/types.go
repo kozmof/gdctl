@@ -1,13 +1,19 @@
 package bridge
 
 type PingResponse struct {
-	OK            bool   `json:"ok"`
-	Service       string `json:"service"`
-	Engine        string `json:"engine"`
-	EngineVersion string `json:"engine_version"`
-	PluginVersion string `json:"plugin_version"`
-	ProjectName   string `json:"project_name"`
-	ProjectPath   string `json:"project_path"`
+	OK              bool     `json:"ok"`
+	Service         string   `json:"service"`
+	Engine          string   `json:"engine"`
+	EngineVersion   string   `json:"engine_version"`
+	PluginVersion   string   `json:"plugin_version"`
+	ProjectName     string   `json:"project_name"`
+	ProjectPath     string   `json:"project_path"`
+	SceneOpen       bool     `json:"scene_open"`
+	AuthEnabled     bool     `json:"auth_enabled"`
+	Host            string   `json:"host"`
+	Port            int      `json:"port"`
+	ProtocolVersion string   `json:"protocol_version"`
+	Capabilities    []string `json:"capabilities"`
 }
 
 type BridgeError struct {

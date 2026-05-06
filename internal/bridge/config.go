@@ -18,6 +18,7 @@ type Config struct {
 	Port     int
 	Protocol string
 	Token    string
+	Project  string
 }
 
 func DefaultConfig() Config {

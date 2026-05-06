@@ -2,6 +2,7 @@
 extends RefCounted
 
 const PLUGIN_VERSION := "0.1.0"
+const PROTOCOL_VERSION := "gdctl.v1"
 const DEFAULT_HOST := "0.0.0.0"
 const DEFAULT_PORT := 7777
 const TOKEN_PATH := "res://.godot-bridge-token"
@@ -251,6 +252,16 @@ func _ping() -> Dictionary:
 		"project_name": ProjectSettings.get_setting("application/config/name", ""),
 		"project_path": ProjectSettings.globalize_path("res://"),
 		"scene_open": root != null,
+		"auth_enabled": auth_enabled,
+		"host": host,
+		"port": port,
+		"protocol_version": PROTOCOL_VERSION,
+		"capabilities": [
+			"ping",
+			"scene.tree",
+			"node.add",
+			"node.remove",
+		],
 	}
 
 

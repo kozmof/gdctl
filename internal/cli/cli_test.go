@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -83,8 +85,73 @@ func TestNodeRemoveRequiresPathBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestAddonStatusJSON(t *testing.T) {
+	project := newCLIProject(t)
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"addon", "install", "--project", project}, &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(bridge.PingResponse{
+			OK:              true,
+			PluginVersion:   "0.1.0",
+			ProtocolVersion: "gdctl.v1",
+			Capabilities:    []string{"scene.tree"},
+		})
+	}))
+	defer server.Close()
+
+	args := append(serverArgs(server), "addon", "status", "--project", project, "--json")
+	err = Run(context.Background(), args, &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status["installed"] != true || status["reachable"] != true || status["compatible"] != true {
+		t.Fatalf("status = %#v\nstdout:\n%s", status, stdout.String())
+	}
+}
+
+func TestAddonDoctorFixInstallsAndEnables(t *testing.T) {
+	project := newCLIProject(t)
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"addon", "doctor", "--project", project, "--fix"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"[fix] addon installed", "[fix] addon enabled", "[ok] addon installed", "[ok] addon enabled"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(project, "project.godot"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "res://addons/godot_tcp_bridge/plugin.cfg") {
+		t.Fatalf("project.godot not enabled:\n%s", string(data))
+	}
+}
+
 func serverArgs(server *httptest.Server) []string {
 	hostPort := strings.TrimPrefix(server.URL, "http://")
 	parts := strings.Split(hostPort, ":")
 	return []string{"--host", parts[0], "--port", parts[1]}
+}
+
+func newCLIProject(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "project.godot"), []byte(`[application]
+config/name="demo"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }

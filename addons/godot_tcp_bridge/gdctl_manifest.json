@@ -1,0 +1,10 @@
+{
+  "name": "godot_tcp_bridge",
+  "version": "0.1.0",
+  "files": [
+    "plugin.cfg",
+    "bridge_plugin.gd",
+    "bridge_server.gd",
+    "gdctl_manifest.json"
+  ]
+}
