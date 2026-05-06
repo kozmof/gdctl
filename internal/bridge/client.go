@@ -97,6 +97,55 @@ func (c *Client) RemoveNode(ctx context.Context, requestID, path string, dryRun 
 	return c.postEnvelope(ctx, "/node/remove", env)
 }
 
+func (c *Client) GetNodeProperty(ctx context.Context, requestID, path, property string) (NodePropertyResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "node.get",
+		Params: map[string]any{
+			"path":     path,
+			"property": property,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/node/get", env)
+	if err != nil {
+		return NodePropertyResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return NodePropertyResult{}, err
+	}
+	var out NodePropertyResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return NodePropertyResult{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) SetNodeProperty(ctx context.Context, requestID, path, property string, value any) (NodePropertyResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "node.set",
+		Params: map[string]any{
+			"path":     path,
+			"property": property,
+			"value":    value,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/node/set", env)
+	if err != nil {
+		return NodePropertyResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return NodePropertyResult{}, err
+	}
+	var out NodePropertyResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return NodePropertyResult{}, err
+	}
+	return out, nil
+}
+
 func (c *Client) UpdateAddon(ctx context.Context, requestID string, manifest map[string]any, files []AddonUpdateFile) (AddonUpdateResult, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,

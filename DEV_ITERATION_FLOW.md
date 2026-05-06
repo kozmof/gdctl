@@ -198,16 +198,23 @@ It must work for already-saved scenes before supporting save-as.
 It must be tested manually on a disposable project before updating the normal addon.
 ```
 
-## 7. Current Next Step
+## 7. Current Property Editing Step
 
 The bridge bootstrap and projectless update loop are working. Logical scene paths are working.
 
-Recommended next implementation step:
+The next implemented bridge primitive is:
 
 ```text
 node set/get
 ```
 
 That will let generated scenes configure positions, resources, collision shapes, and exported script parameters.
+
+Use typed JSON values:
+
+```bash
+gdctl node set --path /root/Main/Player --property position --value '{"kind":"Vector2","value":[200,400]}'
+gdctl node get --path /root/Main/Player --property position
+```
 
 Scene saving should be revisited later with a deferred/editor-safe implementation.

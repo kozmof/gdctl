@@ -61,6 +61,10 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return runNodeAdd(ctx, client, rest[2:], stdout)
 			case "remove":
 				return runNodeRemove(ctx, client, rest[2:], stdout)
+			case "get":
+				return runNodeGet(ctx, client, rest[2:], stdout)
+			case "set":
+				return runNodeSet(ctx, client, rest[2:], stdout)
 			}
 		}
 	}
@@ -455,6 +459,50 @@ func runNodeRemove(ctx context.Context, client *bridge.Client, args []string, st
 	return nil
 }
 
+func runNodeGet(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("node get", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "node path")
+	property := fs.String("property", "", "property name")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *property == "" {
+		return fmt.Errorf("node get requires --path and --property")
+	}
+	result, err := client.GetNodeProperty(ctx, requestID(), *path, *property)
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(result)
+}
+
+func runNodeSet(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("node set", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "node path")
+	property := fs.String("property", "", "property name")
+	valueText := fs.String("value", "", "typed JSON value, for example {\"kind\":\"Vector2\",\"value\":[200,400]}")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *property == "" || *valueText == "" {
+		return fmt.Errorf("node set requires --path, --property, and --value")
+	}
+	var value any
+	if err := json.Unmarshal([]byte(*valueText), &value); err != nil {
+		return fmt.Errorf("node set --value must be typed JSON: %w", err)
+	}
+	result, err := client.SetNodeProperty(ctx, requestID(), *path, *property, value)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Set %s on %s\n", result.Property, result.Path)
+	return nil
+}
+
 func runDoctor(ctx context.Context, cfg bridge.Config, client *bridge.Client, manager addon.Manager, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -590,4 +638,6 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene save")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node add --parent PATH --type TYPE --name NAME [--dry-run]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node remove --path PATH [--dry-run]")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node get --path PATH --property PROPERTY")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node set --path PATH --property PROPERTY --value TYPED_JSON")
 }

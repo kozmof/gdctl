@@ -110,6 +110,93 @@ func TestNodeRemoveRequiresPathBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestNodeGetRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"node", "get", "--path", "/root/Main"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--path and --property") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestNodeSetRequiresTypedJSONBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"node", "set", "--path", "/root/Main", "--property", "position", "--value", "not-json"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "typed JSON") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunNodeGet(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/node/get" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":     "/root/Main/Player",
+				"property": "position",
+				"value":    map[string]any{"kind": "Vector2", "value": []any{200, 400}},
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "node", "get", "--path", "/root/Main/Player", "--property", "position")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "node.get" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if !strings.Contains(stdout.String(), `"kind": "Vector2"`) {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRunNodeSet(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/node/set" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":     "/root/Main/Player",
+				"property": "position",
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "node", "set", "--path", "/root/Main/Player", "--property", "position", "--value", `{"kind":"Vector2","value":[200,400]}`)
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "node.set" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if !strings.Contains(stdout.String(), "Set position on /root/Main/Player") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
 func TestProjectTokenIsUsedForMutationRequests(t *testing.T) {
 	project := newCLIProject(t)
 	if err := os.WriteFile(filepath.Join(project, bridge.ProjectTokenFile), []byte("project-token\n"), 0o600); err != nil {

@@ -92,6 +92,83 @@ func TestClientUpdateAddonRequest(t *testing.T) {
 	}
 }
 
+func TestClientGetNodePropertyRequest(t *testing.T) {
+	var gotAuth string
+	var gotEnvelope RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/node/get" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":     "/root/Main/Player",
+				"property": "position",
+				"value":    map[string]any{"kind": "Vector2", "value": []any{200, 400}},
+			},
+		})
+	}))
+	defer server.Close()
+
+	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http", Token: "secret"}
+	client := NewClient(cfg)
+	result, err := client.GetNodeProperty(context.Background(), "cli-test", "/root/Main/Player", "position")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if gotEnvelope.Op != "node.get" || gotEnvelope.Params["property"] != "position" {
+		t.Fatalf("envelope = %#v", gotEnvelope)
+	}
+	if result.Path != "/root/Main/Player" || result.Property != "position" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestClientSetNodePropertyRequest(t *testing.T) {
+	var gotEnvelope RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/node/set" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":     "/root/Main/Player",
+				"property": "position",
+				"value":    map[string]any{"kind": "Vector2", "value": []any{200, 400}},
+			},
+		})
+	}))
+	defer server.Close()
+
+	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http", Token: "secret"}
+	client := NewClient(cfg)
+	_, err := client.SetNodeProperty(context.Background(), "cli-test", "/root/Main/Player", "position", map[string]any{
+		"kind":  "Vector2",
+		"value": []any{200, 400},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "node.set" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	value, ok := gotEnvelope.Params["value"].(map[string]any)
+	if !ok || value["kind"] != "Vector2" {
+		t.Fatalf("value = %#v", gotEnvelope.Params["value"])
+	}
+}
+
 func TestClientSaveSceneRequest(t *testing.T) {
 	var gotAuth string
 	var gotEnvelope RequestEnvelope

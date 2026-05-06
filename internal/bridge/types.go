@@ -74,3 +74,9 @@ type SceneSaveResult struct {
 	Root  string `json:"root,omitempty"`
 	Saved bool   `json:"saved"`
 }
+
+type NodePropertyResult struct {
+	Path     string `json:"path"`
+	Property string `json:"property"`
+	Value    any    `json:"value,omitempty"`
+}
