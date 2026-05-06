@@ -30,6 +30,17 @@ For Linux devcontainer access to Godot running on a Windows host, set the addon 
 GDCTL_BRIDGE_HOST=host.docker.internal gdctl ping
 ```
 
+Inside a devcontainer, `127.0.0.1` means the container itself, not the Windows host. If Godot says the bridge is `listening on 0.0.0.0:7777` but `gdctl ping` fails with `127.0.0.1:7777: connect: connection refused`, use:
+
+```bash
+export GDCTL_BRIDGE_HOST=host.docker.internal
+export GDCTL_BRIDGE_TOKEN=<token copied from the gdctl Bridge dock>
+
+gdctl ping
+gdctl addon status
+gdctl addon update
+```
+
 ## Commands
 
 ```bash
