@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"gdctl/internal/addon"
 	"gdctl/internal/bridge"
 )
 
@@ -86,11 +88,15 @@ func TestNodeRemoveRequiresPathBeforeNetwork(t *testing.T) {
 }
 
 func TestAddonStatusJSON(t *testing.T) {
+	useTestAddon(t)
 	project := newCLIProject(t)
 	var stdout, stderr bytes.Buffer
 	err := Run(context.Background(), []string{"addon", "install", "--project", project}, &stdout, &stderr)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if got := readFile(t, filepath.Join(project, addon.AddonDir, "bridge_plugin.gd")); !strings.Contains(got, "TEST_FIXTURE") {
+		t.Fatalf("expected CLI to install test addon fixture, got:\n%s", got)
 	}
 	stdout.Reset()
 
@@ -119,6 +125,7 @@ func TestAddonStatusJSON(t *testing.T) {
 }
 
 func TestAddonDoctorFixInstallsAndEnables(t *testing.T) {
+	useTestAddon(t)
 	project := newCLIProject(t)
 	var stdout, stderr bytes.Buffer
 	err := Run(context.Background(), []string{"addon", "doctor", "--project", project, "--fix"}, &stdout, &stderr)
@@ -154,4 +161,28 @@ config/name="demo"
 		t.Fatal(err)
 	}
 	return dir
+}
+
+func useTestAddon(t *testing.T) {
+	t.Helper()
+	previous := newAddonManager
+	newAddonManager = func() addon.Manager {
+		return addon.NewManager(cliTestAddonFS())
+	}
+	t.Cleanup(func() {
+		newAddonManager = previous
+	})
+}
+
+func cliTestAddonFS() fs.FS {
+	return os.DirFS(filepath.Join("..", "addon", "testdata"))
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }

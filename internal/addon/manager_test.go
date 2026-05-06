@@ -2,13 +2,13 @@ package addon
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	embeddedaddons "gdctl/addons"
 	"gdctl/internal/bridge"
 )
 
@@ -33,7 +33,7 @@ func TestResolveProjectRequiresProjectGodot(t *testing.T) {
 
 func TestInstallEnableStatusAndRemove(t *testing.T) {
 	project := newProject(t)
-	manager := NewManager(embeddedaddons.FS)
+	manager := NewManager(testAddonFS())
 	manager.NewClient = func(bridge.Config) bridgePinger {
 		return fakePinger{ping: bridge.PingResponse{
 			OK:              true,
@@ -52,6 +52,9 @@ func TestInstallEnableStatusAndRemove(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(project, AddonDir, "plugin.cfg")); err != nil {
 		t.Fatal(err)
+	}
+	if got := readFile(t, filepath.Join(project, AddonDir, "bridge_plugin.gd")); !strings.Contains(got, "TEST_FIXTURE") {
+		t.Fatalf("expected test addon fixture to be installed, got:\n%s", got)
 	}
 
 	if _, err := manager.Enable(project); err != nil {
@@ -87,7 +90,7 @@ func TestInstallRefusesUnknownExistingFileWithoutForce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	manager := NewManager(embeddedaddons.FS)
+	manager := NewManager(testAddonFS())
 	_, err := manager.Install(InstallOptions{ProjectPath: project})
 	if err == nil {
 		t.Fatal("expected overwrite refusal")
@@ -99,7 +102,7 @@ func TestInstallRefusesUnknownExistingFileWithoutForce(t *testing.T) {
 
 func TestUpdateCreatesBackupAndPreservesUnknownFiles(t *testing.T) {
 	project := newProject(t)
-	manager := NewManager(embeddedaddons.FS)
+	manager := NewManager(testAddonFS())
 	manager.Now = func() time.Time {
 		return time.Date(2026, 5, 6, 12, 0, 0, 0, time.UTC)
 	}
@@ -138,4 +141,8 @@ config/name="demo"
 		t.Fatal(err)
 	}
 	return dir
+}
+
+func testAddonFS() fs.FS {
+	return os.DirFS("testdata")
 }

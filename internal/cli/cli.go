@@ -16,6 +16,10 @@ import (
 	"gdctl/internal/bridge"
 )
 
+var newAddonManager = func() addon.Manager {
+	return addon.NewManager(embeddedaddons.FS)
+}
+
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	cfg, rest, err := parseGlobalFlags(args)
 	if err != nil {
@@ -27,7 +31,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 
 	client := bridge.NewClient(cfg)
-	addonManager := addon.NewManager(embeddedaddons.FS)
+	addonManager := newAddonManager()
 	switch rest[0] {
 	case "ping":
 		return runPing(ctx, client, stdout)
