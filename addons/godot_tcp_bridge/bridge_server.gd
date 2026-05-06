@@ -9,9 +9,11 @@ const TOKEN_PATH := "res://.godot-bridge-token"
 const ADDON_ROOT := "res://addons/godot_tcp_bridge/"
 const ADDON_BACKUP_ROOT := "res://addons/.godot_tcp_bridge_backup/"
 const TypedValues = preload("res://addons/godot_tcp_bridge/typed_values.gd")
+const NodeCommands = preload("res://addons/godot_tcp_bridge/node_commands.gd")
 
 var editor_plugin: EditorPlugin
 var typed_values = TypedValues.new()
+var node_commands = NodeCommands.new()
 var tcp_server := TCPServer.new()
 var clients: Array[Dictionary] = []
 var host := DEFAULT_HOST
@@ -175,13 +177,13 @@ func _handle_request(request: Dictionary) -> Dictionary:
 	if method == "POST" and path == "/scene/save":
 		return _handle_scene_save(request)
 	if method == "POST" and path == "/node/add":
-		return _handle_node_add(request)
+		return node_commands.handle_add(request, _command_context())
 	if method == "POST" and path == "/node/remove":
-		return _handle_node_remove(request)
+		return node_commands.handle_remove(request, _command_context())
 	if method == "POST" and path == "/node/get":
-		return _handle_node_get(request)
+		return node_commands.handle_get(request, _command_context())
 	if method == "POST" and path == "/node/set":
-		return _handle_node_set(request)
+		return node_commands.handle_set(request, _command_context())
 	if method == "POST" and path == "/addon/update":
 		return _handle_addon_update(request)
 	return _bridge_error(404, "", "UNKNOWN_ENDPOINT", "Unknown bridge endpoint", {"method": method, "path": path})
@@ -203,126 +205,6 @@ func _handle_scene_save(request: Dictionary) -> Dictionary:
 		return _bridge_error(500, body.get("request_id", ""), "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {})
 
 	return _bridge_error(501, body.get("request_id", ""), "SCENE_SAVE_UNSUPPORTED", "Scene save is temporarily disabled because direct editor save calls are unstable in the bridge request handler", {"root": _logical_path(root), "path": root.scene_file_path})
-
-
-func _handle_node_add(request: Dictionary) -> Dictionary:
-	var body: Dictionary = _json_body_or_error(request)
-	if body.has("error_response"):
-		return body["error_response"]
-	if not _authorized(request):
-		return _bridge_error(401, body.get("request_id", ""), "UNAUTHORIZED", "Mutation endpoint requires bearer token", {})
-	if body.get("op", "") != "node.add":
-		return _bridge_error(400, body.get("request_id", ""), "INVALID_OPERATION", "Expected node.add operation", {})
-
-	var params := _params_or_empty(body)
-	var parent_path := String(params.get("parent", ""))
-	var type_name := String(params.get("type", ""))
-	var node_name := String(params.get("name", ""))
-	var dry_run := bool(params.get("dry_run", false))
-	var parent := _node_by_path(parent_path)
-	if parent == null:
-		return _bridge_error(404, body.get("request_id", ""), "NODE_PARENT_NOT_FOUND", "Parent node does not exist", {"parent": parent_path})
-	if type_name == "" or not ClassDB.can_instantiate(type_name):
-		return _bridge_error(400, body.get("request_id", ""), "NODE_TYPE_INVALID", "Node type cannot be instantiated", {"type": type_name})
-	if not ClassDB.is_parent_class(type_name, "Node") and type_name != "Node":
-		return _bridge_error(400, body.get("request_id", ""), "NODE_TYPE_INVALID", "Node type must inherit Node", {"type": type_name})
-	if node_name == "" or not node_name.is_valid_identifier():
-		return _bridge_error(400, body.get("request_id", ""), "NODE_NAME_INVALID", "Node name must be a valid identifier", {"name": node_name})
-
-	var path := "%s/%s" % [parent_path.rstrip("/"), node_name]
-	if dry_run:
-		return _bridge_ok(body.get("request_id", ""), {"path": path, "dry_run": true})
-
-	var node := ClassDB.instantiate(type_name) as Node
-	node.name = node_name
-	parent.add_child(node)
-	node.owner = _edited_scene_root()
-	_mark_scene_dirty()
-	return _bridge_ok(body.get("request_id", ""), {"path": _logical_path(node)})
-
-
-func _handle_node_remove(request: Dictionary) -> Dictionary:
-	var body := _json_body_or_error(request)
-	if body.has("error_response"):
-		return body["error_response"]
-	if not _authorized(request):
-		return _bridge_error(401, body.get("request_id", ""), "UNAUTHORIZED", "Mutation endpoint requires bearer token", {})
-	if body.get("op", "") != "node.remove":
-		return _bridge_error(400, body.get("request_id", ""), "INVALID_OPERATION", "Expected node.remove operation", {})
-
-	var params := _params_or_empty(body)
-	var path := String(params.get("path", ""))
-	var dry_run := bool(params.get("dry_run", false))
-	var node := _node_by_path(path)
-	if node == null:
-		return _bridge_error(404, body.get("request_id", ""), "NODE_NOT_FOUND", "Node does not exist", {"path": path})
-	if node == _edited_scene_root():
-		return _bridge_error(400, body.get("request_id", ""), "CANNOT_REMOVE_SCENE_ROOT", "Scene root cannot be removed", {"path": path})
-	if dry_run:
-		return _bridge_ok(body.get("request_id", ""), {"removed": path, "dry_run": true})
-
-	node.get_parent().remove_child(node)
-	node.queue_free()
-	_mark_scene_dirty()
-	return _bridge_ok(body.get("request_id", ""), {"removed": path})
-
-
-func _handle_node_get(request: Dictionary) -> Dictionary:
-	var body: Dictionary = _json_body_or_error(request)
-	if body.has("error_response"):
-		return body["error_response"]
-	if not _authorized(request):
-		return _bridge_error(401, body.get("request_id", ""), "UNAUTHORIZED", "Node property read requires bearer token", {})
-	if body.get("op", "") != "node.get":
-		return _bridge_error(400, body.get("request_id", ""), "INVALID_OPERATION", "Expected node.get operation", {})
-
-	var params: Dictionary = _params_or_empty(body)
-	var path: String = String(params.get("path", ""))
-	var property: String = String(params.get("property", ""))
-	if property == "":
-		return _bridge_error(400, body.get("request_id", ""), "PROPERTY_INVALID", "Property name is required", {})
-	var node: Node = _node_by_path(path)
-	if node == null:
-		return _bridge_error(404, body.get("request_id", ""), "NODE_NOT_FOUND", "Node does not exist", {"path": path})
-
-	var encoded: Dictionary = typed_values.encode(node.get(property))
-	return _bridge_ok(body.get("request_id", ""), {
-		"path": _logical_path(node),
-		"property": property,
-		"value": encoded,
-	})
-
-
-func _handle_node_set(request: Dictionary) -> Dictionary:
-	var body: Dictionary = _json_body_or_error(request)
-	if body.has("error_response"):
-		return body["error_response"]
-	if not _authorized(request):
-		return _bridge_error(401, body.get("request_id", ""), "UNAUTHORIZED", "Mutation endpoint requires bearer token", {})
-	if body.get("op", "") != "node.set":
-		return _bridge_error(400, body.get("request_id", ""), "INVALID_OPERATION", "Expected node.set operation", {})
-
-	var params: Dictionary = _params_or_empty(body)
-	var path: String = String(params.get("path", ""))
-	var property: String = String(params.get("property", ""))
-	if property == "":
-		return _bridge_error(400, body.get("request_id", ""), "PROPERTY_INVALID", "Property name is required", {})
-	var node: Node = _node_by_path(path)
-	if node == null:
-		return _bridge_error(404, body.get("request_id", ""), "NODE_NOT_FOUND", "Node does not exist", {"path": path})
-	if not params.has("value"):
-		return _bridge_error(400, body.get("request_id", ""), "VALUE_MISSING", "Typed value is required", {})
-
-	var decoded: Dictionary = typed_values.decode(params.get("value"))
-	if not bool(decoded.get("ok", false)):
-		return _bridge_error(400, body.get("request_id", ""), "VALUE_INVALID", String(decoded.get("error", "Invalid typed value")), {})
-	node.set(property, decoded.get("value"))
-	_mark_scene_dirty()
-	return _bridge_ok(body.get("request_id", ""), {
-		"path": _logical_path(node),
-		"property": property,
-		"value": typed_values.encode(node.get(property)),
-	})
 
 
 func _handle_addon_update(request: Dictionary) -> Dictionary:
@@ -449,6 +331,21 @@ func _params_or_empty(body: Dictionary) -> Dictionary:
 	if typeof(params) != TYPE_DICTIONARY:
 		return {}
 	return params
+
+
+func _command_context() -> Dictionary:
+	return {
+		"json_body_or_error": Callable(self, "_json_body_or_error"),
+		"params_or_empty": Callable(self, "_params_or_empty"),
+		"authorized": Callable(self, "_authorized"),
+		"bridge_ok": Callable(self, "_bridge_ok"),
+		"bridge_error": Callable(self, "_bridge_error"),
+		"edited_scene_root": Callable(self, "_edited_scene_root"),
+		"node_by_path": Callable(self, "_node_by_path"),
+		"logical_path": Callable(self, "_logical_path"),
+		"mark_scene_dirty": Callable(self, "_mark_scene_dirty"),
+		"typed_values": typed_values,
+	}
 
 
 func _authorized(request: Dictionary) -> bool:
