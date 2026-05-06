@@ -46,6 +46,31 @@ func (c *Client) SceneTree(ctx context.Context) (NodeInfo, error) {
 	return out.Root, nil
 }
 
+func (c *Client) SaveScene(ctx context.Context, requestID, path string) (SceneSaveResult, error) {
+	params := map[string]any{}
+	if path != "" {
+		params["path"] = path
+	}
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "scene.save",
+		Params:    params,
+	}
+	result, err := c.postEnvelope(ctx, "/scene/save", env)
+	if err != nil {
+		return SceneSaveResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return SceneSaveResult{}, err
+	}
+	var out SceneSaveResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return SceneSaveResult{}, err
+	}
+	return out, nil
+}
+
 func (c *Client) AddNode(ctx context.Context, requestID, parent, nodeType, name string, dryRun bool) (map[string]any, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,

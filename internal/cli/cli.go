@@ -46,8 +46,13 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	case "bridge":
 		return runBridge(ctx, client, addonManager, rest[1:], stdout)
 	case "scene":
-		if len(rest) >= 2 && rest[1] == "tree" {
-			return runSceneTree(ctx, client, stdout)
+		if len(rest) >= 2 {
+			switch rest[1] {
+			case "tree":
+				return runSceneTree(ctx, client, stdout)
+			case "save":
+				return runSceneSave(ctx, client, rest[2:], stdout)
+			}
 		}
 	case "node":
 		if len(rest) >= 2 {
@@ -384,6 +389,22 @@ func runSceneTree(ctx context.Context, client *bridge.Client, stdout io.Writer) 
 	return nil
 }
 
+func runSceneSave(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("scene save", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "unsupported placeholder for future save-as support")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path != "" {
+		return fmt.Errorf("scene save --path is temporarily unsupported; save the scene once in Godot, then run scene save")
+	}
+	_ = ctx
+	_ = client
+	_ = stdout
+	return fmt.Errorf("scene save is temporarily unsupported; save from Godot while bridge-safe save is implemented")
+}
+
 func runNodeAdd(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("node add", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -566,6 +587,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] bridge info")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] bridge addon-update")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene tree")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene save")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node add --parent PATH --type TYPE --name NAME [--dry-run]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node remove --path PATH [--dry-run]")
 }

@@ -170,6 +170,8 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		if root == null:
 			return _bridge_error(409, "", "NO_SCENE_OPEN", "No edited scene is open", {})
 		return _http_json(200, {"ok": true, "root": _node_info(root)})
+	if method == "POST" and path == "/scene/save":
+		return _handle_scene_save(request)
 	if method == "POST" and path == "/node/add":
 		return _handle_node_add(request)
 	if method == "POST" and path == "/node/remove":
@@ -177,6 +179,24 @@ func _handle_request(request: Dictionary) -> Dictionary:
 	if method == "POST" and path == "/addon/update":
 		return _handle_addon_update(request)
 	return _bridge_error(404, "", "UNKNOWN_ENDPOINT", "Unknown bridge endpoint", {"method": method, "path": path})
+
+
+func _handle_scene_save(request: Dictionary) -> Dictionary:
+	var body: Dictionary = _json_body_or_error(request)
+	if body.has("error_response"):
+		return body["error_response"]
+	if not _authorized(request):
+		return _bridge_error(401, body.get("request_id", ""), "UNAUTHORIZED", "Scene save requires bearer token", {})
+	if body.get("op", "") != "scene.save":
+		return _bridge_error(400, body.get("request_id", ""), "INVALID_OPERATION", "Expected scene.save operation", {})
+
+	var root := _edited_scene_root()
+	if root == null:
+		return _bridge_error(409, body.get("request_id", ""), "NO_SCENE_OPEN", "No edited scene is open", {})
+	if editor_plugin == null:
+		return _bridge_error(500, body.get("request_id", ""), "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {})
+
+	return _bridge_error(501, body.get("request_id", ""), "SCENE_SAVE_UNSUPPORTED", "Scene save is temporarily disabled because direct editor save calls are unstable in the bridge request handler", {"root": _logical_path(root), "path": root.scene_file_path})
 
 
 func _handle_node_add(request: Dictionary) -> Dictionary:
@@ -203,7 +223,7 @@ func _handle_node_add(request: Dictionary) -> Dictionary:
 	if node_name == "" or not node_name.is_valid_identifier():
 		return _bridge_error(400, body.get("request_id", ""), "NODE_NAME_INVALID", "Node name must be a valid identifier", {"name": node_name})
 
-	var path := "%s/%s" % [parent_path, node_name]
+	var path := "%s/%s" % [parent_path.rstrip("/"), node_name]
 	if dry_run:
 		return _bridge_ok(body.get("request_id", ""), {"path": path, "dry_run": true})
 
@@ -212,7 +232,7 @@ func _handle_node_add(request: Dictionary) -> Dictionary:
 	parent.add_child(node)
 	node.owner = _edited_scene_root()
 	_mark_scene_dirty()
-	return _bridge_ok(body.get("request_id", ""), {"path": String(node.get_path())})
+	return _bridge_ok(body.get("request_id", ""), {"path": _logical_path(node)})
 
 
 func _handle_node_remove(request: Dictionary) -> Dictionary:
@@ -393,6 +413,7 @@ func _ping() -> Dictionary:
 		"capabilities": [
 			"ping",
 			"scene.tree",
+			"scene.save",
 			"node.add",
 			"node.remove",
 			"addon.update",
@@ -410,12 +431,12 @@ func _node_by_path(path: String) -> Node:
 	var root := _edited_scene_root()
 	if root == null:
 		return null
-	if path == String(root.get_path()):
+	if path == _logical_path(root) or path == String(root.get_path()):
 		return root
 	var stack: Array[Node] = [root]
 	while not stack.is_empty():
 		var node := stack.pop_back()
-		if String(node.get_path()) == path:
+		if _logical_path(node) == path or String(node.get_path()) == path:
 			return node
 		for child in node.get_children():
 			stack.append(child)
@@ -429,9 +450,26 @@ func _node_info(node: Node) -> Dictionary:
 	return {
 		"name": node.name,
 		"type": node.get_class(),
-		"path": String(node.get_path()),
+		"path": _logical_path(node),
 		"children": children,
 	}
+
+
+func _logical_path(node: Node) -> String:
+	var root := _edited_scene_root()
+	if root == null:
+		return ""
+	if node == root:
+		return "/root/%s" % root.name
+	if not root.is_ancestor_of(node):
+		return String(node.get_path())
+	var names: Array[String] = []
+	var current := node
+	while current != null and current != root:
+		names.push_front(String(current.name))
+		current = current.get_parent()
+	names.push_front(String(root.name))
+	return "/root/" + "/".join(names)
 
 
 func _mark_scene_dirty() -> void:

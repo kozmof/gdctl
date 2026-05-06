@@ -68,3 +68,9 @@ type AddonUpdateResult struct {
 	Backup         string `json:"backup,omitempty"`
 	ReloadRequired bool   `json:"reload_required"`
 }
+
+type SceneSaveResult struct {
+	Path  string `json:"path,omitempty"`
+	Root  string `json:"root,omitempty"`
+	Saved bool   `json:"saved"`
+}

@@ -66,6 +66,28 @@ func TestRunSceneTree(t *testing.T) {
 	}
 }
 
+func TestRunSceneSave(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"scene", "save"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected unsupported scene save error")
+	}
+	if !strings.Contains(err.Error(), "temporarily unsupported") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunSceneSavePathUnsupportedBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"scene", "save", "--path", "res://main.tscn"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected unsupported path error")
+	}
+	if !strings.Contains(err.Error(), "--path is temporarily unsupported") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestNodeAddRequiresFlagsBeforeNetwork(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := Run(context.Background(), []string{"node", "add", "--parent", "/root/Main"}, &stdout, &stderr)

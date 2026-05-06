@@ -92,6 +92,48 @@ func TestClientUpdateAddonRequest(t *testing.T) {
 	}
 }
 
+func TestClientSaveSceneRequest(t *testing.T) {
+	var gotAuth string
+	var gotEnvelope RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/scene/save" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":  "res://main.tscn",
+				"root":  "/root/Main",
+				"saved": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http", Token: "secret"}
+	client := NewClient(cfg)
+	result, err := client.SaveScene(context.Background(), "cli-test", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if gotEnvelope.Op != "scene.save" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if _, ok := gotEnvelope.Params["path"]; ok {
+		t.Fatalf("path param should be omitted: %#v", gotEnvelope.Params)
+	}
+	if result.Path != "res://main.tscn" || result.Root != "/root/Main" || !result.Saved {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestClientBridgeError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
