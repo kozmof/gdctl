@@ -25,6 +25,10 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	cfg, err = cfg.WithProjectToken()
+	if err != nil {
+		return err
+	}
 	if len(rest) == 0 {
 		printUsage(stderr)
 		return fmt.Errorf("missing command")
@@ -38,7 +42,9 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	case "doctor":
 		return runDoctor(ctx, cfg, client, addonManager, rest[1:], stdout)
 	case "addon":
-		return runAddon(ctx, cfg, addonManager, rest[1:], stdout)
+		return runAddon(ctx, cfg, client, addonManager, rest[1:], stdout)
+	case "bridge":
+		return runBridge(ctx, client, addonManager, rest[1:], stdout)
 	case "scene":
 		if len(rest) >= 2 && rest[1] == "tree" {
 			return runSceneTree(ctx, client, stdout)
@@ -56,6 +62,51 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 
 	printUsage(stderr)
 	return fmt.Errorf("unknown command: %s", strings.Join(rest, " "))
+}
+
+func runBridge(ctx context.Context, client *bridge.Client, manager addon.Manager, args []string, stdout io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("bridge requires a subcommand")
+	}
+	switch args[0] {
+	case "info":
+		ping, err := client.Ping(ctx)
+		if err != nil {
+			return err
+		}
+		if !ping.OK {
+			return fmt.Errorf("godot bridge returned not ok")
+		}
+		printBridgeInfo(stdout, ping)
+		return nil
+	case "addon-update":
+		return runBridgeAddonUpdate(ctx, client, manager, stdout)
+	default:
+		return fmt.Errorf("unknown bridge command: %s", strings.Join(args, " "))
+	}
+}
+
+func runBridgeAddonUpdate(ctx context.Context, client *bridge.Client, manager addon.Manager, stdout io.Writer) error {
+	manifest, files, err := addon.PackageEmbeddedUpdate(manager.Source)
+	if err != nil {
+		return err
+	}
+	result, err := client.UpdateAddon(ctx, requestID(), manifest, files)
+	if err != nil {
+		return err
+	}
+	if result.Updated {
+		fmt.Fprintf(stdout, "Addon updated over bridge: %d files written\n", result.FilesWritten)
+	} else {
+		fmt.Fprintln(stdout, "Addon already up to date")
+	}
+	if result.Backup != "" {
+		fmt.Fprintf(stdout, "Backup: %s\n", result.Backup)
+	}
+	if result.ReloadRequired {
+		fmt.Fprintln(stdout, "Reload required: disable/enable the Godot plugin or restart Godot")
+	}
+	return nil
 }
 
 func parseGlobalFlags(args []string) (bridge.Config, []string, error) {
@@ -91,7 +142,25 @@ func runPing(ctx context.Context, client *bridge.Client, stdout io.Writer) error
 	return nil
 }
 
-func runAddon(ctx context.Context, cfg bridge.Config, manager addon.Manager, args []string, stdout io.Writer) error {
+func printBridgeInfo(stdout io.Writer, ping bridge.PingResponse) {
+	fmt.Fprintln(stdout, "Godot bridge")
+	fmt.Fprintln(stdout)
+	fmt.Fprintln(stdout, "  reachable: yes")
+	fmt.Fprintf(stdout, "  service: %s\n", valueOrDash(ping.Service))
+	fmt.Fprintf(stdout, "  engine: %s %s\n", valueOrDash(ping.Engine), valueOrDash(ping.EngineVersion))
+	fmt.Fprintf(stdout, "  project: %s\n", valueOrDash(ping.ProjectName))
+	fmt.Fprintf(stdout, "  project_path: %s\n", valueOrDash(ping.ProjectPath))
+	fmt.Fprintf(stdout, "  plugin_version: %s\n", valueOrDash(ping.PluginVersion))
+	fmt.Fprintf(stdout, "  protocol: %s\n", valueOrDash(ping.ProtocolVersion))
+	fmt.Fprintf(stdout, "  auth_enabled: %s\n", yesNo(ping.AuthEnabled))
+	fmt.Fprintf(stdout, "  listen: %s:%d\n", valueOrDash(ping.Host), ping.Port)
+	fmt.Fprintf(stdout, "  scene_open: %s\n", yesNo(ping.SceneOpen))
+	if len(ping.Capabilities) > 0 {
+		fmt.Fprintf(stdout, "  capabilities: %s\n", strings.Join(ping.Capabilities, ", "))
+	}
+}
+
+func runAddon(ctx context.Context, cfg bridge.Config, client *bridge.Client, manager addon.Manager, args []string, stdout io.Writer) error {
 	if len(args) == 0 {
 		return fmt.Errorf("addon requires a subcommand")
 	}
@@ -116,6 +185,9 @@ func runAddon(ctx context.Context, cfg bridge.Config, manager addon.Manager, arg
 		project := fs.String("project", cfg.Project, "Godot project path")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
+		}
+		if *project == "" {
+			return runBridgeAddonUpdate(ctx, client, manager, stdout)
 		}
 		result, err := manager.Update(addon.UpdateOptions{ProjectPath: *project})
 		if err != nil {
@@ -170,6 +242,13 @@ func runAddon(ctx context.Context, cfg bridge.Config, manager addon.Manager, arg
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
+		if *project == "" {
+			ping, err := client.Ping(ctx)
+			if err != nil {
+				return err
+			}
+			return printRuntimeAddonStatus(stdout, ping, *jsonOut)
+		}
 		status, err := manager.Status(ctx, addon.StatusOptions{ProjectPath: *project, BridgeConfig: cfg, CheckRuntime: true})
 		if err != nil {
 			return err
@@ -181,6 +260,11 @@ func runAddon(ctx context.Context, cfg bridge.Config, manager addon.Manager, arg
 		project := fs.String("project", cfg.Project, "Godot project path")
 		fix := fs.Bool("fix", false, "install and enable the addon when needed")
 		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" {
+			ping, err := client.Ping(ctx)
+			printRuntimeAddonDoctor(stdout, ping, err)
 			return err
 		}
 		status, actions, err := manager.Doctor(ctx, addon.DoctorOptions{ProjectPath: *project, BridgeConfig: cfg, Fix: *fix})
@@ -222,6 +306,33 @@ func printAddonStatus(stdout io.Writer, status addon.Status, jsonOut bool) error
 	return nil
 }
 
+func printRuntimeAddonStatus(stdout io.Writer, ping bridge.PingResponse, jsonOut bool) error {
+	compatible := ping.PluginVersion == "" || ping.PluginVersion == "0.1.0"
+	if jsonOut {
+		return json.NewEncoder(stdout).Encode(map[string]any{
+			"installed":        ping.OK,
+			"enabled":          ping.OK,
+			"reachable":        ping.OK,
+			"runtime_version":  ping.PluginVersion,
+			"protocol_version": ping.ProtocolVersion,
+			"compatible":       compatible,
+			"capabilities":     ping.Capabilities,
+			"project_path":     ping.ProjectPath,
+			"mode":             "runtime",
+		})
+	}
+	fmt.Fprintln(stdout, "gdctl bridge addon")
+	fmt.Fprintln(stdout)
+	fmt.Fprintln(stdout, "  mode: runtime")
+	fmt.Fprintf(stdout, "  installed: %s\n", yesNo(ping.OK))
+	fmt.Fprintf(stdout, "  enabled: %s\n", yesNo(ping.OK))
+	fmt.Fprintf(stdout, "  reachable: %s\n", yesNo(ping.OK))
+	fmt.Fprintf(stdout, "  runtime: %s\n", valueOrDash(ping.PluginVersion))
+	fmt.Fprintf(stdout, "  protocol: %s\n", valueOrDash(ping.ProtocolVersion))
+	fmt.Fprintf(stdout, "  compatible: %s\n", yesNo(compatible))
+	return nil
+}
+
 func printAddonDoctor(stdout io.Writer, status addon.Status, actions []string) {
 	fmt.Fprintln(stdout, "gdctl Addon Doctor")
 	for _, action := range actions {
@@ -246,6 +357,21 @@ func printAddonDoctor(stdout io.Writer, status addon.Status, actions []string) {
 		fmt.Fprintln(stdout, "[ok] runtime bridge reachable")
 	} else {
 		fmt.Fprintln(stdout, "[warn] runtime bridge not reachable")
+	}
+}
+
+func printRuntimeAddonDoctor(stdout io.Writer, ping bridge.PingResponse, err error) {
+	fmt.Fprintln(stdout, "gdctl Addon Doctor")
+	fmt.Fprintln(stdout, "[info] projectless runtime mode")
+	if err != nil {
+		fmt.Fprintf(stdout, "[fail] runtime bridge reachable: %v\n", err)
+		return
+	}
+	if ping.OK {
+		fmt.Fprintln(stdout, "[ok] runtime bridge reachable")
+		fmt.Fprintf(stdout, "[ok] runtime addon version %s\n", valueOrDash(ping.PluginVersion))
+	} else {
+		fmt.Fprintln(stdout, "[fail] ping returned not ok")
 	}
 }
 
@@ -322,7 +448,15 @@ func runDoctor(ctx context.Context, cfg bridge.Config, client *bridge.Client, ma
 	fmt.Fprintln(stdout)
 
 	usable := true
-	if cfg.Project != "" || *fix {
+	if cfg.Project == "" && *fix {
+		if err := runBridgeAddonUpdate(ctx, client, manager, stdout); err != nil {
+			usable = false
+			fmt.Fprintf(stdout, "[fail] projectless addon update: %v\n", err)
+		} else {
+			fmt.Fprintln(stdout, "[ok] projectless addon update requested")
+		}
+	}
+	if cfg.Project != "" {
 		status, actions, err := manager.Doctor(ctx, addon.DoctorOptions{ProjectPath: cfg.Project, BridgeConfig: cfg, Fix: *fix})
 		for _, action := range actions {
 			fmt.Fprintf(stdout, "[fix] %s\n", action)
@@ -425,10 +559,12 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl addon install --project PATH [--force]")
 	fmt.Fprintln(w, "  gdctl addon enable --project PATH")
 	fmt.Fprintln(w, "  gdctl addon disable --project PATH")
-	fmt.Fprintln(w, "  gdctl addon status --project PATH [--json]")
-	fmt.Fprintln(w, "  gdctl addon update --project PATH")
+	fmt.Fprintln(w, "  gdctl addon status [--project PATH] [--json]")
+	fmt.Fprintln(w, "  gdctl addon update [--project PATH]")
 	fmt.Fprintln(w, "  gdctl addon remove --project PATH")
-	fmt.Fprintln(w, "  gdctl addon doctor --project PATH [--fix]")
+	fmt.Fprintln(w, "  gdctl addon doctor [--project PATH] [--fix]")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] bridge info")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] bridge addon-update")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene tree")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node add --parent PATH --type TYPE --name NAME [--dry-run]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node remove --path PATH [--dry-run]")

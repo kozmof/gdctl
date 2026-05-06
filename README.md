@@ -13,15 +13,21 @@ go build ./cmd/gdctl
 The CLI connects to:
 
 ```text
-http://host.docker.internal:7777
+http://127.0.0.1:7777
 ```
 
 Override with flags or environment variables:
 
 ```bash
-GDCTL_BRIDGE_HOST=host.docker.internal
+GDCTL_BRIDGE_HOST=127.0.0.1
 GDCTL_BRIDGE_PORT=7777
 GDCTL_BRIDGE_TOKEN=<token>
+```
+
+For Linux devcontainer access to Godot running on a Windows host, set the addon host to `0.0.0.0` in Godot project settings and connect from the container with:
+
+```bash
+GDCTL_BRIDGE_HOST=host.docker.internal gdctl ping
 ```
 
 ## Commands
@@ -31,11 +37,12 @@ gdctl ping
 gdctl doctor [--project ./my-game] [--fix]
 gdctl addon install --project ./my-game
 gdctl addon enable --project ./my-game
-gdctl addon status --project ./my-game [--json]
-gdctl addon update --project ./my-game
+gdctl addon status [--project ./my-game] [--json]
+gdctl addon update [--project ./my-game]
 gdctl addon disable --project ./my-game
 gdctl addon remove --project ./my-game
-gdctl addon doctor --project ./my-game [--fix]
+gdctl addon doctor [--project ./my-game] [--fix]
+gdctl bridge info
 gdctl scene tree
 gdctl node add --parent /root/Main --type Node2D --name EnemySpawner
 gdctl node remove --path /root/Main/EnemySpawner
@@ -53,6 +60,41 @@ gdctl addon enable --project ./my-game
 gdctl addon status --project ./my-game
 ```
 
-The addon listens on `0.0.0.0:7777` by default so a devcontainer can reach it through `host.docker.internal`.
+The addon listens on `127.0.0.1:7777` by default. This is the safest local-only setup.
 
-This default is intended for trusted local development only.
+For devcontainer use, change the Godot project setting `godot_tcp_bridge/host` to `0.0.0.0`, then connect from the container through `host.docker.internal`.
+
+After enabling the plugin, Godot shows a **gdctl Bridge** dock. Use it to copy the mutation token or the `GDCTL_BRIDGE_TOKEN` export command when the Godot project folder is not mounted inside the devcontainer.
+
+With a token configured, the devcontainer can inspect and update the running project's addon over the bridge without a mounted project path:
+
+```bash
+gdctl bridge info
+gdctl addon status
+gdctl bridge addon-update
+# Equivalent when --project is omitted:
+gdctl addon update
+```
+
+Reload the plugin in Godot after a bridge addon update.
+
+## Security Notes
+
+The default `127.0.0.1` bind is local-only. Binding the addon to `0.0.0.0` is useful for devcontainers, but Windows may make the bridge reachable from other machines on networks where Godot is allowed through the firewall.
+
+Recommended Windows setup:
+
+```text
+Allow Godot only on Private networks.
+Do not allow Godot on Public networks.
+Do not port-forward or otherwise expose port 7777 to the Internet.
+Keep godot_tcp_bridge/auth_enabled enabled.
+Rotate the token from the gdctl Bridge dock if it is exposed.
+Disable the plugin when you are not using gdctl.
+```
+
+For native local use, keep the default `127.0.0.1` bind and connect with:
+
+```bash
+GDCTL_BRIDGE_HOST=127.0.0.1 gdctl ping
+```

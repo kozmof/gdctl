@@ -1,9 +1,12 @@
 package addon
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/fs"
+
+	"gdctl/internal/bridge"
 )
 
 const (
@@ -33,6 +36,33 @@ func LoadEmbeddedManifest(source fs.FS) (Manifest, error) {
 		return Manifest{}, err
 	}
 	return manifest, nil
+}
+
+func PackageEmbeddedUpdate(source fs.FS) (map[string]any, []bridge.AddonUpdateFile, error) {
+	manifest, err := LoadEmbeddedManifest(source)
+	if err != nil {
+		return nil, nil, err
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		return nil, nil, err
+	}
+	var manifestMap map[string]any
+	if err := json.Unmarshal(manifestJSON, &manifestMap); err != nil {
+		return nil, nil, err
+	}
+	files := make([]bridge.AddonUpdateFile, 0, len(manifest.Files))
+	for _, rel := range manifest.Files {
+		data, err := fs.ReadFile(source, EmbeddedRoot+"/"+rel)
+		if err != nil {
+			return nil, nil, fmt.Errorf("read embedded addon file %s: %w", rel, err)
+		}
+		files = append(files, bridge.AddonUpdateFile{
+			Path:          rel,
+			ContentBase64: base64.StdEncoding.EncodeToString(data),
+		})
+	}
+	return manifestMap, files, nil
 }
 
 func (m Manifest) Validate() error {

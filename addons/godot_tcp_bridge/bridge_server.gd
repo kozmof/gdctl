@@ -3,9 +3,11 @@ extends RefCounted
 
 const PLUGIN_VERSION := "0.1.0"
 const PROTOCOL_VERSION := "gdctl.v1"
-const DEFAULT_HOST := "0.0.0.0"
+const DEFAULT_HOST := "127.0.0.1"
 const DEFAULT_PORT := 7777
 const TOKEN_PATH := "res://.godot-bridge-token"
+const ADDON_ROOT := "res://addons/godot_tcp_bridge/"
+const ADDON_BACKUP_ROOT := "res://addons/.godot_tcp_bridge_backup/"
 
 var editor_plugin: EditorPlugin
 var tcp_server := TCPServer.new()
@@ -42,6 +44,21 @@ func stop() -> void:
 	clients.clear()
 	tcp_server.stop()
 	running = false
+
+
+func restart() -> void:
+	stop()
+	start()
+
+
+func get_token() -> String:
+	return token
+
+
+func reset_token() -> String:
+	token = _generate_token()
+	_save_token(token)
+	return token
 
 
 func poll() -> void:
@@ -83,13 +100,21 @@ func _setting(key: String, default_value: Variant) -> Variant:
 func _load_or_create_token() -> String:
 	if FileAccess.file_exists(TOKEN_PATH):
 		return FileAccess.get_file_as_string(TOKEN_PATH).strip_edges()
+	var generated := _generate_token()
+	_save_token(generated)
+	return generated
+
+
+func _generate_token() -> String:
 	randomize()
-	var generated := "%d-%d" % [Time.get_unix_time_from_system(), randi()]
+	return "%d-%d" % [Time.get_unix_time_from_system(), randi()]
+
+
+func _save_token(value: String) -> void:
 	var file := FileAccess.open(TOKEN_PATH, FileAccess.WRITE)
 	if file:
-		file.store_string(generated + "\n")
+		file.store_string(value + "\n")
 		file.close()
-	return generated
 
 
 func _try_parse_request(buffer: PackedByteArray) -> Dictionary:
@@ -149,11 +174,13 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return _handle_node_add(request)
 	if method == "POST" and path == "/node/remove":
 		return _handle_node_remove(request)
+	if method == "POST" and path == "/addon/update":
+		return _handle_addon_update(request)
 	return _bridge_error(404, "", "UNKNOWN_ENDPOINT", "Unknown bridge endpoint", {"method": method, "path": path})
 
 
 func _handle_node_add(request: Dictionary) -> Dictionary:
-	var body := _json_body_or_error(request)
+	var body: Dictionary = _json_body_or_error(request)
 	if body.has("error_response"):
 		return body["error_response"]
 	if not _authorized(request):
@@ -214,6 +241,113 @@ func _handle_node_remove(request: Dictionary) -> Dictionary:
 	return _bridge_ok(body.get("request_id", ""), {"removed": path})
 
 
+func _handle_addon_update(request: Dictionary) -> Dictionary:
+	var body: Dictionary = _json_body_or_error(request)
+	if body.has("error_response"):
+		return body["error_response"]
+	if not _authorized(request):
+		return _bridge_error(401, body.get("request_id", ""), "UNAUTHORIZED", "Addon update requires bearer token", {})
+	if body.get("op", "") != "addon.update":
+		return _bridge_error(400, body.get("request_id", ""), "INVALID_OPERATION", "Expected addon.update operation", {})
+
+	var params: Dictionary = _params_or_empty(body)
+	var manifest: Variant = params.get("manifest", {})
+	if typeof(manifest) != TYPE_DICTIONARY:
+		return _bridge_error(400, body.get("request_id", ""), "INVALID_MANIFEST", "Addon update requires a manifest object", {})
+	var manifest_dict: Dictionary = manifest
+	var manifest_files_value: Variant = manifest_dict.get("files", [])
+	if typeof(manifest_files_value) != TYPE_ARRAY:
+		return _bridge_error(400, body.get("request_id", ""), "INVALID_MANIFEST", "Manifest files must be an array", {})
+	var manifest_files: Array = manifest_files_value
+	var files_value: Variant = params.get("files", [])
+	if typeof(files_value) != TYPE_ARRAY:
+		return _bridge_error(400, body.get("request_id", ""), "INVALID_FILES", "Addon update files must be an array", {})
+	var files: Array = files_value
+
+	var allowed: Dictionary = {}
+	for item in manifest_files:
+		var rel: String = String(item)
+		if not _is_safe_addon_path(rel):
+			return _bridge_error(400, body.get("request_id", ""), "INVALID_ADDON_PATH", "Manifest contains an unsafe file path", {"path": rel})
+		allowed[rel] = true
+
+	var backup: String = _backup_addon_files(manifest_files)
+	var written: int = 0
+	for file_item in files:
+		if typeof(file_item) != TYPE_DICTIONARY:
+			return _bridge_error(400, body.get("request_id", ""), "INVALID_FILES", "Each addon update file must be an object", {})
+		var file_dict: Dictionary = file_item
+		var rel_path: String = String(file_dict.get("path", ""))
+		if not _is_safe_addon_path(rel_path) or not allowed.has(rel_path):
+			return _bridge_error(400, body.get("request_id", ""), "INVALID_ADDON_PATH", "Addon update file path is not allowed", {"path": rel_path})
+		var content_base64: String = String(file_dict.get("content_base64", ""))
+		var bytes: PackedByteArray = Marshalls.base64_to_raw(content_base64)
+		if bytes.is_empty() and content_base64 != "":
+			return _bridge_error(400, body.get("request_id", ""), "INVALID_FILE_CONTENT", "Addon update file content is not valid base64", {"path": rel_path})
+		var write_err: Error = _write_addon_file(rel_path, bytes)
+		if write_err != OK:
+			return _bridge_error(500, body.get("request_id", ""), "ADDON_WRITE_FAILED", "Failed to write addon file", {"path": rel_path, "error": error_string(write_err)})
+		written += 1
+
+	return _bridge_ok(body.get("request_id", ""), {
+		"updated": true,
+		"files_written": written,
+		"backup": backup,
+		"reload_required": true,
+	})
+
+
+func _is_safe_addon_path(path: String) -> bool:
+	if path == "":
+		return false
+	if path.begins_with("/") or path.begins_with("\\"):
+		return false
+	if path.find("..") != -1:
+		return false
+	if path.find(":") != -1:
+		return false
+	return true
+
+
+func _backup_addon_files(files: Array) -> String:
+	var timestamp: String = Time.get_datetime_string_from_system(true).replace(":", "-")
+	var backup_root: String = ADDON_BACKUP_ROOT + timestamp + "/"
+	var wrote_any: bool = false
+	for item in files:
+		var rel: String = String(item)
+		if not _is_safe_addon_path(rel):
+			continue
+		var src: String = ADDON_ROOT + rel
+		if not FileAccess.file_exists(src):
+			continue
+		var data: PackedByteArray = FileAccess.get_file_as_bytes(src)
+		var dst: String = backup_root + rel
+		var dir: String = dst.get_base_dir()
+		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir))
+		var file: FileAccess = FileAccess.open(dst, FileAccess.WRITE)
+		if file:
+			file.store_buffer(data)
+			file.close()
+			wrote_any = true
+	if not wrote_any:
+		return ""
+	return backup_root
+
+
+func _write_addon_file(path: String, bytes: PackedByteArray) -> Error:
+	var dst: String = ADDON_ROOT + path
+	var dir: String = dst.get_base_dir()
+	var dir_err: Error = DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir))
+	if dir_err != OK:
+		return dir_err
+	var file: FileAccess = FileAccess.open(dst, FileAccess.WRITE)
+	if file == null:
+		return ERR_CANT_OPEN
+	file.store_buffer(bytes)
+	file.close()
+	return OK
+
+
 func _json_body_or_error(request: Dictionary) -> Dictionary:
 	var headers: Dictionary = request.get("headers", {})
 	var content_type := String(headers.get("content-type", ""))
@@ -261,6 +395,7 @@ func _ping() -> Dictionary:
 			"scene.tree",
 			"node.add",
 			"node.remove",
+			"addon.update",
 		],
 	}
 

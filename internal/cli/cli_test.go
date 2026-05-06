@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io/fs"
 	"net/http"
@@ -84,6 +85,222 @@ func TestNodeRemoveRequiresPathBeforeNetwork(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--path") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestProjectTokenIsUsedForMutationRequests(t *testing.T) {
+	project := newCLIProject(t)
+	if err := os.WriteFile(filepath.Join(project, bridge.ProjectTokenFile), []byte("project-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "/root/Main/Smoke"},
+		})
+	}))
+	defer server.Close()
+
+	args := append(serverArgs(server), "--project", project, "node", "add", "--parent", "/root/Main", "--type", "Node2D", "--name", "Smoke", "--dry-run")
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer project-token" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+}
+
+func TestExplicitTokenBeatsProjectToken(t *testing.T) {
+	project := newCLIProject(t)
+	if err := os.WriteFile(filepath.Join(project, bridge.ProjectTokenFile), []byte("project-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "/root/Main/Smoke"},
+		})
+	}))
+	defer server.Close()
+
+	args := append(serverArgs(server), "--project", project, "--token", "explicit-token", "node", "add", "--parent", "/root/Main", "--type", "Node2D", "--name", "Smoke", "--dry-run")
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer explicit-token" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+}
+
+func TestBridgeAddonUpdateSendsFixtureAddon(t *testing.T) {
+	useTestAddon(t)
+
+	var gotAuth string
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/addon/update" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"updated":         true,
+				"files_written":   4,
+				"backup":          "res://addons/.godot_tcp_bridge_backup/now/",
+				"reload_required": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	args := append(serverArgs(server), "--token", "secret", "bridge", "addon-update")
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if gotEnvelope.Op != "addon.update" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	files, ok := gotEnvelope.Params["files"].([]any)
+	if !ok {
+		t.Fatalf("files param = %#v", gotEnvelope.Params["files"])
+	}
+	foundFixture := false
+	for _, item := range files {
+		file, ok := item.(map[string]any)
+		if !ok || file["path"] != "bridge_plugin.gd" {
+			continue
+		}
+		content, err := base64.StdEncoding.DecodeString(file["content_base64"].(string))
+		if err != nil {
+			t.Fatal(err)
+		}
+		foundFixture = strings.Contains(string(content), "TEST_FIXTURE")
+	}
+	if !foundFixture {
+		t.Fatal("bridge addon-update did not send fixture bridge_plugin.gd")
+	}
+	if !strings.Contains(stdout.String(), "Addon updated over bridge: 4 files written") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestAddonUpdateWithoutProjectUsesBridge(t *testing.T) {
+	useTestAddon(t)
+
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"updated":         true,
+				"files_written":   4,
+				"reload_required": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	args := append(serverArgs(server), "--token", "secret", "addon", "update")
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/addon/update" {
+		t.Fatalf("path = %s", gotPath)
+	}
+	if !strings.Contains(stdout.String(), "Addon updated over bridge") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestBridgeInfoProjectless(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(bridge.PingResponse{
+			OK:              true,
+			Service:         "godot-bridge",
+			Engine:          "Godot",
+			EngineVersion:   "4.6",
+			PluginVersion:   "0.1.0",
+			ProjectName:     "demo",
+			ProjectPath:     "C:/demo/",
+			AuthEnabled:     true,
+			Host:            "0.0.0.0",
+			Port:            7777,
+			ProtocolVersion: "gdctl.v1",
+			SceneOpen:       true,
+			Capabilities:    []string{"addon.update"},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), append(serverArgs(server), "bridge", "info"), &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Godot bridge", "project_path: C:/demo/", "capabilities: addon.update"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
+		}
+	}
+}
+
+func TestAddonStatusWithoutProjectUsesRuntime(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(bridge.PingResponse{
+			OK:              true,
+			PluginVersion:   "0.1.0",
+			ProtocolVersion: "gdctl.v1",
+			ProjectPath:     "C:/demo/",
+			Capabilities:    []string{"addon.update"},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), append(serverArgs(server), "addon", "status", "--json"), &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var status map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status["mode"] != "runtime" || status["reachable"] != true {
+		t.Fatalf("status = %#v", status)
+	}
+}
+
+func TestAddonDoctorWithoutProjectUsesRuntime(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(bridge.PingResponse{
+			OK:            true,
+			PluginVersion: "0.1.0",
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), append(serverArgs(server), "addon", "doctor"), &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "projectless runtime mode") {
+		t.Fatalf("stdout:\n%s", stdout.String())
 	}
 }
 

@@ -132,6 +132,31 @@ func TestUpdateCreatesBackupAndPreservesUnknownFiles(t *testing.T) {
 	}
 }
 
+func TestPackageEmbeddedUpdateUsesManifestFiles(t *testing.T) {
+	manifest, files, err := PackageEmbeddedUpdate(testAddonFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest["name"] != "godot_tcp_bridge" {
+		t.Fatalf("manifest = %#v", manifest)
+	}
+	if len(files) != 4 {
+		t.Fatalf("files len = %d", len(files))
+	}
+	foundPlugin := false
+	for _, file := range files {
+		if file.Path == "bridge_plugin.gd" {
+			foundPlugin = true
+			if file.ContentBase64 == "" {
+				t.Fatal("bridge_plugin.gd content is empty")
+			}
+		}
+	}
+	if !foundPlugin {
+		t.Fatal("bridge_plugin.gd missing from packaged update")
+	}
+}
+
 func newProject(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

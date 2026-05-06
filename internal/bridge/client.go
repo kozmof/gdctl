@@ -72,6 +72,30 @@ func (c *Client) RemoveNode(ctx context.Context, requestID, path string, dryRun 
 	return c.postEnvelope(ctx, "/node/remove", env)
 }
 
+func (c *Client) UpdateAddon(ctx context.Context, requestID string, manifest map[string]any, files []AddonUpdateFile) (AddonUpdateResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "addon.update",
+		Params: map[string]any{
+			"manifest": manifest,
+			"files":    files,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/addon/update", env)
+	if err != nil {
+		return AddonUpdateResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return AddonUpdateResult{}, err
+	}
+	var out AddonUpdateResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return AddonUpdateResult{}, err
+	}
+	return out, nil
+}
+
 func (c *Client) Dial(ctx context.Context) error {
 	var dialer net.Dialer
 	conn, err := dialer.DialContext(ctx, "tcp", c.cfg.Address())

@@ -1,6 +1,10 @@
 package bridge
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestConfigFromEnv(t *testing.T) {
 	t.Setenv("GDCTL_BRIDGE_HOST", "example.local")
@@ -31,5 +35,35 @@ func TestConfigFromEnvDefaultsInvalidPort(t *testing.T) {
 	}
 	if cfg.Port != DefaultPort {
 		t.Fatalf("Port = %d", cfg.Port)
+	}
+}
+
+func TestWithProjectTokenLoadsTokenWhenUnset(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ProjectTokenFile), []byte("project-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Config{Project: dir}.WithProjectToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Token != "project-secret" {
+		t.Fatalf("Token = %q", cfg.Token)
+	}
+}
+
+func TestWithProjectTokenPreservesExplicitToken(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ProjectTokenFile), []byte("project-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Config{Project: dir, Token: "explicit-secret"}.WithProjectToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Token != "explicit-secret" {
+		t.Fatalf("Token = %q", cfg.Token)
 	}
 }

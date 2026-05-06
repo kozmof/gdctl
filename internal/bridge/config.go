@@ -1,16 +1,20 @@
 package bridge
 
 import (
+	"errors"
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 const (
-	DefaultHost         = "host.docker.internal"
-	DefaultPort     int = 7777
-	DefaultProtocol     = "http"
+	DefaultHost          = "127.0.0.1"
+	DefaultPort      int = 7777
+	DefaultProtocol      = "http"
+	ProjectTokenFile     = ".godot-bridge-token"
 )
 
 type Config struct {
@@ -43,6 +47,21 @@ func ConfigFromEnv() Config {
 		cfg.Token = token
 	}
 	return cfg
+}
+
+func (c Config) WithProjectToken() (Config, error) {
+	if c.Token != "" || c.Project == "" {
+		return c, nil
+	}
+	data, err := os.ReadFile(filepath.Join(c.Project, ProjectTokenFile))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return c, nil
+		}
+		return c, err
+	}
+	c.Token = strings.TrimSpace(string(data))
+	return c, nil
 }
 
 func (c Config) BaseURL() string {

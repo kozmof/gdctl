@@ -56,3 +56,15 @@ type RequestEnvelope struct {
 	Op        string         `json:"op"`
 	Params    map[string]any `json:"params"`
 }
+
+type AddonUpdateFile struct {
+	Path          string `json:"path"`
+	ContentBase64 string `json:"content_base64"`
+}
+
+type AddonUpdateResult struct {
+	Updated        bool   `json:"updated"`
+	FilesWritten   int    `json:"files_written"`
+	Backup         string `json:"backup,omitempty"`
+	ReloadRequired bool   `json:"reload_required"`
+}
