@@ -93,10 +93,24 @@ type SceneOpenResult struct {
 	JobID  string `json:"job_id,omitempty"`
 }
 
+type SceneInstanceResult struct {
+	Path      string `json:"path"`
+	Scene     string `json:"scene"`
+	Parent    string `json:"parent"`
+	Name      string `json:"name"`
+	Instanced bool   `json:"instanced"`
+}
+
 type NodePropertyResult struct {
 	Path     string `json:"path"`
 	Property string `json:"property"`
 	Value    any    `json:"value,omitempty"`
+}
+
+type NodeAttachScriptResult struct {
+	Path     string `json:"path"`
+	Script   string `json:"script"`
+	Attached bool   `json:"attached"`
 }
 
 type ScriptCheckResult struct {

@@ -152,6 +152,31 @@ func (c *Client) OpenScene(ctx context.Context, requestID, path string) (SceneOp
 	return out, nil
 }
 
+func (c *Client) InstanceScene(ctx context.Context, requestID, parent, scenePath, name string) (SceneInstanceResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "scene.instance",
+		Params: map[string]any{
+			"parent": parent,
+			"scene":  scenePath,
+			"name":   name,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/scene/instance", env)
+	if err != nil {
+		return SceneInstanceResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return SceneInstanceResult{}, err
+	}
+	var out SceneInstanceResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return SceneInstanceResult{}, err
+	}
+	return out, nil
+}
+
 func (c *Client) AddNode(ctx context.Context, requestID, parent, nodeType, name string, dryRun bool) (map[string]any, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,
@@ -250,6 +275,30 @@ func (c *Client) SetNodeProperty(ctx context.Context, requestID, path, property 
 	var out NodePropertyResult
 	if err := json.Unmarshal(encoded, &out); err != nil {
 		return NodePropertyResult{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) AttachScript(ctx context.Context, requestID, path, scriptPath string) (NodeAttachScriptResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "node.attach_script",
+		Params: map[string]any{
+			"path":   path,
+			"script": scriptPath,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/node/attach-script", env)
+	if err != nil {
+		return NodeAttachScriptResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return NodeAttachScriptResult{}, err
+	}
+	var out NodeAttachScriptResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return NodeAttachScriptResult{}, err
 	}
 	return out, nil
 }

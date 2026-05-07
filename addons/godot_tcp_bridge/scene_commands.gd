@@ -92,6 +92,50 @@ func handle_open(request: Dictionary, context: Dictionary) -> Dictionary:
 	})
 
 
+func handle_instance(request: Dictionary, context: Dictionary) -> Dictionary:
+	var body: Dictionary = context["json_body_or_error"].call(request)
+	if body.has("error_response"):
+		return body["error_response"]
+	if not bool(context["authorized"].call(request)):
+		return context["bridge_error"].call(401, body.get("request_id", ""), "UNAUTHORIZED", "Scene instancing requires bearer token", {})
+	if body.get("op", "") != "scene.instance":
+		return context["bridge_error"].call(400, body.get("request_id", ""), "INVALID_OPERATION", "Expected scene.instance operation", {})
+
+	var params: Dictionary = context["params_or_empty"].call(body)
+	var parent_path: String = String(params.get("parent", ""))
+	var scene_path: String = String(params.get("scene", ""))
+	var instance_name: String = String(params.get("name", ""))
+	var parent: Node = context["node_by_path"].call(parent_path)
+	if parent == null:
+		return context["bridge_error"].call(404, body.get("request_id", ""), "NODE_PARENT_NOT_FOUND", "Parent node does not exist", {"parent": parent_path})
+	if scene_path == "" or not scene_path.begins_with("res://") or not scene_path.ends_with(".tscn"):
+		return context["bridge_error"].call(400, body.get("request_id", ""), "SCENE_PATH_INVALID", "Scene path must be a res:// .tscn path", {"path": scene_path})
+	if not FileAccess.file_exists(scene_path):
+		return context["bridge_error"].call(404, body.get("request_id", ""), "SCENE_NOT_FOUND", "Scene does not exist", {"path": scene_path})
+	if instance_name == "" or not instance_name.is_valid_identifier():
+		return context["bridge_error"].call(400, body.get("request_id", ""), "NODE_NAME_INVALID", "Instance name must be a valid identifier", {"name": instance_name})
+	if parent.has_node(NodePath(instance_name)):
+		return context["bridge_error"].call(409, body.get("request_id", ""), "NODE_ALREADY_EXISTS", "Parent already has a child with that name", {"parent": parent_path, "name": instance_name})
+
+	var packed: PackedScene = ResourceLoader.load(scene_path, "PackedScene", ResourceLoader.CACHE_MODE_REPLACE) as PackedScene
+	if packed == null:
+		return context["bridge_error"].call(500, body.get("request_id", ""), "SCENE_LOAD_FAILED", "Could not load scene resource", {"path": scene_path})
+	var instance: Node = packed.instantiate()
+	if instance == null:
+		return context["bridge_error"].call(500, body.get("request_id", ""), "SCENE_INSTANCE_FAILED", "Could not instantiate scene", {"path": scene_path})
+	instance.name = instance_name
+	parent.add_child(instance)
+	instance.owner = context["edited_scene_root"].call()
+	context["mark_scene_dirty"].call()
+	return context["bridge_ok"].call(body.get("request_id", ""), {
+		"path": context["logical_path"].call(instance),
+		"scene": scene_path,
+		"parent": parent_path,
+		"name": instance_name,
+		"instanced": true,
+	})
+
+
 func handle_save(request: Dictionary, context: Dictionary) -> Dictionary:
 	var body: Dictionary = context["json_body_or_error"].call(request)
 	if body.has("error_response"):

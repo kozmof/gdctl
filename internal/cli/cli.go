@@ -53,6 +53,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return runSceneCreate(ctx, client, rest[2:], stdout)
 			case "open":
 				return runSceneOpen(ctx, client, rest[2:], stdout)
+			case "instance":
+				return runSceneInstance(ctx, client, rest[2:], stdout)
 			case "tree":
 				return runSceneTree(ctx, client, stdout)
 			case "save":
@@ -74,6 +76,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return runNodeGet(ctx, client, rest[2:], stdout)
 			case "set":
 				return runNodeSet(ctx, client, rest[2:], stdout)
+			case "attach-script":
+				return runNodeAttachScript(ctx, client, rest[2:], stdout)
 			}
 		}
 	case "script":
@@ -511,6 +515,26 @@ func runSceneOpen(ctx context.Context, client *bridge.Client, args []string, std
 	return nil
 }
 
+func runSceneInstance(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("scene instance", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	parent := fs.String("parent", "", "parent node path")
+	scenePath := fs.String("scene", "", "scene resource path")
+	name := fs.String("name", "", "instance node name")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *parent == "" || *scenePath == "" || *name == "" {
+		return fmt.Errorf("scene instance requires --parent, --scene, and --name")
+	}
+	result, err := client.InstanceScene(ctx, requestID(), *parent, *scenePath, *name)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Scene instanced: %s\n", result.Path)
+	return nil
+}
+
 func runSceneSave(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("scene save", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -706,6 +730,25 @@ func runNodeSet(ctx context.Context, client *bridge.Client, args []string, stdou
 		return err
 	}
 	fmt.Fprintf(stdout, "Set %s on %s\n", result.Property, result.Path)
+	return nil
+}
+
+func runNodeAttachScript(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("node attach-script", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "node path")
+	scriptPath := fs.String("script", "", "script resource path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *scriptPath == "" {
+		return fmt.Errorf("node attach-script requires --path and --script")
+	}
+	result, err := client.AttachScript(ctx, requestID(), *path, *scriptPath)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Attached script: %s -> %s\n", result.Script, result.Path)
 	return nil
 }
 
@@ -921,6 +964,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] bridge addon-update")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene create --path PATH --root TYPE --name NAME [--force]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene open --path PATH")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene instance --parent PATH --scene SCENE --name NAME")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene tree")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene save")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node add --parent PATH --type TYPE --name NAME [--dry-run]")
@@ -929,6 +973,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node move --path PATH --parent PARENT [--index N] [--dry-run]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node get --path PATH --property PROPERTY")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node set --path PATH --property PROPERTY --value TYPED_JSON")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node attach-script --path PATH --script SCRIPT")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script create --path PATH --extends CLASS [--force]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script write --path PATH (--body TEXT | --body-file FILE)")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script check --path PATH")

@@ -162,6 +162,8 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return scene_commands.handle_create(request, _command_context())
 	if method == "POST" and path == "/scene/open":
 		return scene_commands.handle_open(request, _command_context())
+	if method == "POST" and path == "/scene/instance":
+		return scene_commands.handle_instance(request, _command_context())
 	if method == "GET" and path == "/scene/tree":
 		return scene_commands.handle_tree(request, _command_context())
 	if method == "POST" and path == "/scene/save":
@@ -178,6 +180,8 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return node_commands.handle_get(request, _command_context())
 	if method == "POST" and path == "/node/set":
 		return node_commands.handle_set(request, _command_context())
+	if method == "POST" and path == "/node/attach-script":
+		return node_commands.handle_attach_script(request, _command_context())
 	if method == "POST" and path == "/script/check":
 		return script_commands.handle_check(request, _command_context())
 	if method == "POST" and path == "/script/create":
@@ -260,6 +264,7 @@ func _capabilities() -> Array:
 		"ping",
 		"scene.create",
 		"scene.open",
+		"scene.instance",
 		"scene.tree",
 		"scene.save",
 		"jobs.get",
@@ -269,6 +274,7 @@ func _capabilities() -> Array:
 		"node.move",
 		"node.get",
 		"node.set",
+		"node.attach_script",
 		"script.check",
 		"script.create",
 		"script.write",

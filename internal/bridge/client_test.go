@@ -313,6 +313,48 @@ func TestClientSetNodePropertyRequest(t *testing.T) {
 	}
 }
 
+func TestClientAttachScriptRequest(t *testing.T) {
+	var gotAuth string
+	var gotEnvelope RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/node/attach-script" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":     "/root/Main",
+				"script":   "res://scripts/player.gd",
+				"attached": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http", Token: "secret"}
+	client := NewClient(cfg)
+	result, err := client.AttachScript(context.Background(), "cli-test", "/root/Main", "res://scripts/player.gd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if gotEnvelope.Op != "node.attach_script" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["path"] != "/root/Main" || gotEnvelope.Params["script"] != "res://scripts/player.gd" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if result.Path != "/root/Main" || result.Script != "res://scripts/player.gd" || !result.Attached {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestClientSaveSceneRequest(t *testing.T) {
 	var gotAuth string
 	var gotEnvelope RequestEnvelope
@@ -437,6 +479,50 @@ func TestClientOpenSceneRequest(t *testing.T) {
 		t.Fatalf("params = %#v", gotEnvelope.Params)
 	}
 	if result.Path != "res://scenes/Main.tscn" || !result.Queued || result.JobID != "open-1" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestClientInstanceSceneRequest(t *testing.T) {
+	var gotAuth string
+	var gotEnvelope RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/scene/instance" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":      "/root/Main/Child",
+				"scene":     "res://scenes/Child.tscn",
+				"parent":    "/root/Main",
+				"name":      "Child",
+				"instanced": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http", Token: "secret"}
+	client := NewClient(cfg)
+	result, err := client.InstanceScene(context.Background(), "cli-test", "/root/Main", "res://scenes/Child.tscn", "Child")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if gotEnvelope.Op != "scene.instance" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["parent"] != "/root/Main" || gotEnvelope.Params["scene"] != "res://scenes/Child.tscn" || gotEnvelope.Params["name"] != "Child" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if result.Path != "/root/Main/Child" || result.Scene != "res://scenes/Child.tscn" || !result.Instanced {
 		t.Fatalf("result = %#v", result)
 	}
 }

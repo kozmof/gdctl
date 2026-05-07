@@ -59,6 +59,7 @@ gdctl bridge logs --json
 gdctl bridge logs --clear
 gdctl scene create --path res://scenes/Main.tscn --root Node2D --name Main
 gdctl scene open --path res://scenes/Main.tscn
+gdctl scene instance --parent /root/Main --scene res://scenes/PlayerCar.tscn --name PlayerCar
 gdctl scene tree
 gdctl scene save
 gdctl node add --parent /root/Main --type Node2D --name EnemySpawner
@@ -70,6 +71,7 @@ gdctl node remove --path /root/Main/Track/SpawnPoint
 gdctl script create --path res://scripts/player_car.gd --extends CharacterBody2D
 gdctl script write --path res://scripts/player_car.gd --body-file ./player_car.gd
 gdctl script check --path res://scripts/player_car.gd
+gdctl node attach-script --path /root/PlayerCar --script res://scripts/player_car.gd
 ```
 
 Scene node paths are logical paths rooted at the edited scene root:
@@ -115,6 +117,17 @@ gdctl node add \
   --type Node2D \
   --name OpenSmokeChild
 
+gdctl scene create \
+  --path res://gdctl_tmp/Child.tscn \
+  --root Node2D \
+  --name Child \
+  --force
+
+gdctl scene instance \
+  --parent /root/SmokeScene \
+  --scene res://gdctl_tmp/Child.tscn \
+  --name Child
+
 gdctl scene tree
 gdctl scene save
 ```
@@ -123,10 +136,12 @@ Expected result:
 
 ```text
 SmokeScene Node2D
-└── OpenSmokeChild Node2D
+├── OpenSmokeChild Node2D
+└── Child Node2D
 ```
 
 `scene create` writes a scene file directly with `PackedScene` and `ResourceSaver`.
+`scene instance` loads a saved `.tscn`, instantiates it under the active scene, and marks the active scene dirty.
 `scene open` and `scene save` run as deferred bridge jobs and the CLI polls `/jobs/<id>` until the editor-side operation finishes.
 
 Save-as is still intentionally unsupported:
@@ -152,6 +167,10 @@ gdctl script check --path res://gdctl_tmp/smoke_script.gd
 gdctl script write \
   --path res://gdctl_tmp/smoke_script.gd \
   --body-file ./smoke_script.gd
+
+gdctl node attach-script \
+  --path /root/SmokeScene \
+  --script res://gdctl_tmp/smoke_script.gd
 ```
 
 `script create` writes a minimal script like:
@@ -161,6 +180,7 @@ extends Node2D
 ```
 
 `script write` syntax-checks the provided body with Godot before writing it. If Godot rejects the script, the command fails with `SCRIPT_SYNTAX_INVALID`.
+`node attach-script` syntax-checks the target script again before loading and attaching it to the node.
 
 ## Godot Addon
 
@@ -198,6 +218,7 @@ The current addon advertises these runtime capabilities through `gdctl bridge in
 ping
 scene.create
 scene.open
+scene.instance
 scene.tree
 scene.save
 jobs.get
@@ -207,6 +228,7 @@ node.rename
 node.move
 node.get
 node.set
+node.attach_script
 script.check
 script.create
 script.write

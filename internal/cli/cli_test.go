@@ -228,6 +228,60 @@ func TestRunSceneOpenRequiresPathBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestRunSceneInstance(t *testing.T) {
+	var gotAuth string
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/scene/instance" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":      "/root/Main/Child",
+				"scene":     "res://scenes/Child.tscn",
+				"parent":    "/root/Main",
+				"name":      "Child",
+				"instanced": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "scene", "instance", "--parent", "/root/Main", "--scene", "res://scenes/Child.tscn", "--name", "Child")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if gotEnvelope.Op != "scene.instance" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["parent"] != "/root/Main" || gotEnvelope.Params["scene"] != "res://scenes/Child.tscn" || gotEnvelope.Params["name"] != "Child" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Scene instanced: /root/Main/Child") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRunSceneInstanceRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"scene", "instance", "--parent", "/root/Main", "--scene", "res://scenes/Child.tscn"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--parent, --scene, and --name") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestRunSceneSavePathUnsupportedBeforeNetwork(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := Run(context.Background(), []string{"scene", "save", "--path", "res://main.tscn"}, &stdout, &stderr)
@@ -302,6 +356,58 @@ func TestNodeSetRequiresTypedJSONBeforeNetwork(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "typed JSON") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestNodeAttachScriptRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"node", "attach-script", "--path", "/root/Main"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--path and --script") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunNodeAttachScript(t *testing.T) {
+	var gotAuth string
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/node/attach-script" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":     "/root/Main",
+				"script":   "res://scripts/player.gd",
+				"attached": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "node", "attach-script", "--path", "/root/Main", "--script", "res://scripts/player.gd")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if gotEnvelope.Op != "node.attach_script" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["path"] != "/root/Main" || gotEnvelope.Params["script"] != "res://scripts/player.gd" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Attached script: res://scripts/player.gd -> /root/Main") {
+		t.Fatalf("stdout:\n%s", stdout.String())
 	}
 }
 

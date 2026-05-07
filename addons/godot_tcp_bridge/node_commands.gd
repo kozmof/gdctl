@@ -197,8 +197,58 @@ func handle_set(request: Dictionary, context: Dictionary) -> Dictionary:
 	})
 
 
+func handle_attach_script(request: Dictionary, context: Dictionary) -> Dictionary:
+	var body: Dictionary = context["json_body_or_error"].call(request)
+	if body.has("error_response"):
+		return body["error_response"]
+	if not bool(context["authorized"].call(request)):
+		return context["bridge_error"].call(401, body.get("request_id", ""), "UNAUTHORIZED", "Mutation endpoint requires bearer token", {})
+	if body.get("op", "") != "node.attach_script":
+		return context["bridge_error"].call(400, body.get("request_id", ""), "INVALID_OPERATION", "Expected node.attach_script operation", {})
+
+	var params: Dictionary = context["params_or_empty"].call(body)
+	var path: String = String(params.get("path", ""))
+	var script_path: String = String(params.get("script", ""))
+	var node: Node = context["node_by_path"].call(path)
+	if node == null:
+		return context["bridge_error"].call(404, body.get("request_id", ""), "NODE_NOT_FOUND", "Node does not exist", {"path": path})
+	if script_path == "" or not script_path.begins_with("res://") or not script_path.ends_with(".gd"):
+		return context["bridge_error"].call(400, body.get("request_id", ""), "SCRIPT_PATH_INVALID", "Script path must be a res:// .gd path", {"path": script_path})
+	if not FileAccess.file_exists(script_path):
+		return context["bridge_error"].call(404, body.get("request_id", ""), "SCRIPT_NOT_FOUND", "Script does not exist", {"path": script_path})
+
+	var source: String = FileAccess.get_file_as_string(script_path)
+	var syntax_error: Dictionary = _script_syntax_error(script_path, source, body.get("request_id", ""), context)
+	if not syntax_error.is_empty():
+		return syntax_error
+
+	var script: Script = ResourceLoader.load(script_path, "", ResourceLoader.CACHE_MODE_REPLACE) as Script
+	if script == null:
+		return context["bridge_error"].call(500, body.get("request_id", ""), "SCRIPT_LOAD_FAILED", "Could not load script resource", {"path": script_path})
+	node.set_script(script)
+	context["mark_scene_dirty"].call()
+	return context["bridge_ok"].call(body.get("request_id", ""), {
+		"path": context["logical_path"].call(node),
+		"script": script_path,
+		"attached": true,
+	})
+
+
 func _renamed_path(path: String, new_name: String) -> String:
 	var index: int = path.rfind("/")
 	if index == -1:
 		return new_name
 	return path.substr(0, index + 1) + new_name
+
+
+func _script_syntax_error(script_path: String, source: String, request_id: String, context: Dictionary) -> Dictionary:
+	var script := GDScript.new()
+	script.resource_path = script_path
+	script.source_code = source
+	var err: Error = script.reload()
+	if err == OK:
+		return {}
+	return context["bridge_error"].call(400, request_id, "SCRIPT_SYNTAX_INVALID", "Script did not pass Godot syntax check", {
+		"path": script_path,
+		"error": error_string(err),
+	})
