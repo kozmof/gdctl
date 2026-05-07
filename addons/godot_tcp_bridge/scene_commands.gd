@@ -63,6 +63,35 @@ func handle_tree(_request: Dictionary, context: Dictionary) -> Dictionary:
 	return context["http_json"].call(200, {"ok": true, "root": context["node_info"].call(root)})
 
 
+func handle_open(request: Dictionary, context: Dictionary) -> Dictionary:
+	var body: Dictionary = context["json_body_or_error"].call(request)
+	if body.has("error_response"):
+		return body["error_response"]
+	if not bool(context["authorized"].call(request)):
+		return context["bridge_error"].call(401, body.get("request_id", ""), "UNAUTHORIZED", "Scene open requires bearer token", {})
+	if body.get("op", "") != "scene.open":
+		return context["bridge_error"].call(400, body.get("request_id", ""), "INVALID_OPERATION", "Expected scene.open operation", {})
+
+	var params: Dictionary = context["params_or_empty"].call(body)
+	var scene_path: String = String(params.get("path", ""))
+	if scene_path == "" or not scene_path.begins_with("res://") or not scene_path.ends_with(".tscn"):
+		return context["bridge_error"].call(400, body.get("request_id", ""), "SCENE_PATH_INVALID", "Scene path must be a res:// .tscn path", {"path": scene_path})
+	if not FileAccess.file_exists(scene_path):
+		return context["bridge_error"].call(404, body.get("request_id", ""), "SCENE_NOT_FOUND", "Scene does not exist", {"path": scene_path})
+	if not bool(context["editor_plugin_available"].call()):
+		return context["bridge_error"].call(500, body.get("request_id", ""), "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {})
+
+	var job_id: String = String(context["queue_job"].call("scene.open", {
+		"path": scene_path,
+		"request_id": body.get("request_id", ""),
+	}))
+	return context["bridge_ok"].call(body.get("request_id", ""), {
+		"queued": true,
+		"job_id": job_id,
+		"path": scene_path,
+	})
+
+
 func handle_save(request: Dictionary, context: Dictionary) -> Dictionary:
 	var body: Dictionary = context["json_body_or_error"].call(request)
 	if body.has("error_response"):

@@ -164,6 +164,70 @@ func TestRunSceneCreateRequiresFlagsBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestRunSceneOpen(t *testing.T) {
+	requests := 0
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		switch r.URL.Path {
+		case "/scene/open":
+			if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK: true,
+				Result: map[string]any{
+					"queued": true,
+					"job_id": "open-1",
+					"path":   "res://scenes/Main.tscn",
+				},
+			})
+		case "/jobs/open-1":
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{
+				OK: true,
+				Job: bridge.Job{
+					ID:     "open-1",
+					Kind:   "scene.open",
+					Status: "succeeded",
+					Result: map[string]any{"path": "res://scenes/Main.tscn", "root": "/root/Main"},
+				},
+			})
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), append(serverArgs(server), "scene", "open", "--path", "res://scenes/Main.tscn"), &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "scene.open" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["path"] != "res://scenes/Main.tscn" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Scene opened: res://scenes/Main.tscn") || !strings.Contains(stdout.String(), "Root: /root/Main") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d", requests)
+	}
+}
+
+func TestRunSceneOpenRequiresPathBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"scene", "open"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--path") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestRunSceneSavePathUnsupportedBeforeNetwork(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := Run(context.Background(), []string{"scene", "save", "--path", "res://main.tscn"}, &stdout, &stderr)

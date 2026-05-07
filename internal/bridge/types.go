@@ -85,6 +85,14 @@ type SceneCreateResult struct {
 	Created  bool   `json:"created"`
 }
 
+type SceneOpenResult struct {
+	Path   string `json:"path,omitempty"`
+	Root   string `json:"root,omitempty"`
+	Opened bool   `json:"opened,omitempty"`
+	Queued bool   `json:"queued,omitempty"`
+	JobID  string `json:"job_id,omitempty"`
+}
+
 type NodePropertyResult struct {
 	Path     string `json:"path"`
 	Property string `json:"property"`

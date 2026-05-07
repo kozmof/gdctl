@@ -129,6 +129,29 @@ func (c *Client) CreateScene(ctx context.Context, requestID, path, rootType, roo
 	return out, nil
 }
 
+func (c *Client) OpenScene(ctx context.Context, requestID, path string) (SceneOpenResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "scene.open",
+		Params: map[string]any{
+			"path": path,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/scene/open", env)
+	if err != nil {
+		return SceneOpenResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return SceneOpenResult{}, err
+	}
+	var out SceneOpenResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return SceneOpenResult{}, err
+	}
+	return out, nil
+}
+
 func (c *Client) AddNode(ctx context.Context, requestID, parent, nodeType, name string, dryRun bool) (map[string]any, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,

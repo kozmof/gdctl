@@ -158,6 +158,8 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return _handle_job_status(request, path)
 	if method == "POST" and path == "/scene/create":
 		return scene_commands.handle_create(request, _command_context())
+	if method == "POST" and path == "/scene/open":
+		return scene_commands.handle_open(request, _command_context())
 	if method == "GET" and path == "/scene/tree":
 		return scene_commands.handle_tree(request, _command_context())
 	if method == "POST" and path == "/scene/save":
@@ -249,6 +251,7 @@ func _capabilities() -> Array:
 	return [
 		"ping",
 		"scene.create",
+		"scene.open",
 		"scene.tree",
 		"scene.save",
 		"jobs.get",

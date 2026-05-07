@@ -38,10 +38,41 @@ func process(context: Dictionary) -> void:
 	job["status"] = "running"
 	job["updated_at"] = Time.get_datetime_string_from_system(true)
 	jobs[job_id] = job
-	if String(job.get("kind", "")) == "scene.save":
+	if String(job.get("kind", "")) == "scene.open":
+		_run_scene_open_job(job_id, context)
+	elif String(job.get("kind", "")) == "scene.save":
 		_run_scene_save_job(job_id, context)
 	else:
 		_finish_error(job_id, "JOB_KIND_UNKNOWN", "Unknown job kind", {"kind": job.get("kind", "")}, context)
+
+
+func _run_scene_open_job(job_id: String, context: Dictionary) -> void:
+	var job: Dictionary = jobs[job_id]
+	var detail: Dictionary = job.get("detail", {})
+	var scene_path: String = String(detail.get("path", ""))
+	if scene_path == "" or not FileAccess.file_exists(scene_path):
+		_finish_error(job_id, "SCENE_NOT_FOUND", "Scene does not exist", {"path": scene_path}, context)
+		return
+	var editor_plugin: EditorPlugin = context["editor_plugin"]
+	if editor_plugin == null:
+		_finish_error(job_id, "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {}, context)
+		return
+	editor_plugin.get_editor_interface().open_scene_from_path(scene_path)
+	var root: Node = context["edited_scene_root"].call()
+	var root_path := ""
+	var root_name := ""
+	var root_type := ""
+	if root != null:
+		root_path = context["logical_path"].call(root)
+		root_name = String(root.name)
+		root_type = root.get_class()
+	_finish_ok(job_id, {
+		"opened": true,
+		"path": scene_path,
+		"root": root_path,
+		"root_name": root_name,
+		"root_type": root_type,
+	}, context)
 
 
 func _run_scene_save_job(job_id: String, context: Dictionary) -> void:

@@ -50,6 +50,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			switch rest[1] {
 			case "create":
 				return runSceneCreate(ctx, client, rest[2:], stdout)
+			case "open":
+				return runSceneOpen(ctx, client, rest[2:], stdout)
 			case "tree":
 				return runSceneTree(ctx, client, stdout)
 			case "save":
@@ -463,6 +465,40 @@ func runSceneCreate(ctx context.Context, client *bridge.Client, args []string, s
 	return nil
 }
 
+func runSceneOpen(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("scene open", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "scene path, for example res://scenes/Main.tscn")
+	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for open job")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" {
+		return fmt.Errorf("scene open requires --path")
+	}
+	result, err := client.OpenScene(ctx, requestID(), *path)
+	if err != nil {
+		return err
+	}
+	if result.JobID == "" {
+		return fmt.Errorf("scene open did not return a job id")
+	}
+	job, err := waitForJob(ctx, client, result.JobID, *timeout, "scene open")
+	if err != nil {
+		return err
+	}
+	pathValue, _ := job.Result["path"].(string)
+	if pathValue == "" {
+		pathValue = result.Path
+	}
+	root, _ := job.Result["root"].(string)
+	fmt.Fprintf(stdout, "Scene opened: %s\n", pathValue)
+	if root != "" {
+		fmt.Fprintf(stdout, "Root: %s\n", root)
+	}
+	return nil
+}
+
 func runSceneSave(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("scene save", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -481,28 +517,36 @@ func runSceneSave(ctx context.Context, client *bridge.Client, args []string, std
 	if result.JobID == "" {
 		return fmt.Errorf("scene save did not return a job id")
 	}
-	deadline := time.Now().Add(*timeout)
+	job, err := waitForJob(ctx, client, result.JobID, *timeout, "scene save")
+	if err != nil {
+		return err
+	}
+	pathValue, _ := job.Result["path"].(string)
+	if pathValue == "" {
+		pathValue = result.Path
+	}
+	fmt.Fprintf(stdout, "Scene saved: %s\n", pathValue)
+	return nil
+}
+
+func waitForJob(ctx context.Context, client *bridge.Client, jobID string, timeout time.Duration, label string) (bridge.Job, error) {
+	deadline := time.Now().Add(timeout)
 	for {
-		job, err := client.Job(ctx, result.JobID)
+		job, err := client.Job(ctx, jobID)
 		if err != nil {
-			return err
+			return bridge.Job{}, err
 		}
 		switch job.Status {
 		case "succeeded":
-			path, _ := job.Result["path"].(string)
-			if path == "" {
-				path = result.Path
-			}
-			fmt.Fprintf(stdout, "Scene saved: %s\n", path)
-			return nil
+			return job, nil
 		case "failed":
 			if job.Error != nil {
-				return job.Error
+				return bridge.Job{}, job.Error
 			}
-			return fmt.Errorf("scene save job failed")
+			return bridge.Job{}, fmt.Errorf("%s job failed", label)
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("scene save timed out waiting for job %s", result.JobID)
+			return bridge.Job{}, fmt.Errorf("%s timed out waiting for job %s", label, jobID)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -786,6 +830,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] bridge logs [--json] [--clear]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] bridge addon-update")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene create --path PATH --root TYPE --name NAME [--force]")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene open --path PATH")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene tree")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene save")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node add --parent PATH --type TYPE --name NAME [--dry-run]")
