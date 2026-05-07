@@ -13,6 +13,7 @@ const NodeCommands = preload("res://addons/godot_tcp_bridge/node_commands.gd")
 const AddonUpdate = preload("res://addons/godot_tcp_bridge/addon_update.gd")
 const Protocol = preload("res://addons/godot_tcp_bridge/protocol.gd")
 const LogBuffer = preload("res://addons/godot_tcp_bridge/log_buffer.gd")
+const Jobs = preload("res://addons/godot_tcp_bridge/jobs.gd")
 
 var editor_plugin: EditorPlugin
 var typed_values = TypedValues.new()
@@ -20,10 +21,9 @@ var node_commands = NodeCommands.new()
 var addon_update = AddonUpdate.new()
 var protocol = Protocol.new()
 var log_buffer = LogBuffer.new()
+var jobs = Jobs.new()
 var tcp_server := TCPServer.new()
 var clients: Array[Dictionary] = []
-var jobs: Dictionary = {}
-var pending_jobs: Array[String] = []
 var host := DEFAULT_HOST
 var port := DEFAULT_PORT
 var auth_enabled := true
@@ -80,7 +80,7 @@ func reset_token() -> String:
 func poll() -> void:
 	if not running:
 		return
-	_process_jobs()
+	jobs.process(_job_context())
 	if tcp_server.is_connection_available():
 		var peer := tcp_server.take_connection()
 		clients.append({"peer": peer, "buffer": PackedByteArray()})
@@ -194,11 +194,11 @@ func _handle_scene_save(request: Dictionary) -> Dictionary:
 	if root.scene_file_path == "":
 		return protocol.bridge_error(409, body.get("request_id", ""), "SCENE_PATH_MISSING", "Save the scene once in Godot before using gdctl scene save", {"root": _logical_path(root)})
 
-	var job_id: String = _queue_job("scene.save", {
+	var job_id: String = jobs.queue("scene.save", {
 		"path": root.scene_file_path,
 		"root": _logical_path(root),
 		"request_id": body.get("request_id", ""),
-	})
+	}, _job_context())
 	return protocol.bridge_ok(body.get("request_id", ""), {
 		"queued": true,
 		"job_id": job_id,
@@ -209,9 +209,7 @@ func _handle_scene_save(request: Dictionary) -> Dictionary:
 
 func _handle_job_status(_request: Dictionary, path: String) -> Dictionary:
 	var job_id: String = path.trim_prefix("/jobs/")
-	if not jobs.has(job_id):
-		return protocol.bridge_error(404, "", "JOB_NOT_FOUND", "Job does not exist", {"job_id": job_id})
-	return protocol.http_json(200, {"ok": true, "job": jobs[job_id]})
+	return jobs.status_response(job_id, protocol)
 
 
 func _handle_logs(request: Dictionary) -> Dictionary:
@@ -249,6 +247,15 @@ func _command_context() -> Dictionary:
 		"typed_values": typed_values,
 		"addon_root": ADDON_ROOT,
 		"addon_backup_root": ADDON_BACKUP_ROOT,
+		"log": Callable(log_buffer, "add"),
+	}
+
+
+func _job_context() -> Dictionary:
+	return {
+		"editor_plugin": editor_plugin,
+		"edited_scene_root": Callable(self, "_edited_scene_root"),
+		"logical_path": Callable(self, "_logical_path"),
 		"log": Callable(log_buffer, "add"),
 	}
 
@@ -347,80 +354,6 @@ func _logical_path(node: Node) -> String:
 func _mark_scene_dirty() -> void:
 	if editor_plugin:
 		editor_plugin.get_editor_interface().mark_scene_as_unsaved()
-
-
-func _queue_job(kind: String, detail: Dictionary) -> String:
-	var job_id: String = "%s-%d-%d" % [kind.replace(".", "-"), Time.get_ticks_msec(), randi()]
-	jobs[job_id] = {
-		"id": job_id,
-		"kind": kind,
-		"status": "pending",
-		"created_at": Time.get_datetime_string_from_system(true),
-		"updated_at": Time.get_datetime_string_from_system(true),
-		"detail": detail,
-		"result": {},
-		"error": {},
-	}
-	pending_jobs.append(job_id)
-	log_buffer.add("info", "bridge.job", "Job queued", {"job_id": job_id, "kind": kind})
-	return job_id
-
-
-func _process_jobs() -> void:
-	if pending_jobs.is_empty():
-		return
-	var job_id: String = pending_jobs.pop_front()
-	if not jobs.has(job_id):
-		return
-	var job: Dictionary = jobs[job_id]
-	job["status"] = "running"
-	job["updated_at"] = Time.get_datetime_string_from_system(true)
-	jobs[job_id] = job
-	if String(job.get("kind", "")) == "scene.save":
-		_run_scene_save_job(job_id)
-	else:
-		_finish_job_error(job_id, "JOB_KIND_UNKNOWN", "Unknown job kind", {"kind": job.get("kind", "")})
-
-
-func _run_scene_save_job(job_id: String) -> void:
-	var root := _edited_scene_root()
-	if root == null:
-		_finish_job_error(job_id, "NO_SCENE_OPEN", "No edited scene is open", {})
-		return
-	if root.scene_file_path == "":
-		_finish_job_error(job_id, "SCENE_PATH_MISSING", "Edited scene has no path", {"root": _logical_path(root)})
-		return
-	if editor_plugin == null:
-		_finish_job_error(job_id, "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {})
-		return
-	editor_plugin.get_editor_interface().save_scene()
-	_finish_job_ok(job_id, {
-		"saved": true,
-		"path": root.scene_file_path,
-		"root": _logical_path(root),
-	})
-
-
-func _finish_job_ok(job_id: String, result: Dictionary) -> void:
-	if not jobs.has(job_id):
-		return
-	var job: Dictionary = jobs[job_id]
-	job["status"] = "succeeded"
-	job["updated_at"] = Time.get_datetime_string_from_system(true)
-	job["result"] = result
-	jobs[job_id] = job
-	log_buffer.add("info", "bridge.job", "Job succeeded", {"job_id": job_id, "kind": job.get("kind", "")})
-
-
-func _finish_job_error(job_id: String, code: String, message: String, detail: Dictionary) -> void:
-	if not jobs.has(job_id):
-		return
-	var job: Dictionary = jobs[job_id]
-	job["status"] = "failed"
-	job["updated_at"] = Time.get_datetime_string_from_system(true)
-	job["error"] = {"code": code, "message": message, "detail": detail}
-	jobs[job_id] = job
-	log_buffer.add("error", "bridge.job", "Job failed", {"job_id": job_id, "kind": job.get("kind", ""), "error": job["error"]})
 
 
 func _log_request(request: Dictionary) -> void:

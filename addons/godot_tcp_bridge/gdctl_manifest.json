@@ -6,6 +6,7 @@
     "bridge_plugin.gd",
     "bridge_server.gd",
     "addon_update.gd",
+    "jobs.gd",
     "log_buffer.gd",
     "node_commands.gd",
     "protocol.gd",
