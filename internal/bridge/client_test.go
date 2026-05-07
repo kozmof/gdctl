@@ -483,6 +483,49 @@ func TestClientOpenSceneRequest(t *testing.T) {
 	}
 }
 
+func TestClientScreenshotViewportRequest(t *testing.T) {
+	var gotAuth string
+	var gotEnvelope RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/viewport/screenshot" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"queued": true,
+				"job_id": "shot-1",
+				"kind":   "3d",
+				"index":  1,
+			},
+		})
+	}))
+	defer server.Close()
+
+	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http", Token: "secret"}
+	client := NewClient(cfg)
+	result, err := client.ScreenshotViewport(context.Background(), "cli-test", "3d", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if gotEnvelope.Op != "viewport.screenshot" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["kind"] != "3d" || gotEnvelope.Params["index"] != float64(1) {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if result.JobID != "shot-1" || !result.Queued || result.Kind != "3d" || result.Index != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestClientInstanceSceneRequest(t *testing.T) {
 	var gotAuth string
 	var gotEnvelope RequestEnvelope

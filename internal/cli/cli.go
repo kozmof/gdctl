@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -89,6 +90,13 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return runScriptWrite(ctx, client, rest[2:], stdout)
 			case "check":
 				return runScriptCheck(ctx, client, rest[2:], stdout)
+			}
+		}
+	case "viewport":
+		if len(rest) >= 2 {
+			switch rest[1] {
+			case "screenshot":
+				return runViewportScreenshot(ctx, client, rest[2:], stdout)
 			}
 		}
 	}
@@ -830,6 +838,67 @@ func runScriptWrite(ctx context.Context, client *bridge.Client, args []string, s
 	return nil
 }
 
+func runViewportScreenshot(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("viewport screenshot", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	outPath := fs.String("out", "", "local PNG output path")
+	kind := fs.String("kind", "2d", "editor viewport kind: 2d or 3d")
+	index := fs.Int("index", 0, "3D viewport index")
+	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for screenshot job")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *outPath == "" {
+		return fmt.Errorf("viewport screenshot requires --out")
+	}
+	if *kind != "2d" && *kind != "3d" {
+		return fmt.Errorf("viewport screenshot --kind must be 2d or 3d")
+	}
+	result, err := client.ScreenshotViewport(ctx, requestID(), *kind, *index)
+	if err != nil {
+		return err
+	}
+	if result.JobID == "" {
+		return fmt.Errorf("viewport screenshot did not return a job id")
+	}
+	job, err := waitForJob(ctx, client, result.JobID, *timeout, "viewport screenshot")
+	if err != nil {
+		return err
+	}
+	content, _ := job.Result["content_base64"].(string)
+	if content == "" {
+		return fmt.Errorf("viewport screenshot job did not return PNG data")
+	}
+	data, err := base64.StdEncoding.DecodeString(content)
+	if err != nil {
+		return fmt.Errorf("decode screenshot PNG: %w", err)
+	}
+	if err := os.WriteFile(*outPath, data, 0o644); err != nil {
+		return err
+	}
+	width := intFromJobResult(job.Result["width"])
+	height := intFromJobResult(job.Result["height"])
+	if width > 0 && height > 0 {
+		fmt.Fprintf(stdout, "Screenshot written: %s (%dx%d)\n", *outPath, width, height)
+	} else {
+		fmt.Fprintf(stdout, "Screenshot written: %s\n", *outPath)
+	}
+	return nil
+}
+
+func intFromJobResult(value any) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	default:
+		return 0
+	}
+}
+
 func runDoctor(ctx context.Context, cfg bridge.Config, client *bridge.Client, manager addon.Manager, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -977,4 +1046,5 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script create --path PATH --extends CLASS [--force]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script write --path PATH (--body TEXT | --body-file FILE)")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script check --path PATH")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] viewport screenshot --out FILE [--kind 2d|3d] [--index N]")
 }

@@ -42,6 +42,8 @@ func process(context: Dictionary) -> void:
 		_run_scene_open_job(job_id, context)
 	elif String(job.get("kind", "")) == "scene.save":
 		_run_scene_save_job(job_id, context)
+	elif String(job.get("kind", "")) == "viewport.screenshot":
+		_run_viewport_screenshot_job(job_id, context)
 	else:
 		_finish_error(job_id, "JOB_KIND_UNKNOWN", "Unknown job kind", {"kind": job.get("kind", "")}, context)
 
@@ -92,6 +94,55 @@ func _run_scene_save_job(job_id: String, context: Dictionary) -> void:
 		"saved": true,
 		"path": root.scene_file_path,
 		"root": context["logical_path"].call(root),
+	}, context)
+
+
+func _run_viewport_screenshot_job(job_id: String, context: Dictionary) -> void:
+	var job: Dictionary = jobs[job_id]
+	var detail: Dictionary = job.get("detail", {})
+	var frames_remaining: int = int(detail.get("frames_remaining", 0))
+	if frames_remaining > 0:
+		detail["frames_remaining"] = frames_remaining - 1
+		job["detail"] = detail
+		job["status"] = "running"
+		job["updated_at"] = Time.get_datetime_string_from_system(true)
+		jobs[job_id] = job
+		pending_jobs.append(job_id)
+		return
+
+	var editor_plugin: EditorPlugin = context["editor_plugin"]
+	if editor_plugin == null:
+		_finish_error(job_id, "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {}, context)
+		return
+	var editor_interface := editor_plugin.get_editor_interface()
+	var kind: String = String(detail.get("kind", "2d"))
+	var viewport: SubViewport = null
+	if kind == "3d":
+		viewport = editor_interface.get_editor_viewport_3d(int(detail.get("index", 0)))
+	else:
+		viewport = editor_interface.get_editor_viewport_2d()
+	if viewport == null:
+		_finish_error(job_id, "VIEWPORT_NOT_FOUND", "Editor viewport is unavailable", {"kind": kind, "index": detail.get("index", 0)}, context)
+		return
+	var texture := viewport.get_texture()
+	if texture == null:
+		_finish_error(job_id, "VIEWPORT_TEXTURE_MISSING", "Editor viewport texture is unavailable", {"kind": kind}, context)
+		return
+	var image: Image = texture.get_image()
+	if image == null or image.is_empty():
+		_finish_error(job_id, "VIEWPORT_IMAGE_EMPTY", "Editor viewport image is empty", {"kind": kind}, context)
+		return
+	var png: PackedByteArray = image.save_png_to_buffer()
+	if png.is_empty():
+		_finish_error(job_id, "VIEWPORT_PNG_EMPTY", "Could not encode viewport image as PNG", {"kind": kind}, context)
+		return
+	_finish_ok(job_id, {
+		"format": "png",
+		"kind": kind,
+		"index": int(detail.get("index", 0)),
+		"width": image.get_width(),
+		"height": image.get_height(),
+		"content_base64": Marshalls.raw_to_base64(png),
 	}, context)
 
 

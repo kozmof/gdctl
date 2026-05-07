@@ -130,6 +130,17 @@ type ScriptWriteResult struct {
 	Written bool   `json:"written"`
 }
 
+type ViewportScreenshotResult struct {
+	Format        string `json:"format,omitempty"`
+	Kind          string `json:"kind,omitempty"`
+	Index         int    `json:"index,omitempty"`
+	Width         int    `json:"width,omitempty"`
+	Height        int    `json:"height,omitempty"`
+	ContentBase64 string `json:"content_base64,omitempty"`
+	Queued        bool   `json:"queued,omitempty"`
+	JobID         string `json:"job_id,omitempty"`
+}
+
 type LogEntry struct {
 	Time    string         `json:"time"`
 	Level   string         `json:"level"`

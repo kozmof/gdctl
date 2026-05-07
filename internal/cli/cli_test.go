@@ -549,6 +549,84 @@ func TestRunScriptWriteBodyFile(t *testing.T) {
 	}
 }
 
+func TestRunViewportScreenshot(t *testing.T) {
+	requests := 0
+	var gotEnvelope bridge.RequestEnvelope
+	outPath := filepath.Join(t.TempDir(), "status.png")
+	pngData := []byte("fake-png")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		switch r.URL.Path {
+		case "/viewport/screenshot":
+			if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK: true,
+				Result: map[string]any{
+					"queued": true,
+					"job_id": "shot-1",
+					"kind":   "2d",
+				},
+			})
+		case "/jobs/shot-1":
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{
+				OK: true,
+				Job: bridge.Job{
+					ID:     "shot-1",
+					Kind:   "viewport.screenshot",
+					Status: "succeeded",
+					Result: map[string]any{
+						"format":         "png",
+						"width":          640,
+						"height":         360,
+						"content_base64": base64.StdEncoding.EncodeToString(pngData),
+					},
+				},
+			})
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), append(serverArgs(server), "viewport", "screenshot", "--out", outPath), &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "viewport.screenshot" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["kind"] != "2d" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	gotData, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotData) != string(pngData) {
+		t.Fatalf("png data = %q", gotData)
+	}
+	if !strings.Contains(stdout.String(), "Screenshot written:") || !strings.Contains(stdout.String(), "640x360") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d", requests)
+	}
+}
+
+func TestViewportScreenshotRequiresOutBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"viewport", "screenshot"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--out") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestScriptWriteRequiresOneBodySourceBeforeNetwork(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := Run(context.Background(), []string{"script", "write", "--path", "res://scripts/player.gd"}, &stdout, &stderr)

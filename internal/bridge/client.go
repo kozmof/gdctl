@@ -375,6 +375,30 @@ func (c *Client) WriteScript(ctx context.Context, requestID, path, body string) 
 	return out, nil
 }
 
+func (c *Client) ScreenshotViewport(ctx context.Context, requestID, kind string, index int) (ViewportScreenshotResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "viewport.screenshot",
+		Params: map[string]any{
+			"kind":  kind,
+			"index": index,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/viewport/screenshot", env)
+	if err != nil {
+		return ViewportScreenshotResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return ViewportScreenshotResult{}, err
+	}
+	var out ViewportScreenshotResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return ViewportScreenshotResult{}, err
+	}
+	return out, nil
+}
+
 func (c *Client) UpdateAddon(ctx context.Context, requestID string, manifest map[string]any, files []AddonUpdateFile) (AddonUpdateResult, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,

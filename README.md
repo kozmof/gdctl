@@ -72,6 +72,7 @@ gdctl script create --path res://scripts/player_car.gd --extends CharacterBody2D
 gdctl script write --path res://scripts/player_car.gd --body-file ./player_car.gd
 gdctl script check --path res://scripts/player_car.gd
 gdctl node attach-script --path /root/PlayerCar --script res://scripts/player_car.gd
+gdctl viewport screenshot --out ./status.png
 ```
 
 Scene node paths are logical paths rooted at the edited scene root:
@@ -182,6 +183,22 @@ extends Node2D
 `script write` syntax-checks the provided body with Godot before writing it. If Godot rejects the script, the command fails with `SCRIPT_SYNTAX_INVALID`.
 `node attach-script` syntax-checks the target script again before loading and attaching it to the node.
 
+## Current Visual Check Workflow
+
+`gdctl` can capture the Godot editor viewport and write the PNG in the CLI environment:
+
+```bash
+gdctl viewport screenshot --out ./status.png
+```
+
+By default this captures the 2D editor viewport. For a 3D viewport:
+
+```bash
+gdctl viewport screenshot --kind 3d --index 0 --out ./status-3d.png
+```
+
+The bridge captures PNG bytes from the editor viewport and returns them as base64 in a deferred job result. The CLI decodes those bytes and writes the local `--out` file. This keeps screenshots projectless and avoids writing temporary files into `res://`.
+
 ## Godot Addon
 
 The CLI embeds `addons/godot_tcp_bridge` and can install or update it inside a Godot 4 project:
@@ -232,6 +249,7 @@ node.attach_script
 script.check
 script.create
 script.write
+viewport.screenshot
 addon.update
 bridge.logs
 ```
