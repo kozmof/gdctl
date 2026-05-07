@@ -97,6 +97,33 @@ func (c *Client) RemoveNode(ctx context.Context, requestID, path string, dryRun 
 	return c.postEnvelope(ctx, "/node/remove", env)
 }
 
+func (c *Client) RenameNode(ctx context.Context, requestID, path, name string, dryRun bool) (map[string]any, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "node.rename",
+		Params: map[string]any{
+			"path":    path,
+			"name":    name,
+			"dry_run": dryRun,
+		},
+	}
+	return c.postEnvelope(ctx, "/node/rename", env)
+}
+
+func (c *Client) MoveNode(ctx context.Context, requestID, path, parent string, index int, dryRun bool) (map[string]any, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "node.move",
+		Params: map[string]any{
+			"path":    path,
+			"parent":  parent,
+			"index":   index,
+			"dry_run": dryRun,
+		},
+	}
+	return c.postEnvelope(ctx, "/node/move", env)
+}
+
 func (c *Client) GetNodeProperty(ctx context.Context, requestID, path, property string) (NodePropertyResult, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,

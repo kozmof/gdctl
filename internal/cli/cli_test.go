@@ -110,6 +110,28 @@ func TestNodeRemoveRequiresPathBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestNodeRenameRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"node", "rename", "--path", "/root/Main/Old"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--path and --name") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestNodeMoveRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"node", "move", "--path", "/root/Main/Child"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--path and --parent") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestNodeGetRequiresFlagsBeforeNetwork(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := Run(context.Background(), []string{"node", "get", "--path", "/root/Main"}, &stdout, &stderr)
@@ -129,6 +151,64 @@ func TestNodeSetRequiresTypedJSONBeforeNetwork(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "typed JSON") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunNodeRename(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/node/rename" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "/root/Main/Renamed"},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "node", "rename", "--path", "/root/Main/Old", "--name", "Renamed", "--dry-run")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "node.rename" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if !strings.Contains(stdout.String(), "Dry run ok: /root/Main/Renamed") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRunNodeMove(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/node/move" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "/root/Main/NewParent/Child"},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "node", "move", "--path", "/root/Main/Child", "--parent", "/root/Main/NewParent", "--index", "1")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "node.move" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if !strings.Contains(stdout.String(), "Moved node: /root/Main/NewParent/Child") {
+		t.Fatalf("stdout:\n%s", stdout.String())
 	}
 }
 

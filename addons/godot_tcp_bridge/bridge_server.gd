@@ -11,11 +11,13 @@ const ADDON_BACKUP_ROOT := "res://addons/.godot_tcp_bridge_backup/"
 const TypedValues = preload("res://addons/godot_tcp_bridge/typed_values.gd")
 const NodeCommands = preload("res://addons/godot_tcp_bridge/node_commands.gd")
 const AddonUpdate = preload("res://addons/godot_tcp_bridge/addon_update.gd")
+const Protocol = preload("res://addons/godot_tcp_bridge/protocol.gd")
 
 var editor_plugin: EditorPlugin
 var typed_values = TypedValues.new()
 var node_commands = NodeCommands.new()
 var addon_update = AddonUpdate.new()
+var protocol = Protocol.new()
 var tcp_server := TCPServer.new()
 var clients: Array[Dictionary] = []
 var host := DEFAULT_HOST
@@ -86,12 +88,12 @@ func poll() -> void:
 				var buffer: PackedByteArray = client["buffer"]
 				buffer.append_array(chunk[1])
 				client["buffer"] = buffer
-		var request := _try_parse_request(client["buffer"])
+		var request: Dictionary = protocol.parse_request(client["buffer"])
 		if request.is_empty():
 			remaining.append(client)
 			continue
 		var response := _handle_request(request)
-		_write_response(peer, response)
+		protocol.write_response(peer, response)
 		peer.disconnect_from_host()
 	clients = remaining
 
@@ -123,46 +125,6 @@ func _save_token(value: String) -> void:
 		file.close()
 
 
-func _try_parse_request(buffer: PackedByteArray) -> Dictionary:
-	var text := buffer.get_string_from_utf8()
-	var header_end := text.find("\r\n\r\n")
-	if header_end == -1:
-		return {}
-
-	var header_text := text.substr(0, header_end)
-	var lines := header_text.split("\r\n")
-	if lines.is_empty():
-		return {}
-	var request_line := lines[0].split(" ")
-	if request_line.size() < 2:
-		return {"method": "", "path": "", "headers": {}, "body": ""}
-
-	var headers := {}
-	var content_length := 0
-	for i in range(1, lines.size()):
-		var line := String(lines[i])
-		var idx := line.find(":")
-		if idx == -1:
-			continue
-		var name := line.substr(0, idx).strip_edges().to_lower()
-		var value := line.substr(idx + 1).strip_edges()
-		headers[name] = value
-		if name == "content-length":
-			content_length = int(value)
-
-	var body_start := header_end + 4
-	var body := text.substr(body_start)
-	if body.length() < content_length:
-		return {}
-	body = body.substr(0, content_length)
-	return {
-		"method": String(request_line[0]),
-		"path": String(request_line[1]),
-		"headers": headers,
-		"body": body,
-	}
-
-
 func _handle_request(request: Dictionary) -> Dictionary:
 	var method := String(request.get("method", ""))
 	var path := String(request.get("path", ""))
@@ -170,55 +132,47 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		path = path.substr(0, path.find("?"))
 
 	if method == "GET" and path == "/ping":
-		return _http_json(200, _ping())
+		return protocol.http_json(200, _ping())
 	if method == "GET" and path == "/scene/tree":
 		var root := _edited_scene_root()
 		if root == null:
-			return _bridge_error(409, "", "NO_SCENE_OPEN", "No edited scene is open", {})
-		return _http_json(200, {"ok": true, "root": _node_info(root)})
+			return protocol.bridge_error(409, "", "NO_SCENE_OPEN", "No edited scene is open", {})
+		return protocol.http_json(200, {"ok": true, "root": _node_info(root)})
 	if method == "POST" and path == "/scene/save":
 		return _handle_scene_save(request)
 	if method == "POST" and path == "/node/add":
 		return node_commands.handle_add(request, _command_context())
 	if method == "POST" and path == "/node/remove":
 		return node_commands.handle_remove(request, _command_context())
+	if method == "POST" and path == "/node/rename":
+		return node_commands.handle_rename(request, _command_context())
+	if method == "POST" and path == "/node/move":
+		return node_commands.handle_move(request, _command_context())
 	if method == "POST" and path == "/node/get":
 		return node_commands.handle_get(request, _command_context())
 	if method == "POST" and path == "/node/set":
 		return node_commands.handle_set(request, _command_context())
 	if method == "POST" and path == "/addon/update":
 		return addon_update.handle_update(request, _command_context())
-	return _bridge_error(404, "", "UNKNOWN_ENDPOINT", "Unknown bridge endpoint", {"method": method, "path": path})
+	return protocol.bridge_error(404, "", "UNKNOWN_ENDPOINT", "Unknown bridge endpoint", {"method": method, "path": path})
 
 
 func _handle_scene_save(request: Dictionary) -> Dictionary:
-	var body: Dictionary = _json_body_or_error(request)
+	var body: Dictionary = protocol.json_body_or_error(request)
 	if body.has("error_response"):
 		return body["error_response"]
 	if not _authorized(request):
-		return _bridge_error(401, body.get("request_id", ""), "UNAUTHORIZED", "Scene save requires bearer token", {})
+		return protocol.bridge_error(401, body.get("request_id", ""), "UNAUTHORIZED", "Scene save requires bearer token", {})
 	if body.get("op", "") != "scene.save":
-		return _bridge_error(400, body.get("request_id", ""), "INVALID_OPERATION", "Expected scene.save operation", {})
+		return protocol.bridge_error(400, body.get("request_id", ""), "INVALID_OPERATION", "Expected scene.save operation", {})
 
 	var root := _edited_scene_root()
 	if root == null:
-		return _bridge_error(409, body.get("request_id", ""), "NO_SCENE_OPEN", "No edited scene is open", {})
+		return protocol.bridge_error(409, body.get("request_id", ""), "NO_SCENE_OPEN", "No edited scene is open", {})
 	if editor_plugin == null:
-		return _bridge_error(500, body.get("request_id", ""), "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {})
+		return protocol.bridge_error(500, body.get("request_id", ""), "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {})
 
-	return _bridge_error(501, body.get("request_id", ""), "SCENE_SAVE_UNSUPPORTED", "Scene save is temporarily disabled because direct editor save calls are unstable in the bridge request handler", {"root": _logical_path(root), "path": root.scene_file_path})
-
-
-func _json_body_or_error(request: Dictionary) -> Dictionary:
-	var headers: Dictionary = request.get("headers", {})
-	var content_type := String(headers.get("content-type", ""))
-	if not content_type.to_lower().begins_with("application/json"):
-		return {"error_response": _bridge_error(415, "", "UNSUPPORTED_MEDIA_TYPE", "Mutation endpoints accept only application/json", {})}
-	var parsed := JSON.parse_string(String(request.get("body", "")))
-	if typeof(parsed) != TYPE_DICTIONARY:
-		return {"error_response": _bridge_error(400, "", "INVALID_JSON", "Request body must be a JSON object", {})}
-	var parsed_dict: Dictionary = parsed
-	return parsed_dict
+	return protocol.bridge_error(501, body.get("request_id", ""), "SCENE_SAVE_UNSUPPORTED", "Scene save is temporarily disabled because direct editor save calls are unstable in the bridge request handler", {"root": _logical_path(root), "path": root.scene_file_path})
 
 
 func _params_or_empty(body: Dictionary) -> Dictionary:
@@ -230,11 +184,11 @@ func _params_or_empty(body: Dictionary) -> Dictionary:
 
 func _command_context() -> Dictionary:
 	return {
-		"json_body_or_error": Callable(self, "_json_body_or_error"),
+		"json_body_or_error": Callable(protocol, "json_body_or_error"),
 		"params_or_empty": Callable(self, "_params_or_empty"),
 		"authorized": Callable(self, "_authorized"),
-		"bridge_ok": Callable(self, "_bridge_ok"),
-		"bridge_error": Callable(self, "_bridge_error"),
+		"bridge_ok": Callable(protocol, "bridge_ok"),
+		"bridge_error": Callable(protocol, "bridge_error"),
 		"edited_scene_root": Callable(self, "_edited_scene_root"),
 		"node_by_path": Callable(self, "_node_by_path"),
 		"logical_path": Callable(self, "_logical_path"),
@@ -273,6 +227,8 @@ func _ping() -> Dictionary:
 			"scene.tree",
 			"node.add",
 			"node.remove",
+			"node.rename",
+			"node.move",
 			"node.get",
 			"node.set",
 			"addon.update",
@@ -335,49 +291,3 @@ func _mark_scene_dirty() -> void:
 	if editor_plugin:
 		editor_plugin.get_editor_interface().mark_scene_as_unsaved()
 
-
-func _bridge_ok(request_id: String, result: Dictionary) -> Dictionary:
-	return _http_json(200, {
-		"request_id": request_id,
-		"ok": true,
-		"result": result,
-		"error": null,
-	})
-
-
-func _bridge_error(status: int, request_id: String, code: String, message: String, detail: Dictionary) -> Dictionary:
-	return _http_json(status, {
-		"request_id": request_id,
-		"ok": false,
-		"result": null,
-		"error": {
-			"code": code,
-			"message": message,
-			"detail": detail,
-		},
-	})
-
-
-func _http_json(status: int, body: Dictionary) -> Dictionary:
-	return {"status": status, "body": body}
-
-
-func _write_response(peer: StreamPeerTCP, response: Dictionary) -> void:
-	var status := int(response.get("status", 500))
-	var body := JSON.stringify(response.get("body", {}))
-	var reason := "OK"
-	if status == 400:
-		reason = "Bad Request"
-	elif status == 401:
-		reason = "Unauthorized"
-	elif status == 404:
-		reason = "Not Found"
-	elif status == 409:
-		reason = "Conflict"
-	elif status == 415:
-		reason = "Unsupported Media Type"
-	elif status >= 500:
-		reason = "Internal Server Error"
-
-	var head := "HTTP/1.1 %d %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n" % [status, reason, body.to_utf8_buffer().size()]
-	peer.put_data((head + body).to_utf8_buffer())

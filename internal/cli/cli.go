@@ -61,6 +61,10 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return runNodeAdd(ctx, client, rest[2:], stdout)
 			case "remove":
 				return runNodeRemove(ctx, client, rest[2:], stdout)
+			case "rename":
+				return runNodeRename(ctx, client, rest[2:], stdout)
+			case "move":
+				return runNodeMove(ctx, client, rest[2:], stdout)
 			case "get":
 				return runNodeGet(ctx, client, rest[2:], stdout)
 			case "set":
@@ -459,6 +463,57 @@ func runNodeRemove(ctx context.Context, client *bridge.Client, args []string, st
 	return nil
 }
 
+func runNodeRename(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("node rename", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "node path")
+	name := fs.String("name", "", "new node name")
+	dryRun := fs.Bool("dry-run", false, "validate without mutating")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *name == "" {
+		return fmt.Errorf("node rename requires --path and --name")
+	}
+	result, err := client.RenameNode(ctx, requestID(), *path, *name, *dryRun)
+	if err != nil {
+		return err
+	}
+	newPath, _ := result["path"].(string)
+	if *dryRun {
+		fmt.Fprintf(stdout, "Dry run ok: %s\n", newPath)
+		return nil
+	}
+	fmt.Fprintf(stdout, "Renamed node: %s\n", newPath)
+	return nil
+}
+
+func runNodeMove(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("node move", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "node path")
+	parent := fs.String("parent", "", "new parent node path")
+	index := fs.Int("index", -1, "optional child index under new parent")
+	dryRun := fs.Bool("dry-run", false, "validate without mutating")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *parent == "" {
+		return fmt.Errorf("node move requires --path and --parent")
+	}
+	result, err := client.MoveNode(ctx, requestID(), *path, *parent, *index, *dryRun)
+	if err != nil {
+		return err
+	}
+	newPath, _ := result["path"].(string)
+	if *dryRun {
+		fmt.Fprintf(stdout, "Dry run ok: %s\n", newPath)
+		return nil
+	}
+	fmt.Fprintf(stdout, "Moved node: %s\n", newPath)
+	return nil
+}
+
 func runNodeGet(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("node get", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -638,6 +693,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene save")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node add --parent PATH --type TYPE --name NAME [--dry-run]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node remove --path PATH [--dry-run]")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node rename --path PATH --name NAME [--dry-run]")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node move --path PATH --parent PARENT [--index N] [--dry-run]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node get --path PATH --property PROPERTY")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node set --path PATH --property PROPERTY --value TYPED_JSON")
 }

@@ -58,9 +58,11 @@ gdctl scene tree
 # Temporarily disabled while bridge-safe editor save is implemented:
 # gdctl scene save
 gdctl node add --parent /root/Main --type Node2D --name EnemySpawner
-gdctl node set --path /root/Main/EnemySpawner --property position --value '{"kind":"Vector2","value":[200,400]}'
-gdctl node get --path /root/Main/EnemySpawner --property position
-gdctl node remove --path /root/Main/EnemySpawner
+gdctl node rename --path /root/Main/EnemySpawner --name SpawnPoint
+gdctl node move --path /root/Main/SpawnPoint --parent /root/Main/Track
+gdctl node set --path /root/Main/Track/SpawnPoint --property position --value '{"kind":"Vector2","value":[200,400]}'
+gdctl node get --path /root/Main/Track/SpawnPoint --property position
+gdctl node remove --path /root/Main/Track/SpawnPoint
 ```
 
 Scene node paths are logical paths rooted at the edited scene root:

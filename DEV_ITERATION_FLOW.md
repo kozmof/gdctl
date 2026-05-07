@@ -193,12 +193,12 @@ It must be tested manually on a disposable project before updating the normal ad
 ## 7. Current Property Editing Step
 
 The bridge bootstrap and projectless update loop are working. Logical scene paths are working.
-The addon server has started moving reusable logic out of `bridge_server.gd`. Typed CLI/Godot value conversion now lives in `addons/godot_tcp_bridge/typed_values.gd`, node mutations/property commands now live in `addons/godot_tcp_bridge/node_commands.gd`, and bridge self-update logic now lives in `addons/godot_tcp_bridge/addon_update.gd`.
+The addon server has started moving reusable logic out of `bridge_server.gd`. Typed CLI/Godot value conversion now lives in `addons/godot_tcp_bridge/typed_values.gd`, node mutations/property commands now live in `addons/godot_tcp_bridge/node_commands.gd`, bridge self-update logic now lives in `addons/godot_tcp_bridge/addon_update.gd`, and request/response protocol helpers now live in `addons/godot_tcp_bridge/protocol.gd`.
 
 The next implemented bridge primitive is:
 
 ```text
-node set/get
+node set/get/rename/move
 ```
 
 That will let generated scenes configure positions, resources, collision shapes, and exported script parameters.
@@ -208,6 +208,25 @@ Use typed JSON values:
 ```bash
 gdctl node set --path /root/Main/Player --property position --value '{"kind":"Vector2","value":[200,400]}'
 gdctl node get --path /root/Main/Player --property position
+gdctl node rename --path /root/Main/Player --name PlayerCar
+gdctl node move --path /root/Main/PlayerCar --parent /root/Main/Track
 ```
 
 Scene saving should be revisited later with a deferred/editor-safe implementation.
+
+## 8. Current Self-Update Caveat
+
+After extracting `addon_update.gd`, the currently running Godot addon may need a manual file refresh if `/addon/update` returns:
+
+```text
+HTTP 500 {}
+```
+
+That means the live in-memory self-update path is failing before it can install the next addon package. The bridge can still respond to `bridge info`, `scene tree`, and node commands, but the addon files must be copied/installed manually once so the fixed local addon code becomes active again. After reloading that version, verify:
+
+```bash
+gdctl bridge info
+gdctl addon update
+gdctl node rename --path /root/Node3D/Temp --name TempRenamed --dry-run
+gdctl node move --path /root/Node3D/Temp --parent /root/Node3D --dry-run
+```

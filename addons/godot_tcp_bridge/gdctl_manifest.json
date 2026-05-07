@@ -7,6 +7,7 @@
     "bridge_server.gd",
     "addon_update.gd",
     "node_commands.gd",
+    "protocol.gd",
     "typed_values.gd",
     "gdctl_manifest.json"
   ]

@@ -92,6 +92,66 @@ func TestClientUpdateAddonRequest(t *testing.T) {
 	}
 }
 
+func TestClientRenameNodeRequest(t *testing.T) {
+	var gotEnvelope RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/node/rename" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "/root/Main/Renamed"},
+		})
+	}))
+	defer server.Close()
+
+	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http", Token: "secret"}
+	client := NewClient(cfg)
+	_, err := client.RenameNode(context.Background(), "cli-test", "/root/Main/Old", "Renamed", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "node.rename" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["name"] != "Renamed" || gotEnvelope.Params["dry_run"] != true {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+}
+
+func TestClientMoveNodeRequest(t *testing.T) {
+	var gotEnvelope RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/node/move" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "/root/Main/NewParent/Child"},
+		})
+	}))
+	defer server.Close()
+
+	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http", Token: "secret"}
+	client := NewClient(cfg)
+	_, err := client.MoveNode(context.Background(), "cli-test", "/root/Main/Child", "/root/Main/NewParent", 2, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "node.move" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["parent"] != "/root/Main/NewParent" || gotEnvelope.Params["index"] != float64(2) {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+}
+
 func TestClientGetNodePropertyRequest(t *testing.T) {
 	var gotAuth string
 	var gotEnvelope RequestEnvelope
