@@ -493,6 +493,66 @@ func TestAddonDoctorWithoutProjectUsesRuntime(t *testing.T) {
 	}
 }
 
+func TestBridgeLogs(t *testing.T) {
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		_ = json.NewEncoder(w).Encode(bridge.LogsResponse{
+			OK: true,
+			Entries: []bridge.LogEntry{
+				{Time: "2026-05-07T10:00:00", Level: "error", Source: "bridge.response", Message: "Request failed", Detail: map[string]any{"path": "/node/add"}},
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "bridge", "logs")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if !strings.Contains(stdout.String(), "bridge.response: Request failed") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestBridgeLogsJSONAndClear(t *testing.T) {
+	var gotClear bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/logs":
+			_ = json.NewEncoder(w).Encode(bridge.LogsResponse{
+				OK:      true,
+				Entries: []bridge.LogEntry{{Time: "now", Level: "info", Source: "test", Message: "hello"}},
+			})
+		case "/logs/clear":
+			gotClear = true
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"cleared": true},
+			})
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "bridge", "logs", "--json", "--clear")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !gotClear {
+		t.Fatal("expected clear request")
+	}
+	if !strings.Contains(stdout.String(), `"message": "hello"`) || !strings.Contains(stdout.String(), "Logs cleared") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
 func TestAddonStatusJSON(t *testing.T) {
 	useTestAddon(t)
 	project := newCLIProject(t)

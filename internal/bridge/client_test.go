@@ -92,6 +92,62 @@ func TestClientUpdateAddonRequest(t *testing.T) {
 	}
 }
 
+func TestClientLogsRequestUsesAuth(t *testing.T) {
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/logs" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		_ = json.NewEncoder(w).Encode(LogsResponse{
+			OK: true,
+			Entries: []LogEntry{
+				{Time: "now", Level: "info", Source: "test", Message: "hello"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http", Token: "secret"}
+	client := NewClient(cfg)
+	entries, err := client.Logs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if len(entries) != 1 || entries[0].Message != "hello" {
+		t.Fatalf("entries = %#v", entries)
+	}
+}
+
+func TestClientClearLogsRequest(t *testing.T) {
+	var gotEnvelope RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/logs/clear" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"cleared": true},
+		})
+	}))
+	defer server.Close()
+
+	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http", Token: "secret"}
+	client := NewClient(cfg)
+	if err := client.ClearLogs(context.Background(), "cli-test"); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "logs.clear" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+}
+
 func TestClientRenameNodeRequest(t *testing.T) {
 	var gotEnvelope RequestEnvelope
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

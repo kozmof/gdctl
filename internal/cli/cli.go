@@ -92,11 +92,53 @@ func runBridge(ctx context.Context, client *bridge.Client, manager addon.Manager
 		}
 		printBridgeInfo(stdout, ping)
 		return nil
+	case "logs":
+		return runBridgeLogs(ctx, client, args[1:], stdout)
 	case "addon-update":
 		return runBridgeAddonUpdate(ctx, client, manager, stdout)
 	default:
 		return fmt.Errorf("unknown bridge command: %s", strings.Join(args, " "))
 	}
+}
+
+func runBridgeLogs(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("bridge logs", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	jsonOut := fs.Bool("json", false, "write logs as JSON")
+	clear := fs.Bool("clear", false, "clear logs after reading")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	entries, err := client.Logs(ctx)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(map[string]any{"entries": entries}); err != nil {
+			return err
+		}
+	} else {
+		for _, entry := range entries {
+			fmt.Fprintf(stdout, "%s [%s] %s: %s", entry.Time, entry.Level, entry.Source, entry.Message)
+			if len(entry.Detail) > 0 {
+				encoded, err := json.Marshal(entry.Detail)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(stdout, " %s", encoded)
+			}
+			fmt.Fprintln(stdout)
+		}
+	}
+	if *clear {
+		if err := client.ClearLogs(ctx, requestID()); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, "Logs cleared")
+	}
+	return nil
 }
 
 func runBridgeAddonUpdate(ctx context.Context, client *bridge.Client, manager addon.Manager, stdout io.Writer) error {
@@ -688,6 +730,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl addon remove --project PATH")
 	fmt.Fprintln(w, "  gdctl addon doctor [--project PATH] [--fix]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] bridge info")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] bridge logs [--json] [--clear]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] bridge addon-update")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene tree")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene save")

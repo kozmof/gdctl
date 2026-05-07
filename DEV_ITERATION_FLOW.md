@@ -230,3 +230,15 @@ gdctl addon update
 gdctl node rename --path /root/Node3D/Temp --name TempRenamed --dry-run
 gdctl node move --path /root/Node3D/Temp --parent /root/Node3D --dry-run
 ```
+
+## 9. Bridge Diagnostics
+
+The addon keeps a small in-memory diagnostic buffer for bridge activity. Use it when a command returns an unclear error or when Godot reports a GDScript issue:
+
+```bash
+gdctl bridge logs
+gdctl bridge logs --json
+gdctl bridge logs --clear
+```
+
+Logs are token-protected and reset when the plugin/editor restarts. They record bridge startup/shutdown, request paths, response status, and structured bridge errors. Full Godot parser/runtime errors are not always catchable from inside GDScript, but these logs narrow down which endpoint and command path ran before a failure.

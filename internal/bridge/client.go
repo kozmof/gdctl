@@ -46,6 +46,27 @@ func (c *Client) SceneTree(ctx context.Context) (NodeInfo, error) {
 	return out.Root, nil
 }
 
+func (c *Client) Logs(ctx context.Context) ([]LogEntry, error) {
+	var out LogsResponse
+	if err := c.getJSON(ctx, "/logs", &out); err != nil {
+		return nil, err
+	}
+	if !out.OK {
+		return nil, fmt.Errorf("logs request failed")
+	}
+	return out.Entries, nil
+}
+
+func (c *Client) ClearLogs(ctx context.Context, requestID string) error {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "logs.clear",
+		Params:    map[string]any{},
+	}
+	_, err := c.postEnvelope(ctx, "/logs/clear", env)
+	return err
+}
+
 func (c *Client) SaveScene(ctx context.Context, requestID, path string) (SceneSaveResult, error) {
 	params := map[string]any{}
 	if path != "" {
@@ -210,6 +231,9 @@ func (c *Client) getJSON(ctx context.Context, path string, target any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.cfg.BaseURL()+path, nil)
 	if err != nil {
 		return err
+	}
+	if c.cfg.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

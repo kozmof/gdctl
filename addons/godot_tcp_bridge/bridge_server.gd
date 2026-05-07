@@ -12,12 +12,14 @@ const TypedValues = preload("res://addons/godot_tcp_bridge/typed_values.gd")
 const NodeCommands = preload("res://addons/godot_tcp_bridge/node_commands.gd")
 const AddonUpdate = preload("res://addons/godot_tcp_bridge/addon_update.gd")
 const Protocol = preload("res://addons/godot_tcp_bridge/protocol.gd")
+const LogBuffer = preload("res://addons/godot_tcp_bridge/log_buffer.gd")
 
 var editor_plugin: EditorPlugin
 var typed_values = TypedValues.new()
 var node_commands = NodeCommands.new()
 var addon_update = AddonUpdate.new()
 var protocol = Protocol.new()
+var log_buffer = LogBuffer.new()
 var tcp_server := TCPServer.new()
 var clients: Array[Dictionary] = []
 var host := DEFAULT_HOST
@@ -39,9 +41,11 @@ func start() -> void:
 	var err := tcp_server.listen(port, bind)
 	if err != OK:
 		push_error("Godot TCP Bridge failed to listen on %s:%d: %s" % [host, port, error_string(err)])
+		log_buffer.add("error", "bridge.start", "Failed to listen", {"host": host, "port": port, "error": error_string(err)})
 		return
 	running = true
 	print("Godot TCP Bridge listening on %s:%d" % [host, port])
+	log_buffer.add("info", "bridge.start", "Listening", {"host": host, "port": port, "auth_enabled": auth_enabled})
 
 
 func stop() -> void:
@@ -52,6 +56,7 @@ func stop() -> void:
 	clients.clear()
 	tcp_server.stop()
 	running = false
+	log_buffer.add("info", "bridge.stop", "Stopped", {})
 
 
 func restart() -> void:
@@ -66,6 +71,7 @@ func get_token() -> String:
 func reset_token() -> String:
 	token = _generate_token()
 	_save_token(token)
+	log_buffer.add("info", "bridge.token", "Token reset", {})
 	return token
 
 
@@ -92,7 +98,9 @@ func poll() -> void:
 		if request.is_empty():
 			remaining.append(client)
 			continue
-		var response := _handle_request(request)
+		_log_request(request)
+		var response: Dictionary = _handle_request(request)
+		_log_response(request, response)
 		protocol.write_response(peer, response)
 		peer.disconnect_from_host()
 	clients = remaining
@@ -133,6 +141,10 @@ func _handle_request(request: Dictionary) -> Dictionary:
 
 	if method == "GET" and path == "/ping":
 		return protocol.http_json(200, _ping())
+	if method == "GET" and path == "/logs":
+		return _handle_logs(request)
+	if method == "POST" and path == "/logs/clear":
+		return _handle_logs_clear(request)
 	if method == "GET" and path == "/scene/tree":
 		var root := _edited_scene_root()
 		if root == null:
@@ -175,6 +187,20 @@ func _handle_scene_save(request: Dictionary) -> Dictionary:
 	return protocol.bridge_error(501, body.get("request_id", ""), "SCENE_SAVE_UNSUPPORTED", "Scene save is temporarily disabled because direct editor save calls are unstable in the bridge request handler", {"root": _logical_path(root), "path": root.scene_file_path})
 
 
+func _handle_logs(request: Dictionary) -> Dictionary:
+	if not _authorized(request):
+		return protocol.bridge_error(401, "", "UNAUTHORIZED", "Bridge logs require bearer token", {})
+	return protocol.http_json(200, {"ok": true, "entries": log_buffer.list()})
+
+
+func _handle_logs_clear(request: Dictionary) -> Dictionary:
+	if not _authorized(request):
+		return protocol.bridge_error(401, "", "UNAUTHORIZED", "Bridge log clearing requires bearer token", {})
+	log_buffer.clear()
+	log_buffer.add("info", "bridge.logs", "Logs cleared", {})
+	return protocol.bridge_ok("", {"cleared": true})
+
+
 func _params_or_empty(body: Dictionary) -> Dictionary:
 	var params := body.get("params", {})
 	if typeof(params) != TYPE_DICTIONARY:
@@ -196,6 +222,7 @@ func _command_context() -> Dictionary:
 		"typed_values": typed_values,
 		"addon_root": ADDON_ROOT,
 		"addon_backup_root": ADDON_BACKUP_ROOT,
+		"log": Callable(log_buffer, "add"),
 	}
 
 
@@ -232,6 +259,7 @@ func _ping() -> Dictionary:
 			"node.get",
 			"node.set",
 			"addon.update",
+			"bridge.logs",
 		],
 	}
 
@@ -291,3 +319,37 @@ func _mark_scene_dirty() -> void:
 	if editor_plugin:
 		editor_plugin.get_editor_interface().mark_scene_as_unsaved()
 
+
+func _log_request(request: Dictionary) -> void:
+	var path: String = String(request.get("path", ""))
+	if path == "/ping" or path == "/logs":
+		return
+	log_buffer.add("debug", "bridge.request", "Request received", {
+		"method": String(request.get("method", "")),
+		"path": path,
+	})
+
+
+func _log_response(request: Dictionary, response: Dictionary) -> void:
+	var path: String = String(request.get("path", ""))
+	if path == "/ping" or path == "/logs":
+		return
+	var status: int = int(response.get("status", 500))
+	var body: Dictionary = response.get("body", {})
+	if status >= 400:
+		var error_value: Variant = body.get("error", {})
+		var error_detail: Dictionary = {}
+		if typeof(error_value) == TYPE_DICTIONARY:
+			error_detail = error_value
+		log_buffer.add("error", "bridge.response", "Request failed", {
+			"method": String(request.get("method", "")),
+			"path": path,
+			"status": status,
+			"error": error_detail,
+		})
+	else:
+		log_buffer.add("debug", "bridge.response", "Request completed", {
+			"method": String(request.get("method", "")),
+			"path": path,
+			"status": status,
+		})

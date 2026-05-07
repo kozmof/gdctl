@@ -80,3 +80,16 @@ type NodePropertyResult struct {
 	Property string `json:"property"`
 	Value    any    `json:"value,omitempty"`
 }
+
+type LogEntry struct {
+	Time    string         `json:"time"`
+	Level   string         `json:"level"`
+	Source  string         `json:"source"`
+	Message string         `json:"message"`
+	Detail  map[string]any `json:"detail,omitempty"`
+}
+
+type LogsResponse struct {
+	OK      bool       `json:"ok"`
+	Entries []LogEntry `json:"entries"`
+}
