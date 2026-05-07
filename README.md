@@ -57,6 +57,8 @@ gdctl bridge info
 gdctl bridge logs
 gdctl bridge logs --json
 gdctl bridge logs --clear
+gdctl scene create --path res://scenes/Main.tscn --root Node2D --name Main
+gdctl scene open --path res://scenes/Main.tscn
 gdctl scene tree
 gdctl scene save
 gdctl node add --parent /root/Main --type Node2D --name EnemySpawner
@@ -65,6 +67,9 @@ gdctl node move --path /root/Main/SpawnPoint --parent /root/Main/Track
 gdctl node set --path /root/Main/Track/SpawnPoint --property position --value '{"kind":"Vector2","value":[200,400]}'
 gdctl node get --path /root/Main/Track/SpawnPoint --property position
 gdctl node remove --path /root/Main/Track/SpawnPoint
+gdctl script create --path res://scripts/player_car.gd --extends CharacterBody2D
+gdctl script write --path res://scripts/player_car.gd --body-file ./player_car.gd
+gdctl script check --path res://scripts/player_car.gd
 ```
 
 Scene node paths are logical paths rooted at the edited scene root:
@@ -90,6 +95,72 @@ Property values use typed JSON at the CLI boundary:
 {"kind":"Color","value":[1,0,0,1]}
 {"kind":"PackedVector2Array","value":[[0,0],[1200,0],[1200,800],[0,800]]}
 ```
+
+## Current Scene Workflow
+
+`gdctl` can now create, open, mutate, inspect, and save `.tscn` scenes over the running bridge:
+
+```bash
+gdctl scene create \
+  --path res://gdctl_tmp/SmokeScene.tscn \
+  --root Node2D \
+  --name SmokeScene \
+  --force
+
+gdctl scene open --path res://gdctl_tmp/SmokeScene.tscn
+gdctl scene tree
+
+gdctl node add \
+  --parent /root/SmokeScene \
+  --type Node2D \
+  --name OpenSmokeChild
+
+gdctl scene tree
+gdctl scene save
+```
+
+Expected result:
+
+```text
+SmokeScene Node2D
+└── OpenSmokeChild Node2D
+```
+
+`scene create` writes a scene file directly with `PackedScene` and `ResourceSaver`.
+`scene open` and `scene save` run as deferred bridge jobs and the CLI polls `/jobs/<id>` until the editor-side operation finishes.
+
+Save-as is still intentionally unsupported:
+
+```bash
+gdctl scene save --path res://other.tscn
+```
+
+Use `scene create --force` when you explicitly want to replace an existing scene file.
+
+## Current Script Workflow
+
+`gdctl` can create, write, and syntax-check GDScript files over the running bridge:
+
+```bash
+gdctl script create \
+  --path res://gdctl_tmp/smoke_script.gd \
+  --extends Node2D \
+  --force
+
+gdctl script check --path res://gdctl_tmp/smoke_script.gd
+
+gdctl script write \
+  --path res://gdctl_tmp/smoke_script.gd \
+  --body-file ./smoke_script.gd
+```
+
+`script create` writes a minimal script like:
+
+```gdscript
+extends Node2D
+```
+
+`script write` syntax-checks the provided body with Godot before writing it. If Godot rejects the script, the command fails with `SCRIPT_SYNTAX_INVALID`.
 
 ## Godot Addon
 
@@ -118,6 +189,32 @@ gdctl addon update
 ```
 
 Reload the plugin in Godot after a bridge addon update.
+
+## Current Bridge Capabilities
+
+The current addon advertises these runtime capabilities through `gdctl bridge info`:
+
+```text
+ping
+scene.create
+scene.open
+scene.tree
+scene.save
+jobs.get
+node.add
+node.remove
+node.rename
+node.move
+node.get
+node.set
+script.check
+script.create
+script.write
+addon.update
+bridge.logs
+```
+
+Most commands are projectless once the addon is running: the CLI talks over TCP and does not need the Godot project mounted in the devcontainer. Filesystem addon install/enable/remove still need `--project` because they edit a local project directory directly.
 
 ## Security Notes
 

@@ -441,6 +441,121 @@ func TestClientOpenSceneRequest(t *testing.T) {
 	}
 }
 
+func TestClientCheckScriptRequest(t *testing.T) {
+	var gotAuth string
+	var gotEnvelope RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/script/check" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":  "res://scripts/player.gd",
+				"valid": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http", Token: "secret"}
+	client := NewClient(cfg)
+	result, err := client.CheckScript(context.Background(), "cli-test", "res://scripts/player.gd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if gotEnvelope.Op != "script.check" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["path"] != "res://scripts/player.gd" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if result.Path != "res://scripts/player.gd" || !result.Valid {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestClientCreateScriptRequest(t *testing.T) {
+	var gotEnvelope RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/script/create" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":    "res://scripts/player.gd",
+				"valid":   true,
+				"created": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http"}
+	client := NewClient(cfg)
+	result, err := client.CreateScript(context.Background(), "cli-test", "res://scripts/player.gd", "Node2D", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "script.create" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["path"] != "res://scripts/player.gd" || gotEnvelope.Params["extends"] != "Node2D" || gotEnvelope.Params["force"] != true {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if result.Path != "res://scripts/player.gd" || !result.Valid || !result.Created {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestClientWriteScriptRequest(t *testing.T) {
+	var gotEnvelope RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/script/write" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":    "res://scripts/player.gd",
+				"valid":   true,
+				"written": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http"}
+	client := NewClient(cfg)
+	result, err := client.WriteScript(context.Background(), "cli-test", "res://scripts/player.gd", "extends Node2D\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "script.write" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["path"] != "res://scripts/player.gd" || gotEnvelope.Params["body"] != "extends Node2D\n" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if result.Path != "res://scripts/player.gd" || !result.Valid || !result.Written {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestClientBridgeError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)

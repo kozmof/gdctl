@@ -12,6 +12,7 @@ const TypedValues = preload("res://addons/godot_tcp_bridge/typed_values.gd")
 const BridgeCommands = preload("res://addons/godot_tcp_bridge/bridge_commands.gd")
 const SceneCommands = preload("res://addons/godot_tcp_bridge/scene_commands.gd")
 const NodeCommands = preload("res://addons/godot_tcp_bridge/node_commands.gd")
+const ScriptCommands = preload("res://addons/godot_tcp_bridge/script_commands.gd")
 const AddonUpdate = preload("res://addons/godot_tcp_bridge/addon_update.gd")
 const Protocol = preload("res://addons/godot_tcp_bridge/protocol.gd")
 const LogBuffer = preload("res://addons/godot_tcp_bridge/log_buffer.gd")
@@ -23,6 +24,7 @@ var typed_values = TypedValues.new()
 var bridge_commands = BridgeCommands.new()
 var scene_commands = SceneCommands.new()
 var node_commands = NodeCommands.new()
+var script_commands = ScriptCommands.new()
 var addon_update = AddonUpdate.new()
 var protocol = Protocol.new()
 var log_buffer = LogBuffer.new()
@@ -176,6 +178,12 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return node_commands.handle_get(request, _command_context())
 	if method == "POST" and path == "/node/set":
 		return node_commands.handle_set(request, _command_context())
+	if method == "POST" and path == "/script/check":
+		return script_commands.handle_check(request, _command_context())
+	if method == "POST" and path == "/script/create":
+		return script_commands.handle_create(request, _command_context())
+	if method == "POST" and path == "/script/write":
+		return script_commands.handle_write(request, _command_context())
 	if method == "POST" and path == "/addon/update":
 		return addon_update.handle_update(request, _command_context())
 	return protocol.bridge_error(404, "", "UNKNOWN_ENDPOINT", "Unknown bridge endpoint", {"method": method, "path": path})
@@ -261,6 +269,9 @@ func _capabilities() -> Array:
 		"node.move",
 		"node.get",
 		"node.set",
+		"script.check",
+		"script.create",
+		"script.write",
 		"addon.update",
 		"bridge.logs",
 	]

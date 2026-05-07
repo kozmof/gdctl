@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -73,6 +74,17 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return runNodeGet(ctx, client, rest[2:], stdout)
 			case "set":
 				return runNodeSet(ctx, client, rest[2:], stdout)
+			}
+		}
+	case "script":
+		if len(rest) >= 2 {
+			switch rest[1] {
+			case "create":
+				return runScriptCreate(ctx, client, rest[2:], stdout)
+			case "write":
+				return runScriptWrite(ctx, client, rest[2:], stdout)
+			case "check":
+				return runScriptCheck(ctx, client, rest[2:], stdout)
 			}
 		}
 	}
@@ -697,6 +709,84 @@ func runNodeSet(ctx context.Context, client *bridge.Client, args []string, stdou
 	return nil
 }
 
+func runScriptCheck(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("script check", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "script path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" {
+		return fmt.Errorf("script check requires --path")
+	}
+	result, err := client.CheckScript(ctx, requestID(), *path)
+	if err != nil {
+		return err
+	}
+	if !result.Valid {
+		return fmt.Errorf("script check failed: %s", result.Path)
+	}
+	fmt.Fprintf(stdout, "Script OK: %s\n", result.Path)
+	return nil
+}
+
+func runScriptCreate(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("script create", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "script path")
+	extends := fs.String("extends", "", "base Godot class name")
+	force := fs.Bool("force", false, "overwrite an existing script")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *extends == "" {
+		return fmt.Errorf("script create requires --path and --extends")
+	}
+	result, err := client.CreateScript(ctx, requestID(), *path, *extends, *force)
+	if err != nil {
+		return err
+	}
+	if !result.Valid {
+		return fmt.Errorf("script create produced invalid script: %s", result.Path)
+	}
+	fmt.Fprintf(stdout, "Script created: %s\n", result.Path)
+	return nil
+}
+
+func runScriptWrite(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("script write", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "script path")
+	body := fs.String("body", "", "script body")
+	bodyFile := fs.String("body-file", "", "local file containing script body")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" {
+		return fmt.Errorf("script write requires --path")
+	}
+	if (*body == "" && *bodyFile == "") || (*body != "" && *bodyFile != "") {
+		return fmt.Errorf("script write requires exactly one of --body or --body-file")
+	}
+	bodyText := *body
+	if *bodyFile != "" {
+		data, err := os.ReadFile(*bodyFile)
+		if err != nil {
+			return err
+		}
+		bodyText = string(data)
+	}
+	result, err := client.WriteScript(ctx, requestID(), *path, bodyText)
+	if err != nil {
+		return err
+	}
+	if !result.Valid {
+		return fmt.Errorf("script write produced invalid script: %s", result.Path)
+	}
+	fmt.Fprintf(stdout, "Script written: %s\n", result.Path)
+	return nil
+}
+
 func runDoctor(ctx context.Context, cfg bridge.Config, client *bridge.Client, manager addon.Manager, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -839,4 +929,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node move --path PATH --parent PARENT [--index N] [--dry-run]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node get --path PATH --property PROPERTY")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node set --path PATH --property PROPERTY --value TYPED_JSON")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script create --path PATH --extends CLASS [--force]")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script write --path PATH (--body TEXT | --body-file FILE)")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script check --path PATH")
 }

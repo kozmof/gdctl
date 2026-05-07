@@ -99,6 +99,23 @@ type NodePropertyResult struct {
 	Value    any    `json:"value,omitempty"`
 }
 
+type ScriptCheckResult struct {
+	Path  string `json:"path"`
+	Valid bool   `json:"valid"`
+}
+
+type ScriptCreateResult struct {
+	Path    string `json:"path"`
+	Valid   bool   `json:"valid"`
+	Created bool   `json:"created"`
+}
+
+type ScriptWriteResult struct {
+	Path    string `json:"path"`
+	Valid   bool   `json:"valid"`
+	Written bool   `json:"written"`
+}
+
 type LogEntry struct {
 	Time    string         `json:"time"`
 	Level   string         `json:"level"`

@@ -254,6 +254,78 @@ func (c *Client) SetNodeProperty(ctx context.Context, requestID, path, property 
 	return out, nil
 }
 
+func (c *Client) CheckScript(ctx context.Context, requestID, path string) (ScriptCheckResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "script.check",
+		Params: map[string]any{
+			"path": path,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/script/check", env)
+	if err != nil {
+		return ScriptCheckResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return ScriptCheckResult{}, err
+	}
+	var out ScriptCheckResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return ScriptCheckResult{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) CreateScript(ctx context.Context, requestID, path, extends string, force bool) (ScriptCreateResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "script.create",
+		Params: map[string]any{
+			"path":    path,
+			"extends": extends,
+			"force":   force,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/script/create", env)
+	if err != nil {
+		return ScriptCreateResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return ScriptCreateResult{}, err
+	}
+	var out ScriptCreateResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return ScriptCreateResult{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) WriteScript(ctx context.Context, requestID, path, body string) (ScriptWriteResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "script.write",
+		Params: map[string]any{
+			"path": path,
+			"body": body,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/script/write", env)
+	if err != nil {
+		return ScriptWriteResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return ScriptWriteResult{}, err
+	}
+	var out ScriptWriteResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return ScriptWriteResult{}, err
+	}
+	return out, nil
+}
+
 func (c *Client) UpdateAddon(ctx context.Context, requestID string, manifest map[string]any, files []AddonUpdateFile) (AddonUpdateResult, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,

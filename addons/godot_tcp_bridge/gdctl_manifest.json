@@ -12,6 +12,7 @@
     "log_commands.gd",
     "scene_commands.gd",
     "node_commands.gd",
+    "script_commands.gd",
     "protocol.gd",
     "typed_values.gd",
     "gdctl_manifest.json"
