@@ -77,6 +77,14 @@ type SceneSaveResult struct {
 	JobID  string `json:"job_id,omitempty"`
 }
 
+type SceneCreateResult struct {
+	Path     string `json:"path"`
+	RootType string `json:"root_type"`
+	RootName string `json:"root_name"`
+	RootPath string `json:"root_path"`
+	Created  bool   `json:"created"`
+}
+
 type NodePropertyResult struct {
 	Path     string `json:"path"`
 	Property string `json:"property"`

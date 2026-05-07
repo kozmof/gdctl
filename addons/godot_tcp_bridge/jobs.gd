@@ -22,7 +22,7 @@ func queue(kind: String, detail: Dictionary, context: Dictionary) -> String:
 	return job_id
 
 
-func status_response(job_id: String, protocol: RefCounted) -> Dictionary:
+func status_response(job_id: String, protocol) -> Dictionary:
 	if not jobs.has(job_id):
 		return protocol.bridge_error(404, "", "JOB_NOT_FOUND", "Job does not exist", {"job_id": job_id})
 	return protocol.http_json(200, {"ok": true, "job": jobs[job_id]})

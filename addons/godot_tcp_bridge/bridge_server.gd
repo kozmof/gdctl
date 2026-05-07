@@ -9,18 +9,24 @@ const TOKEN_PATH := "res://.godot-bridge-token"
 const ADDON_ROOT := "res://addons/godot_tcp_bridge/"
 const ADDON_BACKUP_ROOT := "res://addons/.godot_tcp_bridge_backup/"
 const TypedValues = preload("res://addons/godot_tcp_bridge/typed_values.gd")
+const BridgeCommands = preload("res://addons/godot_tcp_bridge/bridge_commands.gd")
+const SceneCommands = preload("res://addons/godot_tcp_bridge/scene_commands.gd")
 const NodeCommands = preload("res://addons/godot_tcp_bridge/node_commands.gd")
 const AddonUpdate = preload("res://addons/godot_tcp_bridge/addon_update.gd")
 const Protocol = preload("res://addons/godot_tcp_bridge/protocol.gd")
 const LogBuffer = preload("res://addons/godot_tcp_bridge/log_buffer.gd")
+const LogCommands = preload("res://addons/godot_tcp_bridge/log_commands.gd")
 const Jobs = preload("res://addons/godot_tcp_bridge/jobs.gd")
 
 var editor_plugin: EditorPlugin
 var typed_values = TypedValues.new()
+var bridge_commands = BridgeCommands.new()
+var scene_commands = SceneCommands.new()
 var node_commands = NodeCommands.new()
 var addon_update = AddonUpdate.new()
 var protocol = Protocol.new()
 var log_buffer = LogBuffer.new()
+var log_commands = LogCommands.new()
 var jobs = Jobs.new()
 var tcp_server := TCPServer.new()
 var clients: Array[Dictionary] = []
@@ -143,20 +149,19 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		path = path.substr(0, path.find("?"))
 
 	if method == "GET" and path == "/ping":
-		return protocol.http_json(200, _ping())
+		return bridge_commands.handle_ping(request, _command_context())
 	if method == "GET" and path == "/logs":
-		return _handle_logs(request)
+		return log_commands.handle_list(request, _command_context())
 	if method == "POST" and path == "/logs/clear":
-		return _handle_logs_clear(request)
+		return log_commands.handle_clear(request, _command_context())
 	if method == "GET" and path.begins_with("/jobs/"):
 		return _handle_job_status(request, path)
+	if method == "POST" and path == "/scene/create":
+		return scene_commands.handle_create(request, _command_context())
 	if method == "GET" and path == "/scene/tree":
-		var root := _edited_scene_root()
-		if root == null:
-			return protocol.bridge_error(409, "", "NO_SCENE_OPEN", "No edited scene is open", {})
-		return protocol.http_json(200, {"ok": true, "root": _node_info(root)})
+		return scene_commands.handle_tree(request, _command_context())
 	if method == "POST" and path == "/scene/save":
-		return _handle_scene_save(request)
+		return scene_commands.handle_save(request, _command_context())
 	if method == "POST" and path == "/node/add":
 		return node_commands.handle_add(request, _command_context())
 	if method == "POST" and path == "/node/remove":
@@ -174,56 +179,9 @@ func _handle_request(request: Dictionary) -> Dictionary:
 	return protocol.bridge_error(404, "", "UNKNOWN_ENDPOINT", "Unknown bridge endpoint", {"method": method, "path": path})
 
 
-func _handle_scene_save(request: Dictionary) -> Dictionary:
-	var body: Dictionary = protocol.json_body_or_error(request)
-	if body.has("error_response"):
-		return body["error_response"]
-	if not _authorized(request):
-		return protocol.bridge_error(401, body.get("request_id", ""), "UNAUTHORIZED", "Scene save requires bearer token", {})
-	if body.get("op", "") != "scene.save":
-		return protocol.bridge_error(400, body.get("request_id", ""), "INVALID_OPERATION", "Expected scene.save operation", {})
-	var params: Dictionary = _params_or_empty(body)
-	if String(params.get("path", "")) != "":
-		return protocol.bridge_error(400, body.get("request_id", ""), "SCENE_SAVE_AS_UNSUPPORTED", "Scene save --path is temporarily unsupported", {})
-
-	var root := _edited_scene_root()
-	if root == null:
-		return protocol.bridge_error(409, body.get("request_id", ""), "NO_SCENE_OPEN", "No edited scene is open", {})
-	if editor_plugin == null:
-		return protocol.bridge_error(500, body.get("request_id", ""), "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {})
-	if root.scene_file_path == "":
-		return protocol.bridge_error(409, body.get("request_id", ""), "SCENE_PATH_MISSING", "Save the scene once in Godot before using gdctl scene save", {"root": _logical_path(root)})
-
-	var job_id: String = jobs.queue("scene.save", {
-		"path": root.scene_file_path,
-		"root": _logical_path(root),
-		"request_id": body.get("request_id", ""),
-	}, _job_context())
-	return protocol.bridge_ok(body.get("request_id", ""), {
-		"queued": true,
-		"job_id": job_id,
-		"path": root.scene_file_path,
-		"root": _logical_path(root),
-	})
-
-
 func _handle_job_status(_request: Dictionary, path: String) -> Dictionary:
 	var job_id: String = path.trim_prefix("/jobs/")
 	return jobs.status_response(job_id, protocol)
-
-
-func _handle_logs(request: Dictionary) -> Dictionary:
-	if not _authorized(request):
-		return protocol.bridge_error(401, "", "UNAUTHORIZED", "Bridge logs require bearer token", {})
-	return protocol.http_json(200, {"ok": true, "entries": log_buffer.list()})
-
-
-func _handle_logs_clear(request: Dictionary) -> Dictionary:
-	if not _authorized(request):
-		return protocol.bridge_error(401, "", "UNAUTHORIZED", "Bridge log clearing requires bearer token", {})
-	log_buffer.clear()
-	log_buffer.add("info", "bridge.logs", "Logs cleared", {})
-	return protocol.bridge_ok("", {"cleared": true})
 
 
 func _params_or_empty(body: Dictionary) -> Dictionary:
@@ -238,15 +196,26 @@ func _command_context() -> Dictionary:
 		"json_body_or_error": Callable(protocol, "json_body_or_error"),
 		"params_or_empty": Callable(self, "_params_or_empty"),
 		"authorized": Callable(self, "_authorized"),
+		"http_json": Callable(protocol, "http_json"),
 		"bridge_ok": Callable(protocol, "bridge_ok"),
 		"bridge_error": Callable(protocol, "bridge_error"),
 		"edited_scene_root": Callable(self, "_edited_scene_root"),
+		"editor_plugin_available": Callable(self, "_editor_plugin_available"),
 		"node_by_path": Callable(self, "_node_by_path"),
+		"node_info": Callable(self, "_node_info"),
 		"logical_path": Callable(self, "_logical_path"),
 		"mark_scene_dirty": Callable(self, "_mark_scene_dirty"),
+		"queue_job": Callable(self, "_queue_job"),
 		"typed_values": typed_values,
+		"log_buffer": log_buffer,
 		"addon_root": ADDON_ROOT,
 		"addon_backup_root": ADDON_BACKUP_ROOT,
+		"plugin_version": PLUGIN_VERSION,
+		"protocol_version": PROTOCOL_VERSION,
+		"auth_enabled": auth_enabled,
+		"host": host,
+		"port": port,
+		"capabilities": _capabilities(),
 		"log": Callable(log_buffer, "add"),
 	}
 
@@ -260,6 +229,14 @@ func _job_context() -> Dictionary:
 	}
 
 
+func _queue_job(kind: String, detail: Dictionary) -> String:
+	return jobs.queue(kind, detail, _job_context())
+
+
+func _editor_plugin_available() -> bool:
+	return editor_plugin != null
+
+
 func _authorized(request: Dictionary) -> bool:
 	if not auth_enabled:
 		return true
@@ -268,36 +245,22 @@ func _authorized(request: Dictionary) -> bool:
 	return String(headers.get("authorization", "")) == expected
 
 
-func _ping() -> Dictionary:
-	var root := _edited_scene_root()
-	return {
-		"ok": true,
-		"service": "godot-bridge",
-		"engine": "Godot",
-		"engine_version": Engine.get_version_info().get("string", ""),
-		"plugin_version": PLUGIN_VERSION,
-		"project_name": ProjectSettings.get_setting("application/config/name", ""),
-		"project_path": ProjectSettings.globalize_path("res://"),
-		"scene_open": root != null,
-		"auth_enabled": auth_enabled,
-		"host": host,
-		"port": port,
-		"protocol_version": PROTOCOL_VERSION,
-		"capabilities": [
-			"ping",
-			"scene.tree",
-			"scene.save",
-			"jobs.get",
-			"node.add",
-			"node.remove",
-			"node.rename",
-			"node.move",
-			"node.get",
-			"node.set",
-			"addon.update",
-			"bridge.logs",
-		],
-	}
+func _capabilities() -> Array:
+	return [
+		"ping",
+		"scene.create",
+		"scene.tree",
+		"scene.save",
+		"jobs.get",
+		"node.add",
+		"node.remove",
+		"node.rename",
+		"node.move",
+		"node.get",
+		"node.set",
+		"addon.update",
+		"bridge.logs",
+	]
 
 
 func _edited_scene_root() -> Node:

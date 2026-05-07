@@ -48,6 +48,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	case "scene":
 		if len(rest) >= 2 {
 			switch rest[1] {
+			case "create":
+				return runSceneCreate(ctx, client, rest[2:], stdout)
 			case "tree":
 				return runSceneTree(ctx, client, stdout)
 			case "save":
@@ -439,6 +441,28 @@ func runSceneTree(ctx context.Context, client *bridge.Client, stdout io.Writer) 
 	return nil
 }
 
+func runSceneCreate(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("scene create", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "scene path, for example res://scenes/Main.tscn")
+	rootType := fs.String("root", "", "root node type")
+	rootName := fs.String("name", "", "root node name")
+	force := fs.Bool("force", false, "overwrite an existing scene file")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *rootType == "" || *rootName == "" {
+		return fmt.Errorf("scene create requires --path, --root, and --name")
+	}
+	result, err := client.CreateScene(ctx, requestID(), *path, *rootType, *rootName, *force)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Scene created: %s\n", result.Path)
+	fmt.Fprintf(stdout, "Root: %s %s\n", result.RootPath, result.RootType)
+	return nil
+}
+
 func runSceneSave(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("scene save", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -761,6 +785,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] bridge info")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] bridge logs [--json] [--clear]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] bridge addon-update")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene create --path PATH --root TYPE --name NAME [--force]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene tree")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene save")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node add --parent PATH --type TYPE --name NAME [--dry-run]")

@@ -103,6 +103,32 @@ func (c *Client) SaveScene(ctx context.Context, requestID, path string) (SceneSa
 	return out, nil
 }
 
+func (c *Client) CreateScene(ctx context.Context, requestID, path, rootType, rootName string, force bool) (SceneCreateResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "scene.create",
+		Params: map[string]any{
+			"path":      path,
+			"root_type": rootType,
+			"root_name": rootName,
+			"force":     force,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/scene/create", env)
+	if err != nil {
+		return SceneCreateResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return SceneCreateResult{}, err
+	}
+	var out SceneCreateResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return SceneCreateResult{}, err
+	}
+	return out, nil
+}
+
 func (c *Client) AddNode(ctx context.Context, requestID, parent, nodeType, name string, dryRun bool) (map[string]any, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,

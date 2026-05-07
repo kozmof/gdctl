@@ -109,6 +109,61 @@ func TestRunSceneSave(t *testing.T) {
 	}
 }
 
+func TestRunSceneCreate(t *testing.T) {
+	var gotAuth string
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/scene/create" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":      "res://scenes/Main.tscn",
+				"root_type": "Node2D",
+				"root_name": "Main",
+				"root_path": "/root/Main",
+				"created":   true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "scene", "create", "--path", "res://scenes/Main.tscn", "--root", "Node2D", "--name", "Main")
+	err := Run(context.Background(), args, &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if gotEnvelope.Op != "scene.create" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["path"] != "res://scenes/Main.tscn" || gotEnvelope.Params["root_type"] != "Node2D" || gotEnvelope.Params["root_name"] != "Main" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Scene created: res://scenes/Main.tscn") || !strings.Contains(stdout.String(), "Root: /root/Main Node2D") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRunSceneCreateRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"scene", "create", "--path", "res://scenes/Main.tscn", "--root", "Node2D"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--path, --root, and --name") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestRunSceneSavePathUnsupportedBeforeNetwork(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := Run(context.Background(), []string{"scene", "save", "--path", "res://main.tscn"}, &stdout, &stderr)
