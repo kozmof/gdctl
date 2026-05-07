@@ -443,16 +443,45 @@ func runSceneSave(ctx context.Context, client *bridge.Client, args []string, std
 	fs := flag.NewFlagSet("scene save", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	path := fs.String("path", "", "unsupported placeholder for future save-as support")
+	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for save job")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *path != "" {
 		return fmt.Errorf("scene save --path is temporarily unsupported; save the scene once in Godot, then run scene save")
 	}
-	_ = ctx
-	_ = client
-	_ = stdout
-	return fmt.Errorf("scene save is temporarily unsupported; save from Godot while bridge-safe save is implemented")
+	result, err := client.SaveScene(ctx, requestID(), "")
+	if err != nil {
+		return err
+	}
+	if result.JobID == "" {
+		return fmt.Errorf("scene save did not return a job id")
+	}
+	deadline := time.Now().Add(*timeout)
+	for {
+		job, err := client.Job(ctx, result.JobID)
+		if err != nil {
+			return err
+		}
+		switch job.Status {
+		case "succeeded":
+			path, _ := job.Result["path"].(string)
+			if path == "" {
+				path = result.Path
+			}
+			fmt.Fprintf(stdout, "Scene saved: %s\n", path)
+			return nil
+		case "failed":
+			if job.Error != nil {
+				return job.Error
+			}
+			return fmt.Errorf("scene save job failed")
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("scene save timed out waiting for job %s", result.JobID)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func runNodeAdd(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {

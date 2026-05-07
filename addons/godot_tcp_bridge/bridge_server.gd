@@ -22,6 +22,8 @@ var protocol = Protocol.new()
 var log_buffer = LogBuffer.new()
 var tcp_server := TCPServer.new()
 var clients: Array[Dictionary] = []
+var jobs: Dictionary = {}
+var pending_jobs: Array[String] = []
 var host := DEFAULT_HOST
 var port := DEFAULT_PORT
 var auth_enabled := true
@@ -78,6 +80,7 @@ func reset_token() -> String:
 func poll() -> void:
 	if not running:
 		return
+	_process_jobs()
 	if tcp_server.is_connection_available():
 		var peer := tcp_server.take_connection()
 		clients.append({"peer": peer, "buffer": PackedByteArray()})
@@ -145,6 +148,8 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return _handle_logs(request)
 	if method == "POST" and path == "/logs/clear":
 		return _handle_logs_clear(request)
+	if method == "GET" and path.begins_with("/jobs/"):
+		return _handle_job_status(request, path)
 	if method == "GET" and path == "/scene/tree":
 		var root := _edited_scene_root()
 		if root == null:
@@ -177,14 +182,36 @@ func _handle_scene_save(request: Dictionary) -> Dictionary:
 		return protocol.bridge_error(401, body.get("request_id", ""), "UNAUTHORIZED", "Scene save requires bearer token", {})
 	if body.get("op", "") != "scene.save":
 		return protocol.bridge_error(400, body.get("request_id", ""), "INVALID_OPERATION", "Expected scene.save operation", {})
+	var params: Dictionary = _params_or_empty(body)
+	if String(params.get("path", "")) != "":
+		return protocol.bridge_error(400, body.get("request_id", ""), "SCENE_SAVE_AS_UNSUPPORTED", "Scene save --path is temporarily unsupported", {})
 
 	var root := _edited_scene_root()
 	if root == null:
 		return protocol.bridge_error(409, body.get("request_id", ""), "NO_SCENE_OPEN", "No edited scene is open", {})
 	if editor_plugin == null:
 		return protocol.bridge_error(500, body.get("request_id", ""), "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {})
+	if root.scene_file_path == "":
+		return protocol.bridge_error(409, body.get("request_id", ""), "SCENE_PATH_MISSING", "Save the scene once in Godot before using gdctl scene save", {"root": _logical_path(root)})
 
-	return protocol.bridge_error(501, body.get("request_id", ""), "SCENE_SAVE_UNSUPPORTED", "Scene save is temporarily disabled because direct editor save calls are unstable in the bridge request handler", {"root": _logical_path(root), "path": root.scene_file_path})
+	var job_id: String = _queue_job("scene.save", {
+		"path": root.scene_file_path,
+		"root": _logical_path(root),
+		"request_id": body.get("request_id", ""),
+	})
+	return protocol.bridge_ok(body.get("request_id", ""), {
+		"queued": true,
+		"job_id": job_id,
+		"path": root.scene_file_path,
+		"root": _logical_path(root),
+	})
+
+
+func _handle_job_status(_request: Dictionary, path: String) -> Dictionary:
+	var job_id: String = path.trim_prefix("/jobs/")
+	if not jobs.has(job_id):
+		return protocol.bridge_error(404, "", "JOB_NOT_FOUND", "Job does not exist", {"job_id": job_id})
+	return protocol.http_json(200, {"ok": true, "job": jobs[job_id]})
 
 
 func _handle_logs(request: Dictionary) -> Dictionary:
@@ -252,6 +279,8 @@ func _ping() -> Dictionary:
 		"capabilities": [
 			"ping",
 			"scene.tree",
+			"scene.save",
+			"jobs.get",
 			"node.add",
 			"node.remove",
 			"node.rename",
@@ -318,6 +347,80 @@ func _logical_path(node: Node) -> String:
 func _mark_scene_dirty() -> void:
 	if editor_plugin:
 		editor_plugin.get_editor_interface().mark_scene_as_unsaved()
+
+
+func _queue_job(kind: String, detail: Dictionary) -> String:
+	var job_id: String = "%s-%d-%d" % [kind.replace(".", "-"), Time.get_ticks_msec(), randi()]
+	jobs[job_id] = {
+		"id": job_id,
+		"kind": kind,
+		"status": "pending",
+		"created_at": Time.get_datetime_string_from_system(true),
+		"updated_at": Time.get_datetime_string_from_system(true),
+		"detail": detail,
+		"result": {},
+		"error": {},
+	}
+	pending_jobs.append(job_id)
+	log_buffer.add("info", "bridge.job", "Job queued", {"job_id": job_id, "kind": kind})
+	return job_id
+
+
+func _process_jobs() -> void:
+	if pending_jobs.is_empty():
+		return
+	var job_id: String = pending_jobs.pop_front()
+	if not jobs.has(job_id):
+		return
+	var job: Dictionary = jobs[job_id]
+	job["status"] = "running"
+	job["updated_at"] = Time.get_datetime_string_from_system(true)
+	jobs[job_id] = job
+	if String(job.get("kind", "")) == "scene.save":
+		_run_scene_save_job(job_id)
+	else:
+		_finish_job_error(job_id, "JOB_KIND_UNKNOWN", "Unknown job kind", {"kind": job.get("kind", "")})
+
+
+func _run_scene_save_job(job_id: String) -> void:
+	var root := _edited_scene_root()
+	if root == null:
+		_finish_job_error(job_id, "NO_SCENE_OPEN", "No edited scene is open", {})
+		return
+	if root.scene_file_path == "":
+		_finish_job_error(job_id, "SCENE_PATH_MISSING", "Edited scene has no path", {"root": _logical_path(root)})
+		return
+	if editor_plugin == null:
+		_finish_job_error(job_id, "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {})
+		return
+	editor_plugin.get_editor_interface().save_scene()
+	_finish_job_ok(job_id, {
+		"saved": true,
+		"path": root.scene_file_path,
+		"root": _logical_path(root),
+	})
+
+
+func _finish_job_ok(job_id: String, result: Dictionary) -> void:
+	if not jobs.has(job_id):
+		return
+	var job: Dictionary = jobs[job_id]
+	job["status"] = "succeeded"
+	job["updated_at"] = Time.get_datetime_string_from_system(true)
+	job["result"] = result
+	jobs[job_id] = job
+	log_buffer.add("info", "bridge.job", "Job succeeded", {"job_id": job_id, "kind": job.get("kind", "")})
+
+
+func _finish_job_error(job_id: String, code: String, message: String, detail: Dictionary) -> void:
+	if not jobs.has(job_id):
+		return
+	var job: Dictionary = jobs[job_id]
+	job["status"] = "failed"
+	job["updated_at"] = Time.get_datetime_string_from_system(true)
+	job["error"] = {"code": code, "message": message, "detail": detail}
+	jobs[job_id] = job
+	log_buffer.add("error", "bridge.job", "Job failed", {"job_id": job_id, "kind": job.get("kind", ""), "error": job["error"]})
 
 
 func _log_request(request: Dictionary) -> void:

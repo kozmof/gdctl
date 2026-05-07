@@ -58,8 +58,7 @@ gdctl bridge logs
 gdctl bridge logs --json
 gdctl bridge logs --clear
 gdctl scene tree
-# Temporarily disabled while bridge-safe editor save is implemented:
-# gdctl scene save
+gdctl scene save
 gdctl node add --parent /root/Main --type Node2D --name EnemySpawner
 gdctl node rename --path /root/Main/EnemySpawner --name SpawnPoint
 gdctl node move --path /root/Main/SpawnPoint --parent /root/Main/Track

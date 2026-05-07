@@ -148,6 +148,34 @@ func TestClientClearLogsRequest(t *testing.T) {
 	}
 }
 
+func TestClientJobRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/jobs/save-1" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(JobResponse{
+			OK: true,
+			Job: Job{
+				ID:     "save-1",
+				Kind:   "scene.save",
+				Status: "succeeded",
+				Result: map[string]any{"path": "res://main.tscn"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http"}
+	client := NewClient(cfg)
+	job, err := client.Job(context.Background(), "save-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Status != "succeeded" || job.Result["path"] != "res://main.tscn" {
+		t.Fatalf("job = %#v", job)
+	}
+}
+
 func TestClientRenameNodeRequest(t *testing.T) {
 	var gotEnvelope RequestEnvelope
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

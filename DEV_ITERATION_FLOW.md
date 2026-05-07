@@ -137,7 +137,7 @@ The running addon is older than the CLI command. Manually update/reload the addo
 Status:
 
 ```text
-gdctl scene save is temporarily disabled.
+gdctl scene save is enabled through a deferred bridge job.
 ```
 
 What happened:
@@ -147,22 +147,23 @@ Calling Godot editor scene-save APIs from the bridge request handler crashed/res
 Both direct save_scene() and attempted save-as approaches proved unsafe in this bridge context.
 ```
 
-Current safe behavior:
+Current safer behavior:
 
 ```text
-The CLI rejects gdctl scene save before making a bridge request.
-The bridge endpoint returns SCENE_SAVE_UNSUPPORTED before calling any Godot save APIs.
+The CLI queues gdctl scene save and polls /jobs/<id>.
+The bridge performs the save from its editor process loop, not directly in the TCP request handler.
+Only already-saved open scenes are supported for now; save-as remains unsupported.
 ```
 
 Recovery steps after a crash:
 
 ```text
 1. Restart Godot if needed.
-2. Manually copy or install the latest addon version that disables scene save.
+2. Check gdctl bridge logs for bridge.job entries.
 3. Enable the plugin.
 4. Verify the bridge:
    go run ./cmd/gdctl bridge info
-5. Save scenes manually in Godot for now.
+5. If async save still fails, save scenes manually in Godot for that session.
 ```
 
 Do not retry save implementation by directly calling these from the request handler:
@@ -173,12 +174,13 @@ EditorInterface.save_scene_as(...)
 PackedScene.pack(root) + ResourceSaver.save(...)
 ```
 
-Before re-enabling CLI scene save, design a safer implementation. Candidate directions:
+Future scene save directions:
 
 ```text
-Use deferred editor-main-thread execution with explicit state/result polling.
+Keep deferred editor-main-thread execution with explicit state/result polling.
 Use an EditorScript or Godot command-line batch script outside the live editor plugin.
 Create scene/resource files through controlled file/resource operations instead of saving the active editor scene.
+Add save-as only after already-saved scenes remain stable.
 ```
 
 Acceptance criteria for revisiting scene save:
@@ -212,7 +214,7 @@ gdctl node rename --path /root/Main/Player --name PlayerCar
 gdctl node move --path /root/Main/PlayerCar --parent /root/Main/Track
 ```
 
-Scene saving should be revisited later with a deferred/editor-safe implementation.
+Scene saving now uses a deferred/editor-process job. Save-as is still intentionally unsupported.
 
 ## 8. Current Self-Update Caveat
 

@@ -67,13 +67,45 @@ func TestRunSceneTree(t *testing.T) {
 }
 
 func TestRunSceneSave(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		switch r.URL.Path {
+		case "/scene/save":
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK: true,
+				Result: map[string]any{
+					"queued": true,
+					"job_id": "save-1",
+					"path":   "res://main.tscn",
+				},
+			})
+		case "/jobs/save-1":
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{
+				OK: true,
+				Job: bridge.Job{
+					ID:     "save-1",
+					Kind:   "scene.save",
+					Status: "succeeded",
+					Result: map[string]any{"path": "res://main.tscn"},
+				},
+			})
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
 	var stdout, stderr bytes.Buffer
-	err := Run(context.Background(), []string{"scene", "save"}, &stdout, &stderr)
-	if err == nil {
-		t.Fatal("expected unsupported scene save error")
+	err := Run(context.Background(), append(serverArgs(server), "scene", "save"), &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "temporarily unsupported") {
-		t.Fatalf("err = %v", err)
+	if !strings.Contains(stdout.String(), "Scene saved: res://main.tscn") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d", requests)
 	}
 }
 

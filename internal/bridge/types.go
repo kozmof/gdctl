@@ -70,9 +70,11 @@ type AddonUpdateResult struct {
 }
 
 type SceneSaveResult struct {
-	Path  string `json:"path,omitempty"`
-	Root  string `json:"root,omitempty"`
-	Saved bool   `json:"saved"`
+	Path   string `json:"path,omitempty"`
+	Root   string `json:"root,omitempty"`
+	Saved  bool   `json:"saved,omitempty"`
+	Queued bool   `json:"queued,omitempty"`
+	JobID  string `json:"job_id,omitempty"`
 }
 
 type NodePropertyResult struct {
@@ -92,4 +94,20 @@ type LogEntry struct {
 type LogsResponse struct {
 	OK      bool       `json:"ok"`
 	Entries []LogEntry `json:"entries"`
+}
+
+type Job struct {
+	ID        string         `json:"id"`
+	Kind      string         `json:"kind"`
+	Status    string         `json:"status"`
+	CreatedAt string         `json:"created_at"`
+	UpdatedAt string         `json:"updated_at"`
+	Detail    map[string]any `json:"detail,omitempty"`
+	Result    map[string]any `json:"result,omitempty"`
+	Error     *BridgeError   `json:"error,omitempty"`
+}
+
+type JobResponse struct {
+	OK  bool `json:"ok"`
+	Job Job  `json:"job"`
 }

@@ -67,6 +67,17 @@ func (c *Client) ClearLogs(ctx context.Context, requestID string) error {
 	return err
 }
 
+func (c *Client) Job(ctx context.Context, jobID string) (Job, error) {
+	var out JobResponse
+	if err := c.getJSON(ctx, "/jobs/"+jobID, &out); err != nil {
+		return Job{}, err
+	}
+	if !out.OK {
+		return Job{}, fmt.Errorf("job request failed")
+	}
+	return out.Job, nil
+}
+
 func (c *Client) SaveScene(ctx context.Context, requestID, path string) (SceneSaveResult, error) {
 	params := map[string]any{}
 	if path != "" {
