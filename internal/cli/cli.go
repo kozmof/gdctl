@@ -1,11 +1,15 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"net"
 	"os"
@@ -108,6 +112,20 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			switch rest[1] {
 			case "write":
 				return runMaterialWrite(ctx, client, rest[2:], stdout)
+			}
+		}
+	case "file":
+		if len(rest) >= 2 {
+			switch rest[1] {
+			case "write-bytes":
+				return runFileWriteBytes(ctx, client, rest[2:], stdout)
+			}
+		}
+	case "lut":
+		if len(rest) >= 2 {
+			switch rest[1] {
+			case "write":
+				return runLUTWrite(ctx, client, rest[2:], stdout)
 			}
 		}
 	case "viewport":
@@ -951,6 +969,114 @@ func runMaterialWrite(ctx context.Context, client *bridge.Client, args []string,
 	return nil
 }
 
+func runFileWriteBytes(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("file write-bytes", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "resource file path")
+	inPath := fs.String("in", "", "local input file path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *inPath == "" {
+		return fmt.Errorf("file write-bytes requires --path and --in")
+	}
+	data, err := os.ReadFile(*inPath)
+	if err != nil {
+		return err
+	}
+	result, err := client.WriteFileBytes(ctx, requestID(), *path, base64.StdEncoding.EncodeToString(data))
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "File written: %s (%d bytes)\n", result.Path, result.Bytes)
+	return nil
+}
+
+type edgeProfile struct {
+	ID    int     `json:"id"`
+	Mode  string  `json:"mode"`
+	Mix   float64 `json:"mix"`
+	Blur  float64 `json:"blur"`
+	Width float64 `json:"width"`
+}
+
+func runLUTWrite(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("lut write", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "resource PNG path")
+	profilesPath := fs.String("profiles", "", "local edge profile JSON path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *profilesPath == "" {
+		return fmt.Errorf("lut write requires --path and --profiles")
+	}
+	data, err := os.ReadFile(*profilesPath)
+	if err != nil {
+		return err
+	}
+	var profiles []edgeProfile
+	if err := json.Unmarshal(data, &profiles); err != nil {
+		return fmt.Errorf("parse edge profiles: %w", err)
+	}
+	pngData, err := buildEdgeLUTPNG(profiles)
+	if err != nil {
+		return err
+	}
+	result, err := client.WriteFileBytes(ctx, requestID(), *path, base64.StdEncoding.EncodeToString(pngData))
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "LUT written: %s (%d bytes)\n", result.Path, result.Bytes)
+	fmt.Fprintf(stdout, "Profiles: %d\n", len(profiles))
+	return nil
+}
+
+func buildEdgeLUTPNG(profiles []edgeProfile) ([]byte, error) {
+	img := image.NewNRGBA(image.Rect(0, 0, 256, 1))
+	for _, profile := range profiles {
+		if profile.ID < 0 || profile.ID > 255 {
+			return nil, fmt.Errorf("edge profile id must be between 0 and 255: %d", profile.ID)
+		}
+		img.SetNRGBA(profile.ID, 0, color.NRGBA{
+			R: byteFromUnit(profile.Mix),
+			G: byteFromUnit(profile.Blur),
+			B: byteFromUnit(profile.Width),
+			A: byteFromUnit(modeValue(profile.Mode)),
+		})
+	}
+	var out bytes.Buffer
+	if err := png.Encode(&out, img); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
+func byteFromUnit(value float64) uint8 {
+	if value < 0 {
+		value = 0
+	}
+	if value > 1 {
+		value = 1
+	}
+	return uint8(value*255 + 0.5)
+}
+
+func modeValue(mode string) float64 {
+	switch strings.ToLower(mode) {
+	case "", "off":
+		return 0.0
+	case "blur":
+		return 0.33
+	case "bleed":
+		return 0.66
+	case "preserve", "ink-preserve", "crisp":
+		return 1.0
+	default:
+		return 0.0
+	}
+}
+
 func runViewportScreenshot(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("viewport screenshot", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -1163,5 +1289,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] shader write --path PATH (--body TEXT | --body-file FILE)")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] shader check --path PATH")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] material write --path PATH --shader SHADER")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file write-bytes --path PATH --in FILE")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] lut write --path PATH --profiles FILE")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] viewport screenshot --out FILE [--kind 2d|3d] [--index N]")
 }

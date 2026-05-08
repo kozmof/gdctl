@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"image/color"
+	"image/png"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -752,6 +754,117 @@ func TestMaterialWriteRequiresFlagsBeforeNetwork(t *testing.T) {
 		t.Fatal("expected validation error")
 	}
 	if !strings.Contains(err.Error(), "--path and --shader") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunFileWriteBytes(t *testing.T) {
+	inPath := filepath.Join(t.TempDir(), "edge_lut.png")
+	if err := os.WriteFile(inPath, []byte("png-data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/file/write-bytes" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":    "res://mini_3d/edge_lut.png",
+				"bytes":   8,
+				"written": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "file", "write-bytes", "--path", "res://mini_3d/edge_lut.png", "--in", inPath)
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "file.write_bytes" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["path"] != "res://mini_3d/edge_lut.png" || gotEnvelope.Params["content_base64"] != base64.StdEncoding.EncodeToString([]byte("png-data")) {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "File written: res://mini_3d/edge_lut.png (8 bytes)") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRunLUTWrite(t *testing.T) {
+	profilesPath := filepath.Join(t.TempDir(), "edge_profiles.json")
+	if err := os.WriteFile(profilesPath, []byte(`[{"id":2,"mode":"bleed","mix":0.5,"blur":0.25,"width":1.0}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/file/write-bytes" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":    "res://mini_3d/edge_lut.png",
+				"bytes":   93,
+				"written": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "lut", "write", "--path", "res://mini_3d/edge_lut.png", "--profiles", profilesPath)
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "file.write_bytes" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	content, ok := gotEnvelope.Params["content_base64"].(string)
+	if !ok || content == "" {
+		t.Fatalf("content_base64 missing: %#v", gotEnvelope.Params)
+	}
+	pngData, err := base64.StdEncoding.DecodeString(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := png.Decode(bytes.NewReader(pngData))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if img.Bounds().Dx() != 256 || img.Bounds().Dy() != 1 {
+		t.Fatalf("bounds = %v", img.Bounds())
+	}
+	pixel := color.NRGBAModel.Convert(img.At(2, 0)).(color.NRGBA)
+	if pixel.R != 128 || pixel.G != 64 || pixel.B != 255 || pixel.A == 0 {
+		t.Fatalf("pixel = %d %d %d %d", pixel.R, pixel.G, pixel.B, pixel.A)
+	}
+	if !strings.Contains(stdout.String(), "LUT written: res://mini_3d/edge_lut.png") || !strings.Contains(stdout.String(), "Profiles: 1") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestLUTWriteValidatesProfileIDBeforeNetwork(t *testing.T) {
+	profilesPath := filepath.Join(t.TempDir(), "edge_profiles.json")
+	if err := os.WriteFile(profilesPath, []byte(`[{"id":300}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"lut", "write", "--path", "res://mini_3d/edge_lut.png", "--profiles", profilesPath}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "between 0 and 255") {
 		t.Fatalf("err = %v", err)
 	}
 }

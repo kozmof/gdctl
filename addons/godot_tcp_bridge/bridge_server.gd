@@ -16,6 +16,7 @@ const NodeCommands = preload("res://addons/godot_tcp_bridge/commands/node_comman
 const ScriptCommands = preload("res://addons/godot_tcp_bridge/commands/script_commands.gd")
 const ShaderCommands = preload("res://addons/godot_tcp_bridge/commands/shader_commands.gd")
 const MaterialCommands = preload("res://addons/godot_tcp_bridge/commands/material_commands.gd")
+const FileCommands = preload("res://addons/godot_tcp_bridge/commands/file_commands.gd")
 const ViewportCommands = preload("res://addons/godot_tcp_bridge/commands/viewport_commands.gd")
 const AddonUpdate = preload("res://addons/godot_tcp_bridge/addon_update.gd")
 const Protocol = preload("res://addons/godot_tcp_bridge/protocol.gd")
@@ -32,6 +33,7 @@ var node_commands = NodeCommands.new()
 var script_commands = ScriptCommands.new()
 var shader_commands = ShaderCommands.new()
 var material_commands = MaterialCommands.new()
+var file_commands = FileCommands.new()
 var viewport_commands = ViewportCommands.new()
 var addon_update = AddonUpdate.new()
 var protocol = Protocol.new()
@@ -204,6 +206,8 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return shader_commands.handle_write(request, _command_context())
 	if method == "POST" and path == "/material/write":
 		return material_commands.handle_write(request, _command_context())
+	if method == "POST" and path == "/file/write-bytes":
+		return file_commands.handle_write_bytes(request, _command_context())
 	if method == "POST" and path == "/viewport/screenshot":
 		return viewport_commands.handle_screenshot(request, _command_context())
 	if method == "POST" and path == "/addon/update":
@@ -301,6 +305,7 @@ func _capabilities() -> Array:
 		"shader.check",
 		"shader.write",
 		"material.write",
+		"file.write_bytes",
 		"viewport.screenshot",
 		"addon.update",
 		"bridge.logs",

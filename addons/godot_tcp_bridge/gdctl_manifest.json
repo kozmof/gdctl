@@ -13,6 +13,7 @@
     "commands/script_commands.gd",
     "commands/shader_commands.gd",
     "commands/material_commands.gd",
+    "commands/file_commands.gd",
     "commands/viewport_commands.gd",
     "addon_update.gd",
     "jobs.gd",

@@ -285,6 +285,8 @@ script create/write/check
 shader write/check
 material write
 node set-resource
+file write-bytes
+lut write
 viewport screenshot
 bridge logs
 ```
@@ -309,9 +311,12 @@ gdctl shader write --path res://shaders/edge_mix_3d.gdshader --body-file example
 gdctl shader check --path res://shaders/edge_mix_3d.gdshader
 gdctl material write --path res://materials/edge_mix.tres --shader res://shaders/edge_mix_3d.gdshader
 gdctl node set-resource --path /root/Main3D/Player/Body --property material --resource res://materials/edge_mix.tres
+gdctl lut write --path res://textures/edge_lut.png --profiles examples/edge_profiles.json
 ```
 
 This intentionally avoids partial shader or material parameter mutation at first. Rewriting the whole `.gdshader` file is easier to reason about, easier to diff, and matches the current bridge pattern for scripts.
+
+`lut write` generates a 256x1 PNG locally from JSON edge profiles and uploads it through `file write-bytes`. This keeps Edge ID + LUT authoring data-driven while reusing one general binary file primitive.
 
 ## 10. Current Self-Update Caveat
 

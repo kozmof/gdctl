@@ -76,6 +76,8 @@ gdctl shader write --path res://shaders/edge_mix_3d.gdshader --body-file ./edge_
 gdctl shader check --path res://shaders/edge_mix_3d.gdshader
 gdctl material write --path res://materials/edge_mix.tres --shader res://shaders/edge_mix_3d.gdshader
 gdctl node set-resource --path /root/Main/Body --property material --resource res://materials/edge_mix.tres
+gdctl file write-bytes --path res://textures/raw.bin --in ./raw.bin
+gdctl lut write --path res://textures/edge_lut.png --profiles ./edge_profiles.json
 gdctl viewport screenshot --out ./status.png
 ```
 
@@ -216,6 +218,25 @@ gdctl node set-resource \
 
 `node set-resource` loads a `res://` resource and assigns it to a node property, which is enough to connect a generated `ShaderMaterial` to visible 3D geometry.
 
+Edge ID LUTs are generated from JSON profile data as 256x1 PNG files:
+
+```bash
+gdctl lut write \
+  --path res://textures/edge_lut.png \
+  --profiles ./edge_profiles.json
+```
+
+The profile fields pack into PNG channels:
+
+```text
+R = mix
+G = blur
+B = width
+A = mode
+```
+
+`file write-bytes` is the lower-level binary upload primitive used by `lut write`.
+
 ## Current Visual Check Workflow
 
 `gdctl` can capture the Godot editor viewport and write the PNG in the CLI environment:
@@ -294,6 +315,7 @@ script.write
 shader.check
 shader.write
 material.write
+file.write_bytes
 viewport.screenshot
 addon.update
 bridge.logs

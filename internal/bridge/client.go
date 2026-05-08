@@ -471,6 +471,30 @@ func (c *Client) WriteMaterial(ctx context.Context, requestID, path, shaderPath 
 	return out, nil
 }
 
+func (c *Client) WriteFileBytes(ctx context.Context, requestID, path, contentBase64 string) (FileWriteBytesResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "file.write_bytes",
+		Params: map[string]any{
+			"path":           path,
+			"content_base64": contentBase64,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/file/write-bytes", env)
+	if err != nil {
+		return FileWriteBytesResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return FileWriteBytesResult{}, err
+	}
+	var out FileWriteBytesResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return FileWriteBytesResult{}, err
+	}
+	return out, nil
+}
+
 func (c *Client) ScreenshotViewport(ctx context.Context, requestID, kind string, index int) (ViewportScreenshotResult, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,

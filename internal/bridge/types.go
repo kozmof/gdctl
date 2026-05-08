@@ -154,6 +154,12 @@ type MaterialWriteResult struct {
 	Written bool   `json:"written"`
 }
 
+type FileWriteBytesResult struct {
+	Path    string `json:"path"`
+	Bytes   int    `json:"bytes"`
+	Written bool   `json:"written"`
+}
+
 type ViewportScreenshotResult struct {
 	Format        string `json:"format,omitempty"`
 	Kind          string `json:"kind,omitempty"`
