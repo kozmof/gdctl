@@ -27,6 +27,23 @@ func handle_write(request: Dictionary, context: Dictionary) -> Dictionary:
 
 	var material := ShaderMaterial.new()
 	material.shader = shader
+	var texture_params_value: Variant = params.get("texture_params", {})
+	if typeof(texture_params_value) != TYPE_DICTIONARY:
+		return context["bridge_error"].call(400, request_id, "MATERIAL_PARAMS_INVALID", "texture_params must be an object", {})
+	var texture_params: Dictionary = texture_params_value
+	for param_name_value in texture_params.keys():
+		var param_name: String = String(param_name_value)
+		var resource_path: String = String(texture_params[param_name_value])
+		if param_name == "":
+			return context["bridge_error"].call(400, request_id, "MATERIAL_PARAM_INVALID", "Texture parameter name is required", {})
+		if resource_path == "" or not resource_path.begins_with("res://"):
+			return context["bridge_error"].call(400, request_id, "RESOURCE_PATH_INVALID", "Texture parameter resource must be a res:// path", {"name": param_name, "path": resource_path})
+		if not FileAccess.file_exists(resource_path):
+			return context["bridge_error"].call(404, request_id, "RESOURCE_NOT_FOUND", "Texture parameter resource does not exist", {"name": param_name, "path": resource_path})
+		var resource: Resource = ResourceLoader.load(resource_path, "", ResourceLoader.CACHE_MODE_REPLACE)
+		if resource == null:
+			return context["bridge_error"].call(500, request_id, "RESOURCE_LOAD_FAILED", "Could not load texture parameter resource", {"name": param_name, "path": resource_path})
+		material.set_shader_parameter(param_name, resource)
 	var save_err: Error = ResourceSaver.save(material, material_path)
 	if save_err != OK:
 		return context["bridge_error"].call(500, request_id, "MATERIAL_SAVE_FAILED", "Could not save material", {"path": material_path, "error": error_string(save_err)})
@@ -34,6 +51,7 @@ func handle_write(request: Dictionary, context: Dictionary) -> Dictionary:
 	return context["bridge_ok"].call(request_id, {
 		"path": material_path,
 		"shader": shader_path,
+		"texture_params": texture_params,
 		"written": true,
 	})
 

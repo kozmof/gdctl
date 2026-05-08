@@ -447,13 +447,14 @@ func (c *Client) WriteShader(ctx context.Context, requestID, path, body string) 
 	return out, nil
 }
 
-func (c *Client) WriteMaterial(ctx context.Context, requestID, path, shaderPath string) (MaterialWriteResult, error) {
+func (c *Client) WriteMaterial(ctx context.Context, requestID, path, shaderPath string, textureParams map[string]string) (MaterialWriteResult, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,
 		Op:        "material.write",
 		Params: map[string]any{
-			"path":   path,
-			"shader": shaderPath,
+			"path":           path,
+			"shader":         shaderPath,
+			"texture_params": textureParams,
 		},
 	}
 	result, err := c.postEnvelope(ctx, "/material/write", env)

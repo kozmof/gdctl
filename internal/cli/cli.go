@@ -954,19 +954,54 @@ func runMaterialWrite(ctx context.Context, client *bridge.Client, args []string,
 	fs.SetOutput(io.Discard)
 	path := fs.String("path", "", "material resource path")
 	shaderPath := fs.String("shader", "", "shader resource path")
+	textureParams := stringListFlag{}
+	fs.Var(&textureParams, "texture-param", "shader texture parameter in name=res://path form")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *path == "" || *shaderPath == "" {
 		return fmt.Errorf("material write requires --path and --shader")
 	}
-	result, err := client.WriteMaterial(ctx, requestID(), *path, *shaderPath)
+	parsedTextureParams, err := parseNameResourcePairs(textureParams)
+	if err != nil {
+		return err
+	}
+	result, err := client.WriteMaterial(ctx, requestID(), *path, *shaderPath, parsedTextureParams)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "Material written: %s\n", result.Path)
 	fmt.Fprintf(stdout, "Shader: %s\n", result.Shader)
+	if len(result.TextureParams) > 0 {
+		fmt.Fprintf(stdout, "Texture params: %d\n", len(result.TextureParams))
+	}
 	return nil
+}
+
+type stringListFlag []string
+
+func (s *stringListFlag) String() string {
+	return strings.Join(*s, ",")
+}
+
+func (s *stringListFlag) Set(value string) error {
+	*s = append(*s, value)
+	return nil
+}
+
+func parseNameResourcePairs(values []string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, value := range values {
+		name, resourcePath, ok := strings.Cut(value, "=")
+		if !ok || name == "" || resourcePath == "" {
+			return nil, fmt.Errorf("--texture-param must use name=res://path")
+		}
+		if !strings.HasPrefix(resourcePath, "res://") {
+			return nil, fmt.Errorf("--texture-param resource must be a res:// path: %s", resourcePath)
+		}
+		out[name] = resourcePath
+	}
+	return out, nil
 }
 
 func runFileWriteBytes(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
@@ -1288,7 +1323,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script check --path PATH")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] shader write --path PATH (--body TEXT | --body-file FILE)")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] shader check --path PATH")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] material write --path PATH --shader SHADER")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] material write --path PATH --shader SHADER [--texture-param NAME=RESOURCE]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file write-bytes --path PATH --in FILE")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] lut write --path PATH --profiles FILE")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] viewport screenshot --out FILE [--kind 2d|3d] [--index N]")

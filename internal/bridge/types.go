@@ -149,9 +149,10 @@ type ShaderWriteResult struct {
 }
 
 type MaterialWriteResult struct {
-	Path    string `json:"path"`
-	Shader  string `json:"shader"`
-	Written bool   `json:"written"`
+	Path          string            `json:"path"`
+	Shader        string            `json:"shader"`
+	TextureParams map[string]string `json:"texture_params,omitempty"`
+	Written       bool              `json:"written"`
 }
 
 type FileWriteBytesResult struct {

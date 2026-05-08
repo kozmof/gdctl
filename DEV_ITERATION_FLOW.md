@@ -309,7 +309,7 @@ Shader authoring starts with whole-file operations:
 ```bash
 gdctl shader write --path res://shaders/edge_mix_3d.gdshader --body-file examples/edge_mix_3d.gdshader
 gdctl shader check --path res://shaders/edge_mix_3d.gdshader
-gdctl material write --path res://materials/edge_mix.tres --shader res://shaders/edge_mix_3d.gdshader
+gdctl material write --path res://materials/edge_mix.tres --shader res://shaders/edge_mix_3d.gdshader --texture-param edge_lut=res://textures/edge_lut.png
 gdctl node set-resource --path /root/Main3D/Player/Body --property material --resource res://materials/edge_mix.tres
 gdctl lut write --path res://textures/edge_lut.png --profiles examples/edge_profiles.json
 ```

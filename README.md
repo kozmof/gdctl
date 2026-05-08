@@ -75,6 +75,7 @@ gdctl node attach-script --path /root/PlayerCar --script res://scripts/player_ca
 gdctl shader write --path res://shaders/edge_mix_3d.gdshader --body-file ./edge_mix_3d.gdshader
 gdctl shader check --path res://shaders/edge_mix_3d.gdshader
 gdctl material write --path res://materials/edge_mix.tres --shader res://shaders/edge_mix_3d.gdshader
+gdctl material write --path res://materials/edge_mix.tres --shader res://shaders/edge_mix_3d.gdshader --texture-param edge_lut=res://textures/edge_lut.png
 gdctl node set-resource --path /root/Main/Body --property material --resource res://materials/edge_mix.tres
 gdctl file write-bytes --path res://textures/raw.bin --in ./raw.bin
 gdctl lut write --path res://textures/edge_lut.png --profiles ./edge_profiles.json
@@ -208,7 +209,8 @@ Shader materials can also be generated as whole resources:
 ```bash
 gdctl material write \
   --path res://materials/edge_mix.tres \
-  --shader res://shaders/edge_mix_3d.gdshader
+  --shader res://shaders/edge_mix_3d.gdshader \
+  --texture-param edge_lut=res://textures/edge_lut.png
 
 gdctl node set-resource \
   --path /root/Main3D/Player/Body \

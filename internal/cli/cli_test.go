@@ -720,8 +720,11 @@ func TestRunMaterialWrite(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
 			OK: true,
 			Result: map[string]any{
-				"path":    "res://materials/edge_mix.tres",
-				"shader":  "res://shaders/edge_mix_3d.gdshader",
+				"path":   "res://materials/edge_mix.tres",
+				"shader": "res://shaders/edge_mix_3d.gdshader",
+				"texture_params": map[string]any{
+					"edge_lut": "res://textures/edge_lut.png",
+				},
 				"written": true,
 			},
 		})
@@ -729,7 +732,7 @@ func TestRunMaterialWrite(t *testing.T) {
 	defer server.Close()
 
 	var stdout, stderr bytes.Buffer
-	args := append(serverArgs(server), "--token", "secret", "material", "write", "--path", "res://materials/edge_mix.tres", "--shader", "res://shaders/edge_mix_3d.gdshader")
+	args := append(serverArgs(server), "--token", "secret", "material", "write", "--path", "res://materials/edge_mix.tres", "--shader", "res://shaders/edge_mix_3d.gdshader", "--texture-param", "edge_lut=res://textures/edge_lut.png")
 	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
@@ -739,10 +742,14 @@ func TestRunMaterialWrite(t *testing.T) {
 	if gotEnvelope.Op != "material.write" {
 		t.Fatalf("op = %q", gotEnvelope.Op)
 	}
-	if gotEnvelope.Params["path"] != "res://materials/edge_mix.tres" || gotEnvelope.Params["shader"] != "res://shaders/edge_mix_3d.gdshader" {
+	textureParams, ok := gotEnvelope.Params["texture_params"].(map[string]any)
+	if !ok {
+		t.Fatalf("texture_params = %#v", gotEnvelope.Params["texture_params"])
+	}
+	if gotEnvelope.Params["path"] != "res://materials/edge_mix.tres" || gotEnvelope.Params["shader"] != "res://shaders/edge_mix_3d.gdshader" || textureParams["edge_lut"] != "res://textures/edge_lut.png" {
 		t.Fatalf("params = %#v", gotEnvelope.Params)
 	}
-	if !strings.Contains(stdout.String(), "Material written: res://materials/edge_mix.tres") || !strings.Contains(stdout.String(), "Shader: res://shaders/edge_mix_3d.gdshader") {
+	if !strings.Contains(stdout.String(), "Material written: res://materials/edge_mix.tres") || !strings.Contains(stdout.String(), "Texture params: 1") {
 		t.Fatalf("stdout:\n%s", stdout.String())
 	}
 }
