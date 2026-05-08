@@ -72,6 +72,10 @@ gdctl script create --path res://scripts/player_car.gd --extends CharacterBody2D
 gdctl script write --path res://scripts/player_car.gd --body-file ./player_car.gd
 gdctl script check --path res://scripts/player_car.gd
 gdctl node attach-script --path /root/PlayerCar --script res://scripts/player_car.gd
+gdctl shader write --path res://shaders/edge_mix_3d.gdshader --body-file ./edge_mix_3d.gdshader
+gdctl shader check --path res://shaders/edge_mix_3d.gdshader
+gdctl material write --path res://materials/edge_mix.tres --shader res://shaders/edge_mix_3d.gdshader
+gdctl node set-resource --path /root/Main/Body --property material --resource res://materials/edge_mix.tres
 gdctl viewport screenshot --out ./status.png
 ```
 
@@ -183,6 +187,35 @@ extends Node2D
 `script write` syntax-checks the provided body with Godot before writing it. If Godot rejects the script, the command fails with `SCRIPT_SYNTAX_INVALID`.
 `node attach-script` syntax-checks the target script again before loading and attaching it to the node.
 
+## Current Shader Workflow
+
+`gdctl` can write and check whole `.gdshader` files over the running bridge:
+
+```bash
+gdctl shader write \
+  --path res://shaders/edge_mix_3d.gdshader \
+  --body-file ./edge_mix_3d.gdshader
+
+gdctl shader check --path res://shaders/edge_mix_3d.gdshader
+```
+
+Shader updates are whole-file rewrites. This keeps shader authoring deterministic and avoids partial resource mutation while the shader/material pipeline is still young.
+
+Shader materials can also be generated as whole resources:
+
+```bash
+gdctl material write \
+  --path res://materials/edge_mix.tres \
+  --shader res://shaders/edge_mix_3d.gdshader
+
+gdctl node set-resource \
+  --path /root/Main3D/Player/Body \
+  --property material \
+  --resource res://materials/edge_mix.tres
+```
+
+`node set-resource` loads a `res://` resource and assigns it to a node property, which is enough to connect a generated `ShaderMaterial` to visible 3D geometry.
+
 ## Current Visual Check Workflow
 
 `gdctl` can capture the Godot editor viewport and write the PNG in the CLI environment:
@@ -253,10 +286,14 @@ node.rename
 node.move
 node.get
 node.set
+node.set_resource
 node.attach_script
 script.check
 script.create
 script.write
+shader.check
+shader.write
+material.write
 viewport.screenshot
 addon.update
 bridge.logs

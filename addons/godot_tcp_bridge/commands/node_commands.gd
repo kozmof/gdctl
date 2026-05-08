@@ -173,6 +173,38 @@ func handle_set(request: Dictionary, context: Dictionary) -> Dictionary:
 	})
 
 
+func handle_set_resource(request: Dictionary, context: Dictionary) -> Dictionary:
+	var checked: Dictionary = context["request"].require_body(request, context, "node.set_resource", "Mutation endpoint requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
+	var path: String = String(params.get("path", ""))
+	var property: String = String(params.get("property", ""))
+	var resource_path: String = String(params.get("resource", ""))
+	if property == "":
+		return context["bridge_error"].call(400, request_id, "PROPERTY_INVALID", "Property name is required", {})
+	var node: Node = context["node_by_path"].call(path)
+	if node == null:
+		return context["bridge_error"].call(404, request_id, "NODE_NOT_FOUND", "Node does not exist", {"path": path})
+	if resource_path == "" or not resource_path.begins_with("res://"):
+		return context["bridge_error"].call(400, request_id, "RESOURCE_PATH_INVALID", "Resource path must be a res:// path", {"path": resource_path})
+	if not FileAccess.file_exists(resource_path):
+		return context["bridge_error"].call(404, request_id, "RESOURCE_NOT_FOUND", "Resource does not exist", {"path": resource_path})
+
+	var resource: Resource = ResourceLoader.load(resource_path, "", ResourceLoader.CACHE_MODE_REPLACE)
+	if resource == null:
+		return context["bridge_error"].call(500, request_id, "RESOURCE_LOAD_FAILED", "Could not load resource", {"path": resource_path})
+	node.set(property, resource)
+	context["mark_scene_dirty"].call()
+	return context["bridge_ok"].call(request_id, {
+		"path": context["logical_path"].call(node),
+		"property": property,
+		"resource": resource_path,
+		"set": true,
+	})
+
+
 func handle_attach_script(request: Dictionary, context: Dictionary) -> Dictionary:
 	var checked: Dictionary = context["request"].require_body(request, context, "node.attach_script", "Mutation endpoint requires bearer token")
 	if not bool(checked.get("ok", false)):

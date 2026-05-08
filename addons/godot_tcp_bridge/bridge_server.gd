@@ -14,6 +14,8 @@ const BridgeCommands = preload("res://addons/godot_tcp_bridge/commands/bridge_co
 const SceneCommands = preload("res://addons/godot_tcp_bridge/commands/scene_commands.gd")
 const NodeCommands = preload("res://addons/godot_tcp_bridge/commands/node_commands.gd")
 const ScriptCommands = preload("res://addons/godot_tcp_bridge/commands/script_commands.gd")
+const ShaderCommands = preload("res://addons/godot_tcp_bridge/commands/shader_commands.gd")
+const MaterialCommands = preload("res://addons/godot_tcp_bridge/commands/material_commands.gd")
 const ViewportCommands = preload("res://addons/godot_tcp_bridge/commands/viewport_commands.gd")
 const AddonUpdate = preload("res://addons/godot_tcp_bridge/addon_update.gd")
 const Protocol = preload("res://addons/godot_tcp_bridge/protocol.gd")
@@ -28,6 +30,8 @@ var bridge_commands = BridgeCommands.new()
 var scene_commands = SceneCommands.new()
 var node_commands = NodeCommands.new()
 var script_commands = ScriptCommands.new()
+var shader_commands = ShaderCommands.new()
+var material_commands = MaterialCommands.new()
 var viewport_commands = ViewportCommands.new()
 var addon_update = AddonUpdate.new()
 var protocol = Protocol.new()
@@ -184,6 +188,8 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return node_commands.handle_get(request, _command_context())
 	if method == "POST" and path == "/node/set":
 		return node_commands.handle_set(request, _command_context())
+	if method == "POST" and path == "/node/set-resource":
+		return node_commands.handle_set_resource(request, _command_context())
 	if method == "POST" and path == "/node/attach-script":
 		return node_commands.handle_attach_script(request, _command_context())
 	if method == "POST" and path == "/script/check":
@@ -192,6 +198,12 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return script_commands.handle_create(request, _command_context())
 	if method == "POST" and path == "/script/write":
 		return script_commands.handle_write(request, _command_context())
+	if method == "POST" and path == "/shader/check":
+		return shader_commands.handle_check(request, _command_context())
+	if method == "POST" and path == "/shader/write":
+		return shader_commands.handle_write(request, _command_context())
+	if method == "POST" and path == "/material/write":
+		return material_commands.handle_write(request, _command_context())
 	if method == "POST" and path == "/viewport/screenshot":
 		return viewport_commands.handle_screenshot(request, _command_context())
 	if method == "POST" and path == "/addon/update":
@@ -281,10 +293,14 @@ func _capabilities() -> Array:
 		"node.move",
 		"node.get",
 		"node.set",
+		"node.set_resource",
 		"node.attach_script",
 		"script.check",
 		"script.create",
 		"script.write",
+		"shader.check",
+		"shader.write",
+		"material.write",
 		"viewport.screenshot",
 		"addon.update",
 		"bridge.logs",

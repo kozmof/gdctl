@@ -77,6 +77,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return runNodeGet(ctx, client, rest[2:], stdout)
 			case "set":
 				return runNodeSet(ctx, client, rest[2:], stdout)
+			case "set-resource":
+				return runNodeSetResource(ctx, client, rest[2:], stdout)
 			case "attach-script":
 				return runNodeAttachScript(ctx, client, rest[2:], stdout)
 			}
@@ -90,6 +92,22 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return runScriptWrite(ctx, client, rest[2:], stdout)
 			case "check":
 				return runScriptCheck(ctx, client, rest[2:], stdout)
+			}
+		}
+	case "shader":
+		if len(rest) >= 2 {
+			switch rest[1] {
+			case "write":
+				return runShaderWrite(ctx, client, rest[2:], stdout)
+			case "check":
+				return runShaderCheck(ctx, client, rest[2:], stdout)
+			}
+		}
+	case "material":
+		if len(rest) >= 2 {
+			switch rest[1] {
+			case "write":
+				return runMaterialWrite(ctx, client, rest[2:], stdout)
 			}
 		}
 	case "viewport":
@@ -741,6 +759,26 @@ func runNodeSet(ctx context.Context, client *bridge.Client, args []string, stdou
 	return nil
 }
 
+func runNodeSetResource(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("node set-resource", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "node path")
+	property := fs.String("property", "", "property name")
+	resourcePath := fs.String("resource", "", "resource path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *property == "" || *resourcePath == "" {
+		return fmt.Errorf("node set-resource requires --path, --property, and --resource")
+	}
+	result, err := client.SetNodeResource(ctx, requestID(), *path, *property, *resourcePath)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Set %s on %s to %s\n", result.Property, result.Path, result.Resource)
+	return nil
+}
+
 func runNodeAttachScript(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("node attach-script", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -835,6 +873,81 @@ func runScriptWrite(ctx context.Context, client *bridge.Client, args []string, s
 		return fmt.Errorf("script write produced invalid script: %s", result.Path)
 	}
 	fmt.Fprintf(stdout, "Script written: %s\n", result.Path)
+	return nil
+}
+
+func runShaderCheck(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("shader check", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "shader path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" {
+		return fmt.Errorf("shader check requires --path")
+	}
+	result, err := client.CheckShader(ctx, requestID(), *path)
+	if err != nil {
+		return err
+	}
+	if !result.Valid {
+		return fmt.Errorf("shader check failed: %s", result.Path)
+	}
+	fmt.Fprintf(stdout, "Shader OK: %s\n", result.Path)
+	return nil
+}
+
+func runShaderWrite(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("shader write", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "shader path")
+	body := fs.String("body", "", "shader body")
+	bodyFile := fs.String("body-file", "", "local file containing shader body")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" {
+		return fmt.Errorf("shader write requires --path")
+	}
+	if (*body == "" && *bodyFile == "") || (*body != "" && *bodyFile != "") {
+		return fmt.Errorf("shader write requires exactly one of --body or --body-file")
+	}
+	bodyText := *body
+	if *bodyFile != "" {
+		data, err := os.ReadFile(*bodyFile)
+		if err != nil {
+			return err
+		}
+		bodyText = string(data)
+	}
+	result, err := client.WriteShader(ctx, requestID(), *path, bodyText)
+	if err != nil {
+		return err
+	}
+	if !result.Valid {
+		return fmt.Errorf("shader write produced invalid shader: %s", result.Path)
+	}
+	fmt.Fprintf(stdout, "Shader written: %s\n", result.Path)
+	return nil
+}
+
+func runMaterialWrite(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("material write", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "material resource path")
+	shaderPath := fs.String("shader", "", "shader resource path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *shaderPath == "" {
+		return fmt.Errorf("material write requires --path and --shader")
+	}
+	result, err := client.WriteMaterial(ctx, requestID(), *path, *shaderPath)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Material written: %s\n", result.Path)
+	fmt.Fprintf(stdout, "Shader: %s\n", result.Shader)
 	return nil
 }
 
@@ -1042,9 +1155,13 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node move --path PATH --parent PARENT [--index N] [--dry-run]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node get --path PATH --property PROPERTY")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node set --path PATH --property PROPERTY --value TYPED_JSON")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node set-resource --path PATH --property PROPERTY --resource RESOURCE")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node attach-script --path PATH --script SCRIPT")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script create --path PATH --extends CLASS [--force]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script write --path PATH (--body TEXT | --body-file FILE)")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script check --path PATH")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] shader write --path PATH (--body TEXT | --body-file FILE)")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] shader check --path PATH")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] material write --path PATH --shader SHADER")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] viewport screenshot --out FILE [--kind 2d|3d] [--index N]")
 }

@@ -282,6 +282,9 @@ Implemented bridge primitives include:
 scene create/open/instance/tree/save
 node add/remove/set/get/rename/move/attach-script
 script create/write/check
+shader write/check
+material write
+node set-resource
 viewport screenshot
 bridge logs
 ```
@@ -297,7 +300,20 @@ gdctl node move --path /root/Main/PlayerCar --parent /root/Main/Track
 
 Scene saving now uses a deferred/editor-process job. Save-as is still intentionally unsupported.
 
-## 9. Current Self-Update Caveat
+## 9. Shader Whole-File Period
+
+Shader authoring starts with whole-file operations:
+
+```bash
+gdctl shader write --path res://shaders/edge_mix_3d.gdshader --body-file examples/edge_mix_3d.gdshader
+gdctl shader check --path res://shaders/edge_mix_3d.gdshader
+gdctl material write --path res://materials/edge_mix.tres --shader res://shaders/edge_mix_3d.gdshader
+gdctl node set-resource --path /root/Main3D/Player/Body --property material --resource res://materials/edge_mix.tres
+```
+
+This intentionally avoids partial shader or material parameter mutation at first. Rewriting the whole `.gdshader` file is easier to reason about, easier to diff, and matches the current bridge pattern for scripts.
+
+## 10. Current Self-Update Caveat
 
 After extracting `addon_update.gd`, the currently running Godot addon may need a manual file refresh if `/addon/update` returns:
 
@@ -314,7 +330,7 @@ gdctl node rename --path /root/Node3D/Temp --name TempRenamed --dry-run
 gdctl node move --path /root/Node3D/Temp --parent /root/Node3D --dry-run
 ```
 
-## 10. Bridge Diagnostics
+## 11. Bridge Diagnostics
 
 The addon keeps a small in-memory diagnostic buffer for bridge activity. Use it when a command returns an unclear error or when Godot reports a GDScript issue:
 

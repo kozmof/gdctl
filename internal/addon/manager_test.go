@@ -181,6 +181,8 @@ func TestEmbeddedAddonManifestIncludesCommandDirectory(t *testing.T) {
 		"commands/scene_commands.gd",
 		"commands/node_commands.gd",
 		"commands/script_commands.gd",
+		"commands/shader_commands.gd",
+		"commands/material_commands.gd",
 		"commands/viewport_commands.gd",
 	}
 	for _, path := range required {

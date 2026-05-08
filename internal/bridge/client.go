@@ -279,6 +279,31 @@ func (c *Client) SetNodeProperty(ctx context.Context, requestID, path, property 
 	return out, nil
 }
 
+func (c *Client) SetNodeResource(ctx context.Context, requestID, path, property, resourcePath string) (NodeSetResourceResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "node.set_resource",
+		Params: map[string]any{
+			"path":     path,
+			"property": property,
+			"resource": resourcePath,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/node/set-resource", env)
+	if err != nil {
+		return NodeSetResourceResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return NodeSetResourceResult{}, err
+	}
+	var out NodeSetResourceResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return NodeSetResourceResult{}, err
+	}
+	return out, nil
+}
+
 func (c *Client) AttachScript(ctx context.Context, requestID, path, scriptPath string) (NodeAttachScriptResult, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,
@@ -371,6 +396,77 @@ func (c *Client) WriteScript(ctx context.Context, requestID, path, body string) 
 	var out ScriptWriteResult
 	if err := json.Unmarshal(encoded, &out); err != nil {
 		return ScriptWriteResult{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) CheckShader(ctx context.Context, requestID, path string) (ShaderCheckResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "shader.check",
+		Params: map[string]any{
+			"path": path,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/shader/check", env)
+	if err != nil {
+		return ShaderCheckResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return ShaderCheckResult{}, err
+	}
+	var out ShaderCheckResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return ShaderCheckResult{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) WriteShader(ctx context.Context, requestID, path, body string) (ShaderWriteResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "shader.write",
+		Params: map[string]any{
+			"path": path,
+			"body": body,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/shader/write", env)
+	if err != nil {
+		return ShaderWriteResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return ShaderWriteResult{}, err
+	}
+	var out ShaderWriteResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return ShaderWriteResult{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) WriteMaterial(ctx context.Context, requestID, path, shaderPath string) (MaterialWriteResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "material.write",
+		Params: map[string]any{
+			"path":   path,
+			"shader": shaderPath,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/material/write", env)
+	if err != nil {
+		return MaterialWriteResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return MaterialWriteResult{}, err
+	}
+	var out MaterialWriteResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return MaterialWriteResult{}, err
 	}
 	return out, nil
 }

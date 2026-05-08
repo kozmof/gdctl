@@ -359,6 +359,59 @@ func TestNodeSetRequiresTypedJSONBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestNodeSetResourceRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"node", "set-resource", "--path", "/root/Main"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--path, --property, and --resource") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunNodeSetResource(t *testing.T) {
+	var gotAuth string
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/node/set-resource" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":     "/root/Main/Body",
+				"property": "material",
+				"resource": "res://materials/edge_mix.tres",
+				"set":      true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "node", "set-resource", "--path", "/root/Main/Body", "--property", "material", "--resource", "res://materials/edge_mix.tres")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if gotEnvelope.Op != "node.set_resource" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["path"] != "/root/Main/Body" || gotEnvelope.Params["property"] != "material" || gotEnvelope.Params["resource"] != "res://materials/edge_mix.tres" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Set material on /root/Main/Body to res://materials/edge_mix.tres") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
 func TestNodeAttachScriptRequiresFlagsBeforeNetwork(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := Run(context.Background(), []string{"node", "attach-script", "--path", "/root/Main"}, &stdout, &stderr)
@@ -546,6 +599,160 @@ func TestRunScriptWriteBodyFile(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Script written: res://scripts/player.gd") {
 		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestShaderCheckRequiresPathBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"shader", "check"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--path") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunShaderCheck(t *testing.T) {
+	var gotAuth string
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/shader/check" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":  "res://shaders/edge_mix_3d.gdshader",
+				"valid": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "shader", "check", "--path", "res://shaders/edge_mix_3d.gdshader")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if gotEnvelope.Op != "shader.check" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["path"] != "res://shaders/edge_mix_3d.gdshader" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Shader OK: res://shaders/edge_mix_3d.gdshader") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRunShaderWriteBodyFile(t *testing.T) {
+	bodyPath := filepath.Join(t.TempDir(), "edge_mix_3d.gdshader")
+	if err := os.WriteFile(bodyPath, []byte("shader_type spatial;\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/shader/write" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":    "res://shaders/edge_mix_3d.gdshader",
+				"valid":   true,
+				"written": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "shader", "write", "--path", "res://shaders/edge_mix_3d.gdshader", "--body-file", bodyPath)
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "shader.write" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["path"] != "res://shaders/edge_mix_3d.gdshader" || gotEnvelope.Params["body"] != "shader_type spatial;\n" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Shader written: res://shaders/edge_mix_3d.gdshader") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestShaderWriteRequiresBodyBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"shader", "write", "--path", "res://shaders/edge_mix_3d.gdshader"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "exactly one of --body or --body-file") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunMaterialWrite(t *testing.T) {
+	var gotAuth string
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/material/write" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":    "res://materials/edge_mix.tres",
+				"shader":  "res://shaders/edge_mix_3d.gdshader",
+				"written": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "material", "write", "--path", "res://materials/edge_mix.tres", "--shader", "res://shaders/edge_mix_3d.gdshader")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if gotEnvelope.Op != "material.write" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["path"] != "res://materials/edge_mix.tres" || gotEnvelope.Params["shader"] != "res://shaders/edge_mix_3d.gdshader" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Material written: res://materials/edge_mix.tres") || !strings.Contains(stdout.String(), "Shader: res://shaders/edge_mix_3d.gdshader") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestMaterialWriteRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"material", "write", "--path", "res://materials/edge_mix.tres"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--path and --shader") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

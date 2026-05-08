@@ -107,6 +107,13 @@ type NodePropertyResult struct {
 	Value    any    `json:"value,omitempty"`
 }
 
+type NodeSetResourceResult struct {
+	Path     string `json:"path"`
+	Property string `json:"property"`
+	Resource string `json:"resource"`
+	Set      bool   `json:"set"`
+}
+
 type NodeAttachScriptResult struct {
 	Path     string `json:"path"`
 	Script   string `json:"script"`
@@ -127,6 +134,23 @@ type ScriptCreateResult struct {
 type ScriptWriteResult struct {
 	Path    string `json:"path"`
 	Valid   bool   `json:"valid"`
+	Written bool   `json:"written"`
+}
+
+type ShaderCheckResult struct {
+	Path  string `json:"path"`
+	Valid bool   `json:"valid"`
+}
+
+type ShaderWriteResult struct {
+	Path    string `json:"path"`
+	Valid   bool   `json:"valid"`
+	Written bool   `json:"written"`
+}
+
+type MaterialWriteResult struct {
+	Path    string `json:"path"`
+	Shader  string `json:"shader"`
 	Written bool   `json:"written"`
 }
 
