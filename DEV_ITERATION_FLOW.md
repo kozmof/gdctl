@@ -266,7 +266,15 @@ The next milestone should turn this proven flow into a reproducible example gene
 ## 8. Current Bridge Structure
 
 The bridge bootstrap and projectless update loop are working. Logical scene paths are working.
-The addon server has started moving reusable logic out of `bridge_server.gd`. Typed CLI/Godot value conversion now lives in `addons/godot_tcp_bridge/typed_values.gd`, node mutations/property commands now live in `addons/godot_tcp_bridge/node_commands.gd`, bridge self-update logic now lives in `addons/godot_tcp_bridge/addon_update.gd`, request/response protocol helpers now live in `addons/godot_tcp_bridge/protocol.gd`, and async job processing now lives in `addons/godot_tcp_bridge/jobs.gd`.
+The addon server has started moving reusable logic out of `bridge_server.gd`. Typed CLI/Godot value conversion now lives in `addons/godot_tcp_bridge/typed_values.gd`, command handlers now live under `addons/godot_tcp_bridge/commands/`, bridge self-update logic now lives in `addons/godot_tcp_bridge/addon_update.gd`, request/response protocol helpers now live in `addons/godot_tcp_bridge/protocol.gd`, and async job processing now lives in `addons/godot_tcp_bridge/jobs.gd`.
+
+Command request validation is centralized in:
+
+```text
+addons/godot_tcp_bridge/commands/request.gd
+```
+
+New command handlers should use that helper for JSON body parsing, authorization, operation checks, and params extraction.
 
 Implemented bridge primitives include:
 

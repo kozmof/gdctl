@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	embeddedaddons "gdctl/addons"
 	"gdctl/internal/bridge"
 )
 
@@ -154,6 +155,41 @@ func TestPackageEmbeddedUpdateUsesManifestFiles(t *testing.T) {
 	}
 	if !foundPlugin {
 		t.Fatal("bridge_plugin.gd missing from packaged update")
+	}
+}
+
+func TestEmbeddedAddonManifestIncludesCommandDirectory(t *testing.T) {
+	manifest, files, err := PackageEmbeddedUpdate(embeddedaddons.FS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestFiles := map[string]bool{}
+	for _, value := range manifest["files"].([]any) {
+		manifestFiles[value.(string)] = true
+	}
+	packagedFiles := map[string]bool{}
+	for _, file := range files {
+		packagedFiles[file.Path] = true
+		if strings.HasPrefix(file.Path, "commands/") && file.ContentBase64 == "" {
+			t.Fatalf("%s content is empty", file.Path)
+		}
+	}
+	required := []string{
+		"commands/request.gd",
+		"commands/bridge_commands.gd",
+		"commands/log_commands.gd",
+		"commands/scene_commands.gd",
+		"commands/node_commands.gd",
+		"commands/script_commands.gd",
+		"commands/viewport_commands.gd",
+	}
+	for _, path := range required {
+		if !manifestFiles[path] {
+			t.Fatalf("manifest missing %s", path)
+		}
+		if !packagedFiles[path] {
+			t.Fatalf("packaged update missing %s", path)
+		}
 	}
 }
 

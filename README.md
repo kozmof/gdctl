@@ -227,6 +227,14 @@ gdctl addon update
 
 Reload the plugin in Godot after a bridge addon update.
 
+Addon command handlers live under:
+
+```text
+addons/godot_tcp_bridge/commands/
+```
+
+`commands/request.gd` centralizes JSON body parsing, token authorization, operation-name checks, and params extraction for command handlers. Keep new endpoint bodies on that helper path so command scripts stay small and return consistent bridge errors.
+
 ## Current Bridge Capabilities
 
 The current addon advertises these runtime capabilities through `gdctl bridge info`:
