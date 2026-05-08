@@ -3,54 +3,50 @@ extends RefCounted
 
 
 func handle_update(request: Dictionary, context: Dictionary) -> Dictionary:
-	var body: Dictionary = context["json_body_or_error"].call(request)
-	if body.has("error_response"):
-		return body["error_response"]
-	if not bool(context["authorized"].call(request)):
-		return context["bridge_error"].call(401, body.get("request_id", ""), "UNAUTHORIZED", "Addon update requires bearer token", {})
-	if body.get("op", "") != "addon.update":
-		return context["bridge_error"].call(400, body.get("request_id", ""), "INVALID_OPERATION", "Expected addon.update operation", {})
-
-	var params: Dictionary = context["params_or_empty"].call(body)
+	var checked: Dictionary = context["request"].require_body(request, context, "addon.update", "Addon update requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
 	var manifest: Variant = params.get("manifest", {})
 	if typeof(manifest) != TYPE_DICTIONARY:
-		return context["bridge_error"].call(400, body.get("request_id", ""), "INVALID_MANIFEST", "Addon update requires a manifest object", {})
+		return context["bridge_error"].call(400, request_id, "INVALID_MANIFEST", "Addon update requires a manifest object", {})
 	var manifest_dict: Dictionary = manifest
 	var manifest_files_value: Variant = manifest_dict.get("files", [])
 	if typeof(manifest_files_value) != TYPE_ARRAY:
-		return context["bridge_error"].call(400, body.get("request_id", ""), "INVALID_MANIFEST", "Manifest files must be an array", {})
+		return context["bridge_error"].call(400, request_id, "INVALID_MANIFEST", "Manifest files must be an array", {})
 	var manifest_files: Array = manifest_files_value
 	var files_value: Variant = params.get("files", [])
 	if typeof(files_value) != TYPE_ARRAY:
-		return context["bridge_error"].call(400, body.get("request_id", ""), "INVALID_FILES", "Addon update files must be an array", {})
+		return context["bridge_error"].call(400, request_id, "INVALID_FILES", "Addon update files must be an array", {})
 	var files: Array = files_value
 
 	var allowed: Dictionary = {}
 	for item in manifest_files:
 		var rel: String = String(item)
 		if not _is_safe_addon_path(rel):
-			return context["bridge_error"].call(400, body.get("request_id", ""), "INVALID_ADDON_PATH", "Manifest contains an unsafe file path", {"path": rel})
+			return context["bridge_error"].call(400, request_id, "INVALID_ADDON_PATH", "Manifest contains an unsafe file path", {"path": rel})
 		allowed[rel] = true
 
 	var backup: String = _backup_addon_files(manifest_files, context)
 	var written: int = 0
 	for file_item in files:
 		if typeof(file_item) != TYPE_DICTIONARY:
-			return context["bridge_error"].call(400, body.get("request_id", ""), "INVALID_FILES", "Each addon update file must be an object", {})
+			return context["bridge_error"].call(400, request_id, "INVALID_FILES", "Each addon update file must be an object", {})
 		var file_dict: Dictionary = file_item
 		var rel_path: String = String(file_dict.get("path", ""))
 		if not _is_safe_addon_path(rel_path) or not allowed.has(rel_path):
-			return context["bridge_error"].call(400, body.get("request_id", ""), "INVALID_ADDON_PATH", "Addon update file path is not allowed", {"path": rel_path})
+			return context["bridge_error"].call(400, request_id, "INVALID_ADDON_PATH", "Addon update file path is not allowed", {"path": rel_path})
 		var content_base64: String = String(file_dict.get("content_base64", ""))
 		var bytes: PackedByteArray = Marshalls.base64_to_raw(content_base64)
 		if bytes.is_empty() and content_base64 != "":
-			return context["bridge_error"].call(400, body.get("request_id", ""), "INVALID_FILE_CONTENT", "Addon update file content is not valid base64", {"path": rel_path})
+			return context["bridge_error"].call(400, request_id, "INVALID_FILE_CONTENT", "Addon update file content is not valid base64", {"path": rel_path})
 		var write_err: Error = _write_addon_file(rel_path, bytes, context)
 		if write_err != OK:
-			return context["bridge_error"].call(500, body.get("request_id", ""), "ADDON_WRITE_FAILED", "Failed to write addon file", {"path": rel_path, "error": error_string(write_err)})
+			return context["bridge_error"].call(500, request_id, "ADDON_WRITE_FAILED", "Failed to write addon file", {"path": rel_path, "error": error_string(write_err)})
 		written += 1
 
-	return context["bridge_ok"].call(body.get("request_id", ""), {
+	return context["bridge_ok"].call(request_id, {
 		"updated": true,
 		"files_written": written,
 		"backup": backup,

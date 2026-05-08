@@ -9,19 +9,21 @@ const TOKEN_PATH := "res://.godot-bridge-token"
 const ADDON_ROOT := "res://addons/godot_tcp_bridge/"
 const ADDON_BACKUP_ROOT := "res://addons/.godot_tcp_bridge_backup/"
 const TypedValues = preload("res://addons/godot_tcp_bridge/typed_values.gd")
-const BridgeCommands = preload("res://addons/godot_tcp_bridge/bridge_commands.gd")
-const SceneCommands = preload("res://addons/godot_tcp_bridge/scene_commands.gd")
-const NodeCommands = preload("res://addons/godot_tcp_bridge/node_commands.gd")
-const ScriptCommands = preload("res://addons/godot_tcp_bridge/script_commands.gd")
-const ViewportCommands = preload("res://addons/godot_tcp_bridge/viewport_commands.gd")
+const CommandRequest = preload("res://addons/godot_tcp_bridge/commands/request.gd")
+const BridgeCommands = preload("res://addons/godot_tcp_bridge/commands/bridge_commands.gd")
+const SceneCommands = preload("res://addons/godot_tcp_bridge/commands/scene_commands.gd")
+const NodeCommands = preload("res://addons/godot_tcp_bridge/commands/node_commands.gd")
+const ScriptCommands = preload("res://addons/godot_tcp_bridge/commands/script_commands.gd")
+const ViewportCommands = preload("res://addons/godot_tcp_bridge/commands/viewport_commands.gd")
 const AddonUpdate = preload("res://addons/godot_tcp_bridge/addon_update.gd")
 const Protocol = preload("res://addons/godot_tcp_bridge/protocol.gd")
 const LogBuffer = preload("res://addons/godot_tcp_bridge/log_buffer.gd")
-const LogCommands = preload("res://addons/godot_tcp_bridge/log_commands.gd")
+const LogCommands = preload("res://addons/godot_tcp_bridge/commands/log_commands.gd")
 const Jobs = preload("res://addons/godot_tcp_bridge/jobs.gd")
 
 var editor_plugin: EditorPlugin
 var typed_values = TypedValues.new()
+var command_request = CommandRequest.new()
 var bridge_commands = BridgeCommands.new()
 var scene_commands = SceneCommands.new()
 var node_commands = NodeCommands.new()
@@ -213,6 +215,7 @@ func _command_context() -> Dictionary:
 	return {
 		"json_body_or_error": Callable(protocol, "json_body_or_error"),
 		"params_or_empty": Callable(self, "_params_or_empty"),
+		"request": command_request,
 		"authorized": Callable(self, "_authorized"),
 		"http_json": Callable(protocol, "http_json"),
 		"bridge_ok": Callable(protocol, "bridge_ok"),

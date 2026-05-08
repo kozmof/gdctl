@@ -3,70 +3,58 @@ extends RefCounted
 
 
 func handle_create(request: Dictionary, context: Dictionary) -> Dictionary:
-	var body: Dictionary = context["json_body_or_error"].call(request)
-	if body.has("error_response"):
-		return body["error_response"]
-	if not bool(context["authorized"].call(request)):
-		return context["bridge_error"].call(401, body.get("request_id", ""), "UNAUTHORIZED", "Script creation requires bearer token", {})
-	if body.get("op", "") != "script.create":
-		return context["bridge_error"].call(400, body.get("request_id", ""), "INVALID_OPERATION", "Expected script.create operation", {})
-
-	var params: Dictionary = context["params_or_empty"].call(body)
+	var checked: Dictionary = context["request"].require_body(request, context, "script.create", "Script creation requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
 	var script_path: String = String(params.get("path", ""))
 	var extends_type: String = String(params.get("extends", ""))
 	var force: bool = bool(params.get("force", false))
-	var path_error: Dictionary = _validate_script_path(script_path, false, context, body.get("request_id", ""))
+	var path_error: Dictionary = _validate_script_path(script_path, false, context, request_id)
 	if not path_error.is_empty():
 		return path_error
 	if FileAccess.file_exists(script_path) and not force:
-		return context["bridge_error"].call(409, body.get("request_id", ""), "SCRIPT_ALREADY_EXISTS", "Script already exists", {"path": script_path})
+		return context["bridge_error"].call(409, request_id, "SCRIPT_ALREADY_EXISTS", "Script already exists", {"path": script_path})
 	if extends_type == "" or not extends_type.is_valid_identifier():
-		return context["bridge_error"].call(400, body.get("request_id", ""), "SCRIPT_EXTENDS_INVALID", "Extends must be a valid class name", {"extends": extends_type})
+		return context["bridge_error"].call(400, request_id, "SCRIPT_EXTENDS_INVALID", "Extends must be a valid class name", {"extends": extends_type})
 
 	var source: String = "extends %s\n" % extends_type
-	return _write_and_check(script_path, source, body.get("request_id", ""), context, {"created": true})
+	return _write_and_check(script_path, source, request_id, context, {"created": true})
 
 
 func handle_write(request: Dictionary, context: Dictionary) -> Dictionary:
-	var body: Dictionary = context["json_body_or_error"].call(request)
-	if body.has("error_response"):
-		return body["error_response"]
-	if not bool(context["authorized"].call(request)):
-		return context["bridge_error"].call(401, body.get("request_id", ""), "UNAUTHORIZED", "Script write requires bearer token", {})
-	if body.get("op", "") != "script.write":
-		return context["bridge_error"].call(400, body.get("request_id", ""), "INVALID_OPERATION", "Expected script.write operation", {})
-
-	var params: Dictionary = context["params_or_empty"].call(body)
+	var checked: Dictionary = context["request"].require_body(request, context, "script.write", "Script write requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
 	var script_path: String = String(params.get("path", ""))
-	var path_error: Dictionary = _validate_script_path(script_path, false, context, body.get("request_id", ""))
+	var path_error: Dictionary = _validate_script_path(script_path, false, context, request_id)
 	if not path_error.is_empty():
 		return path_error
 	if not params.has("body"):
-		return context["bridge_error"].call(400, body.get("request_id", ""), "SCRIPT_BODY_MISSING", "Script body is required", {})
+		return context["bridge_error"].call(400, request_id, "SCRIPT_BODY_MISSING", "Script body is required", {})
 	var source: String = String(params.get("body", ""))
-	return _write_and_check(script_path, source, body.get("request_id", ""), context, {"written": true})
+	return _write_and_check(script_path, source, request_id, context, {"written": true})
 
 
 func handle_check(request: Dictionary, context: Dictionary) -> Dictionary:
-	var body: Dictionary = context["json_body_or_error"].call(request)
-	if body.has("error_response"):
-		return body["error_response"]
-	if not bool(context["authorized"].call(request)):
-		return context["bridge_error"].call(401, body.get("request_id", ""), "UNAUTHORIZED", "Script check requires bearer token", {})
-	if body.get("op", "") != "script.check":
-		return context["bridge_error"].call(400, body.get("request_id", ""), "INVALID_OPERATION", "Expected script.check operation", {})
-
-	var params: Dictionary = context["params_or_empty"].call(body)
+	var checked: Dictionary = context["request"].require_body(request, context, "script.check", "Script check requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
 	var script_path: String = String(params.get("path", ""))
-	var path_error: Dictionary = _validate_script_path(script_path, true, context, body.get("request_id", ""))
+	var path_error: Dictionary = _validate_script_path(script_path, true, context, request_id)
 	if not path_error.is_empty():
 		return path_error
 
 	var source: String = FileAccess.get_file_as_string(script_path)
-	var check_error: Dictionary = _syntax_error(script_path, source, body.get("request_id", ""), context)
+	var check_error: Dictionary = _syntax_error(script_path, source, request_id, context)
 	if not check_error.is_empty():
 		return check_error
-	return context["bridge_ok"].call(body.get("request_id", ""), {
+	return context["bridge_ok"].call(request_id, {
 		"path": script_path,
 		"valid": true,
 	})
