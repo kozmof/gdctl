@@ -8,7 +8,9 @@
 | Addon | install, update, enable, disable, remove, status, doctor |
 | Bridge | info, logs, addon-update |
 | Scene | create, open, instance, tree, save |
-| Node | add, remove, rename, move, get, set, set-resource, attach-script |
+| Node | add, remove, rename, move, get, set, set-resource, attach-script, group add/remove/list |
+| Signal | connect, disconnect |
+| Project | setting get, setting set |
 | Script | create, write, check |
 | Shader | write, check |
 | Material | write (ShaderMaterial only) |
@@ -22,14 +24,11 @@
 
 ### Critical — needed by virtually every demo
 
-**1. `signal connect / disconnect`**
-Every interactive demo connects signals (e.g. `body_entered`, `pressed`, `timeout`). Without this, logic can't be wired up at all.
+~~**1. `signal connect / disconnect`**~~
+~~**2. `project setting set / get`**~~
+~~**3. `node group add / remove / list`**~~
 
-**2. `project setting set / get`**
-Input maps (action → key binding), window size, physics collision layers/masks, gravity, rendering backend — all stored in `project.godot`. Nearly every demo configures these.
-
-**3. `node group add / remove / list`**
-Demos use groups heavily (`"enemies"`, `"pickups"`, `"obstacles"`) to broadcast calls or detect collision categories.
+All three implemented (2026-05-09). See current capabilities table above.
 
 ---
 
@@ -98,22 +97,22 @@ Multiplayer demos need `MultiplayerPeer` configuration, but this is largely done
 
 ## Summary table
 
-| Feature | Demos affected | Effort estimate |
-|---|---|---|
-| `signal connect` | All | Medium |
-| `project setting set/get` | All | Medium |
-| `node group` | Most 2D/3D | Low |
-| `resource create` (general) | Most 3D, GUI | High |
-| `animation` commands | 2D/3D/GUI | High |
-| `node duplicate` | Most | Low |
-| File system ops | All | Low |
-| `node list-properties` | All (tooling) | Low |
-| `tilemap` | 2D tile demos | High |
-| `import set` | 2D/3D asset demos | Medium |
-| `navigation bake` | 3D navigation | Low |
-| `project run` | All (testing) | Medium |
-| `audio bus` | Audio demos | Medium |
-| `theme` | GUI demos | Medium |
+| Feature | Demos affected | Effort estimate | Status |
+|---|---|---|---|
+| `signal connect` | All | Medium | ✅ done |
+| `project setting set/get` | All | Medium | ✅ done |
+| `node group` | Most 2D/3D | Low | ✅ done |
+| `resource create` (general) | Most 3D, GUI | High | — |
+| `animation` commands | 2D/3D/GUI | High | — |
+| `node duplicate` | Most | Low | — |
+| File system ops | All | Low | — |
+| `node list-properties` | All (tooling) | Low | — |
+| `tilemap` | 2D tile demos | High | — |
+| `import set` | 2D/3D asset demos | Medium | — |
+| `navigation bake` | 3D navigation | Low | — |
+| `project run` | All (testing) | Medium | — |
+| `audio bus` | Audio demos | Medium | — |
+| `theme` | GUI demos | Medium | — |
 
-The three most impactful additions would be **signal connect**, **project setting set**, and **node group** —
-they unlock almost every demo category with relatively bounded scope.
+The next most impactful additions would be **node duplicate**, **file system ops**, and **node list-properties** —
+all low-effort and broadly useful across demo categories.

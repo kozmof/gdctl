@@ -272,6 +272,90 @@ gdctl node rename --path /root/Node3D/Temp --name TempRenamed --dry-run
 gdctl node move --path /root/Node3D/Temp --parent /root/Node3D --dry-run
 ```
 
+## 11. Adding New Commands
+
+This section documents the proven workflow for adding a new CLI command end-to-end.
+
+### Files to touch
+
+| Layer | File | What to add |
+|---|---|---|
+| GDScript handler | `addons/godot_tcp_bridge/commands/<category>_commands.gd` | `handle_<op>` function |
+| Bridge wiring | `addons/godot_tcp_bridge/bridge_server.gd` | `const`, `var`, route `if`, capability string |
+| Addon manifest | `addons/godot_tcp_bridge/gdctl_manifest.json` | filename in `files` array (new files only) |
+| Go types | `internal/bridge/types.go` | result struct |
+| Go client | `internal/bridge/client.go` | method calling `postEnvelope` |
+| Go CLI | `internal/cli/cli.go` | router case, handler function, `printUsage` line |
+| Go tests | `internal/cli/cli_test.go` | happy-path test + validation test |
+
+For a new category (e.g. `signal`, `project`) also create a new `*_commands.gd` file.
+
+### Deployment workflow
+
+The key constraint: `addon update` rewrites `bridge_server.gd`, which preloads all command files. If a new command file has a syntax error and you reload the plugin, the bridge dies and you can no longer use `addon update` or `script check` to recover — you must manually copy files into the Godot project.
+
+The two-stage workflow avoids this:
+
+**Stage A — syntax validation (bridge stays on old code)**
+
+Write each new `.gd` file directly to its `res://` path using `script write`. This command runs Godot's parser on the body before writing, so a syntax error returns immediately without touching `bridge_server.gd`.
+
+```bash
+go run ./cmd/gdctl script write \
+  --path res://addons/godot_tcp_bridge/commands/signal_commands.gd \
+  --body-file addons/godot_tcp_bridge/commands/signal_commands.gd
+
+go run ./cmd/gdctl script write \
+  --path res://addons/godot_tcp_bridge/commands/project_commands.gd \
+  --body-file addons/godot_tcp_bridge/commands/project_commands.gd
+```
+
+If `SCRIPT_SYNTAX_INVALID` is returned, fix the file locally and retry. The bridge is still running with the old plugin; nothing is broken.
+
+**Stage B — full deploy (syntax already verified)**
+
+```bash
+go run ./cmd/gdctl addon update
+# Reload the plugin in Godot (disable/enable in plugin manager)
+go run ./cmd/gdctl bridge info
+# Verify new capability strings appear in the capabilities list
+```
+
+**Stage C — smoke test**
+
+Run each new command against the open scene to confirm end-to-end behaviour. Use `scene tree` first to find valid node paths:
+
+```bash
+go run ./cmd/gdctl scene tree
+go run ./cmd/gdctl node group add --path /root/Main/Player --group enemies
+go run ./cmd/gdctl node group list --path /root/Main/Player
+go run ./cmd/gdctl node group remove --path /root/Main/Player --group enemies
+```
+
+If a command returns `UNKNOWN_ENDPOINT`, the running addon is older than the CLI. Go back to Stage B.
+
+### Go unit tests
+
+Before Stage A, verify all Go tests pass against mock servers:
+
+```bash
+go test ./...
+```
+
+Each new command needs at minimum:
+- A happy-path test: mock the HTTP endpoint, verify the correct `op` and params are sent, check stdout
+- A validation test: omit a required flag and confirm the error fires before any network call (use a bare `[]string{...}` with no server, not `serverArgs`)
+
+### Recovery if the bridge breaks
+
+If the plugin fails to reload (syntax error reached `bridge_server.gd`):
+
+1. Fix the offending `.gd` file locally.
+2. Manually copy the fixed file and `bridge_server.gd` into the Godot project at `res://addons/godot_tcp_bridge/`.
+3. Reload the plugin.
+4. Verify: `go run ./cmd/gdctl bridge info`
+5. Once the bridge is back, continue from Stage B.
+
 ## 10. Bridge Diagnostics
 
 The addon keeps a small in-memory diagnostic buffer for bridge activity. Use it when a command returns an unclear error or when Godot reports a GDScript issue:

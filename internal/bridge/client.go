@@ -520,6 +520,142 @@ func (c *Client) ScreenshotViewport(ctx context.Context, requestID, kind string,
 	return out, nil
 }
 
+func (c *Client) NodeGroupAdd(ctx context.Context, requestID, path, group string) (NodeGroupResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "node.group_add",
+		Params:    map[string]any{"path": path, "group": group},
+	}
+	result, err := c.postEnvelope(ctx, "/node/group-add", env)
+	if err != nil {
+		return NodeGroupResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return NodeGroupResult{}, err
+	}
+	var out NodeGroupResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) NodeGroupRemove(ctx context.Context, requestID, path, group string) (NodeGroupResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "node.group_remove",
+		Params:    map[string]any{"path": path, "group": group},
+	}
+	result, err := c.postEnvelope(ctx, "/node/group-remove", env)
+	if err != nil {
+		return NodeGroupResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return NodeGroupResult{}, err
+	}
+	var out NodeGroupResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) NodeGroupList(ctx context.Context, requestID, path string) (NodeGroupListResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "node.group_list",
+		Params:    map[string]any{"path": path},
+	}
+	result, err := c.postEnvelope(ctx, "/node/group-list", env)
+	if err != nil {
+		return NodeGroupListResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return NodeGroupListResult{}, err
+	}
+	var out NodeGroupListResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) SignalConnect(ctx context.Context, requestID, fromPath, signalName, toPath, method string) (SignalConnectResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "signal.connect",
+		Params: map[string]any{
+			"from":   fromPath,
+			"signal": signalName,
+			"to":     toPath,
+			"method": method,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/signal/connect", env)
+	if err != nil {
+		return SignalConnectResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return SignalConnectResult{}, err
+	}
+	var out SignalConnectResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) SignalDisconnect(ctx context.Context, requestID, fromPath, signalName, toPath, method string) (SignalDisconnectResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "signal.disconnect",
+		Params: map[string]any{
+			"from":   fromPath,
+			"signal": signalName,
+			"to":     toPath,
+			"method": method,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/signal/disconnect", env)
+	if err != nil {
+		return SignalDisconnectResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return SignalDisconnectResult{}, err
+	}
+	var out SignalDisconnectResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) ProjectSettingGet(ctx context.Context, requestID, key string) (ProjectSettingResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "project.setting_get",
+		Params:    map[string]any{"key": key},
+	}
+	result, err := c.postEnvelope(ctx, "/project/setting-get", env)
+	if err != nil {
+		return ProjectSettingResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return ProjectSettingResult{}, err
+	}
+	var out ProjectSettingResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) ProjectSettingSet(ctx context.Context, requestID, key string, value any) (ProjectSettingResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "project.setting_set",
+		Params:    map[string]any{"key": key, "value": value},
+	}
+	result, err := c.postEnvelope(ctx, "/project/setting-set", env)
+	if err != nil {
+		return ProjectSettingResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return ProjectSettingResult{}, err
+	}
+	var out ProjectSettingResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
 func (c *Client) UpdateAddon(ctx context.Context, requestID string, manifest map[string]any, files []AddonUpdateFile) (AddonUpdateResult, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,

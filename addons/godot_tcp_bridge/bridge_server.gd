@@ -18,6 +18,8 @@ const ShaderCommands = preload("res://addons/godot_tcp_bridge/commands/shader_co
 const MaterialCommands = preload("res://addons/godot_tcp_bridge/commands/material_commands.gd")
 const FileCommands = preload("res://addons/godot_tcp_bridge/commands/file_commands.gd")
 const ViewportCommands = preload("res://addons/godot_tcp_bridge/commands/viewport_commands.gd")
+const SignalCommands = preload("res://addons/godot_tcp_bridge/commands/signal_commands.gd")
+const ProjectCommands = preload("res://addons/godot_tcp_bridge/commands/project_commands.gd")
 const AddonUpdate = preload("res://addons/godot_tcp_bridge/addon_update.gd")
 const Protocol = preload("res://addons/godot_tcp_bridge/protocol.gd")
 const LogBuffer = preload("res://addons/godot_tcp_bridge/log_buffer.gd")
@@ -35,6 +37,8 @@ var shader_commands = ShaderCommands.new()
 var material_commands = MaterialCommands.new()
 var file_commands = FileCommands.new()
 var viewport_commands = ViewportCommands.new()
+var signal_commands = SignalCommands.new()
+var project_commands = ProjectCommands.new()
 var addon_update = AddonUpdate.new()
 var protocol = Protocol.new()
 var log_buffer = LogBuffer.new()
@@ -194,6 +198,20 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return node_commands.handle_set_resource(request, _command_context())
 	if method == "POST" and path == "/node/attach-script":
 		return node_commands.handle_attach_script(request, _command_context())
+	if method == "POST" and path == "/node/group-add":
+		return node_commands.handle_group_add(request, _command_context())
+	if method == "POST" and path == "/node/group-remove":
+		return node_commands.handle_group_remove(request, _command_context())
+	if method == "POST" and path == "/node/group-list":
+		return node_commands.handle_group_list(request, _command_context())
+	if method == "POST" and path == "/signal/connect":
+		return signal_commands.handle_connect(request, _command_context())
+	if method == "POST" and path == "/signal/disconnect":
+		return signal_commands.handle_disconnect(request, _command_context())
+	if method == "POST" and path == "/project/setting-get":
+		return project_commands.handle_setting_get(request, _command_context())
+	if method == "POST" and path == "/project/setting-set":
+		return project_commands.handle_setting_set(request, _command_context())
 	if method == "POST" and path == "/script/check":
 		return script_commands.handle_check(request, _command_context())
 	if method == "POST" and path == "/script/create":
@@ -299,6 +317,13 @@ func _capabilities() -> Array:
 		"node.set",
 		"node.set_resource",
 		"node.attach_script",
+		"node.group_add",
+		"node.group_remove",
+		"node.group_list",
+		"signal.connect",
+		"signal.disconnect",
+		"project.setting_get",
+		"project.setting_set",
 		"script.check",
 		"script.create",
 		"script.write",

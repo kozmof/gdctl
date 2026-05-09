@@ -172,6 +172,40 @@ type ViewportScreenshotResult struct {
 	JobID         string `json:"job_id,omitempty"`
 }
 
+type NodeGroupResult struct {
+	Path    string `json:"path"`
+	Group   string `json:"group"`
+	Added   bool   `json:"added,omitempty"`
+	Removed bool   `json:"removed,omitempty"`
+}
+
+type NodeGroupListResult struct {
+	Path   string   `json:"path"`
+	Groups []string `json:"groups"`
+}
+
+type SignalConnectResult struct {
+	From      string `json:"from"`
+	Signal    string `json:"signal"`
+	To        string `json:"to"`
+	Method    string `json:"method"`
+	Connected bool   `json:"connected"`
+}
+
+type SignalDisconnectResult struct {
+	From         string `json:"from"`
+	Signal       string `json:"signal"`
+	To           string `json:"to"`
+	Method       string `json:"method"`
+	Disconnected bool   `json:"disconnected"`
+}
+
+type ProjectSettingResult struct {
+	Key   string `json:"key"`
+	Value any    `json:"value,omitempty"`
+	Set   bool   `json:"set,omitempty"`
+}
+
 type LogEntry struct {
 	Time    string         `json:"time"`
 	Level   string         `json:"level"`

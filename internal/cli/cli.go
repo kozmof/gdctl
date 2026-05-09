@@ -85,6 +85,17 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return runNodeSetResource(ctx, client, rest[2:], stdout)
 			case "attach-script":
 				return runNodeAttachScript(ctx, client, rest[2:], stdout)
+			case "group":
+				if len(rest) >= 3 {
+					switch rest[2] {
+					case "add":
+						return runNodeGroupAdd(ctx, client, rest[3:], stdout)
+					case "remove":
+						return runNodeGroupRemove(ctx, client, rest[3:], stdout)
+					case "list":
+						return runNodeGroupList(ctx, client, rest[3:], stdout)
+					}
+				}
 			}
 		}
 	case "script":
@@ -126,6 +137,29 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			switch rest[1] {
 			case "write":
 				return runLUTWrite(ctx, client, rest[2:], stdout)
+			}
+		}
+	case "signal":
+		if len(rest) >= 2 {
+			switch rest[1] {
+			case "connect":
+				return runSignalConnect(ctx, client, rest[2:], stdout)
+			case "disconnect":
+				return runSignalDisconnect(ctx, client, rest[2:], stdout)
+			}
+		}
+	case "project":
+		if len(rest) >= 2 {
+			switch rest[1] {
+			case "setting":
+				if len(rest) >= 3 {
+					switch rest[2] {
+					case "get":
+						return runProjectSettingGet(ctx, client, rest[3:], stdout)
+					case "set":
+						return runProjectSettingSet(ctx, client, rest[3:], stdout)
+					}
+				}
 			}
 		}
 	case "viewport":
@@ -816,6 +850,146 @@ func runNodeAttachScript(ctx context.Context, client *bridge.Client, args []stri
 	return nil
 }
 
+func runNodeGroupAdd(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("node group add", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "node path")
+	group := fs.String("group", "", "group name")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *group == "" {
+		return fmt.Errorf("node group add requires --path and --group")
+	}
+	result, err := client.NodeGroupAdd(ctx, requestID(), *path, *group)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Added to group: %s on %s\n", result.Group, result.Path)
+	return nil
+}
+
+func runNodeGroupRemove(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("node group remove", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "node path")
+	group := fs.String("group", "", "group name")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *group == "" {
+		return fmt.Errorf("node group remove requires --path and --group")
+	}
+	result, err := client.NodeGroupRemove(ctx, requestID(), *path, *group)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Removed from group: %s on %s\n", result.Group, result.Path)
+	return nil
+}
+
+func runNodeGroupList(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("node group list", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "node path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" {
+		return fmt.Errorf("node group list requires --path")
+	}
+	result, err := client.NodeGroupList(ctx, requestID(), *path)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Groups on %s: %s\n", result.Path, strings.Join(result.Groups, ", "))
+	return nil
+}
+
+func runSignalConnect(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("signal connect", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	from := fs.String("from", "", "source node path")
+	sig := fs.String("signal", "", "signal name")
+	to := fs.String("to", "", "target node path")
+	method := fs.String("method", "", "method name on target node")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *from == "" || *sig == "" || *to == "" || *method == "" {
+		return fmt.Errorf("signal connect requires --from, --signal, --to, and --method")
+	}
+	result, err := client.SignalConnect(ctx, requestID(), *from, *sig, *to, *method)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Connected: %s::%s -> %s::%s\n", result.From, result.Signal, result.To, result.Method)
+	return nil
+}
+
+func runSignalDisconnect(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("signal disconnect", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	from := fs.String("from", "", "source node path")
+	sig := fs.String("signal", "", "signal name")
+	to := fs.String("to", "", "target node path")
+	method := fs.String("method", "", "method name on target node")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *from == "" || *sig == "" || *to == "" || *method == "" {
+		return fmt.Errorf("signal disconnect requires --from, --signal, --to, and --method")
+	}
+	result, err := client.SignalDisconnect(ctx, requestID(), *from, *sig, *to, *method)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Disconnected: %s::%s -> %s::%s\n", result.From, result.Signal, result.To, result.Method)
+	return nil
+}
+
+func runProjectSettingGet(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("project setting get", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	key := fs.String("key", "", "project setting key")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *key == "" {
+		return fmt.Errorf("project setting get requires --key")
+	}
+	result, err := client.ProjectSettingGet(ctx, requestID(), *key)
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(result)
+}
+
+func runProjectSettingSet(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("project setting set", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	key := fs.String("key", "", "project setting key")
+	valueText := fs.String("value", "", "typed JSON value, for example {\"kind\":\"int\",\"value\":1920}")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *key == "" || *valueText == "" {
+		return fmt.Errorf("project setting set requires --key and --value")
+	}
+	var value any
+	if err := json.Unmarshal([]byte(*valueText), &value); err != nil {
+		return fmt.Errorf("project setting set --value must be typed JSON: %w", err)
+	}
+	result, err := client.ProjectSettingSet(ctx, requestID(), *key, value)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Set %s\n", result.Key)
+	return nil
+}
+
 func runScriptCheck(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("script check", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -1318,6 +1492,9 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node set --path PATH --property PROPERTY --value TYPED_JSON")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node set-resource --path PATH --property PROPERTY --resource RESOURCE")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node attach-script --path PATH --script SCRIPT")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node group add --path PATH --group GROUP")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node group remove --path PATH --group GROUP")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node group list --path PATH")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script create --path PATH --extends CLASS [--force]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script write --path PATH (--body TEXT | --body-file FILE)")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script check --path PATH")
@@ -1326,5 +1503,9 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] material write --path PATH --shader SHADER [--texture-param NAME=RESOURCE]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file write-bytes --path PATH --in FILE")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] lut write --path PATH --profiles FILE")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] signal connect --from PATH --signal NAME --to PATH --method METHOD")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] signal disconnect --from PATH --signal NAME --to PATH --method METHOD")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] project setting get --key KEY")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] project setting set --key KEY --value TYPED_JSON")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] viewport screenshot --out FILE [--kind 2d|3d] [--index N]")
 }

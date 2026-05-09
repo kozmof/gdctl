@@ -238,6 +238,68 @@ func handle_attach_script(request: Dictionary, context: Dictionary) -> Dictionar
 	})
 
 
+func handle_group_add(request: Dictionary, context: Dictionary) -> Dictionary:
+	var checked: Dictionary = context["request"].require_body(request, context, "node.group_add", "Mutation endpoint requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
+	var path: String = String(params.get("path", ""))
+	var group: String = String(params.get("group", ""))
+	var node: Node = context["node_by_path"].call(path)
+	if node == null:
+		return context["bridge_error"].call(404, request_id, "NODE_NOT_FOUND", "Node does not exist", {"path": path})
+	if group == "":
+		return context["bridge_error"].call(400, request_id, "GROUP_NAME_INVALID", "Group name is required", {})
+	node.add_to_group(group)
+	context["mark_scene_dirty"].call()
+	return context["bridge_ok"].call(request_id, {
+		"path": context["logical_path"].call(node),
+		"group": group,
+		"added": true,
+	})
+
+
+func handle_group_remove(request: Dictionary, context: Dictionary) -> Dictionary:
+	var checked: Dictionary = context["request"].require_body(request, context, "node.group_remove", "Mutation endpoint requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
+	var path: String = String(params.get("path", ""))
+	var group: String = String(params.get("group", ""))
+	var node: Node = context["node_by_path"].call(path)
+	if node == null:
+		return context["bridge_error"].call(404, request_id, "NODE_NOT_FOUND", "Node does not exist", {"path": path})
+	if group == "":
+		return context["bridge_error"].call(400, request_id, "GROUP_NAME_INVALID", "Group name is required", {})
+	if not node.is_in_group(group):
+		return context["bridge_error"].call(404, request_id, "GROUP_NOT_FOUND", "Node is not in group", {"path": path, "group": group})
+	node.remove_from_group(group)
+	context["mark_scene_dirty"].call()
+	return context["bridge_ok"].call(request_id, {
+		"path": context["logical_path"].call(node),
+		"group": group,
+		"removed": true,
+	})
+
+
+func handle_group_list(request: Dictionary, context: Dictionary) -> Dictionary:
+	var checked: Dictionary = context["request"].require_body(request, context, "node.group_list", "Node group read requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
+	var path: String = String(params.get("path", ""))
+	var node: Node = context["node_by_path"].call(path)
+	if node == null:
+		return context["bridge_error"].call(404, request_id, "NODE_NOT_FOUND", "Node does not exist", {"path": path})
+	return context["bridge_ok"].call(request_id, {
+		"path": context["logical_path"].call(node),
+		"groups": node.get_groups(),
+	})
+
+
 func _renamed_path(path: String, new_name: String) -> String:
 	var index: int = path.rfind("/")
 	if index == -1:

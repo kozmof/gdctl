@@ -1423,6 +1423,280 @@ func TestAddonDoctorFixInstallsAndEnables(t *testing.T) {
 	}
 }
 
+func TestRunNodeGroupAdd(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/node/group-add" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":  "/root/Main/Player",
+				"group": "enemies",
+				"added": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "node", "group", "add", "--path", "/root/Main/Player", "--group", "enemies")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "node.group_add" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["path"] != "/root/Main/Player" || gotEnvelope.Params["group"] != "enemies" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Added to group: enemies on /root/Main/Player") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRunNodeGroupRemove(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/node/group-remove" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":    "/root/Main/Player",
+				"group":   "enemies",
+				"removed": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "node", "group", "remove", "--path", "/root/Main/Player", "--group", "enemies")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "Removed from group: enemies on /root/Main/Player") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRunNodeGroupList(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/node/group-list" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":   "/root/Main/Player",
+				"groups": []any{"enemies", "pickups"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "node", "group", "list", "--path", "/root/Main/Player")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "enemies") || !strings.Contains(stdout.String(), "pickups") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestNodeGroupAddRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"node", "group", "add", "--path", "/root/Main/Player"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--path and --group") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunSignalConnect(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/signal/connect" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"from":      "/root/Main/Timer",
+				"signal":    "timeout",
+				"to":        "/root/Main/Player",
+				"method":    "_on_timer_timeout",
+				"connected": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "signal", "connect",
+		"--from", "/root/Main/Timer", "--signal", "timeout",
+		"--to", "/root/Main/Player", "--method", "_on_timer_timeout")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "signal.connect" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["from"] != "/root/Main/Timer" || gotEnvelope.Params["signal"] != "timeout" ||
+		gotEnvelope.Params["to"] != "/root/Main/Player" || gotEnvelope.Params["method"] != "_on_timer_timeout" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Connected: /root/Main/Timer::timeout -> /root/Main/Player::_on_timer_timeout") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRunSignalDisconnect(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/signal/disconnect" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"from":         "/root/Main/Timer",
+				"signal":       "timeout",
+				"to":           "/root/Main/Player",
+				"method":       "_on_timer_timeout",
+				"disconnected": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "signal", "disconnect",
+		"--from", "/root/Main/Timer", "--signal", "timeout",
+		"--to", "/root/Main/Player", "--method", "_on_timer_timeout")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "Disconnected: /root/Main/Timer::timeout -> /root/Main/Player::_on_timer_timeout") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestSignalConnectRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"signal", "connect", "--from", "/root/Main/Timer", "--signal", "timeout", "--to", "/root/Main/Player"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--from, --signal, --to, and --method") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunProjectSettingGet(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/project/setting-get" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"key":   "display/window/size/viewport_width",
+				"value": map[string]any{"kind": "int", "value": float64(1920)},
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "project", "setting", "get", "--key", "display/window/size/viewport_width")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "project.setting_get" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["key"] != "display/window/size/viewport_width" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "display/window/size/viewport_width") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRunProjectSettingSet(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/project/setting-set" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"key":   "display/window/size/viewport_width",
+				"value": map[string]any{"kind": "int", "value": float64(1280)},
+				"set":   true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "project", "setting", "set",
+		"--key", "display/window/size/viewport_width", "--value", `{"kind":"int","value":1280}`)
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "project.setting_set" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["key"] != "display/window/size/viewport_width" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Set display/window/size/viewport_width") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestProjectSettingSetRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"project", "setting", "set", "--value", `{"kind":"int","value":1}`}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--key and --value") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestProjectSettingSetRequiresValidJSON(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"project", "setting", "set", "--key", "some/key", "--value", "not-json"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected JSON parse error")
+	}
+	if !strings.Contains(err.Error(), "typed JSON") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func serverArgs(server *httptest.Server) []string {
 	hostPort := strings.TrimPrefix(server.URL, "http://")
 	parts := strings.Split(hostPort, ":")
