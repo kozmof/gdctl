@@ -73,6 +73,8 @@ UNKNOWN_ENDPOINT: Unknown bridge endpoint
 
 the running addon is too old for projectless update. Manually update/install the addon once, reload it, then projectless updates should work afterward.
 
+Note: check gdctl_manifest.json is also modified before running a command.
+
 ## 4. Scene Path Smoke Test
 
 Open or create a scene in Godot, then inspect it:
@@ -198,72 +200,7 @@ It must work for already-saved scenes before supporting save-as.
 It must be tested manually on a disposable project before updating the normal addon.
 ```
 
-## 7. Playable Mini-Racer Period
-
-This period proved that the bridge is now useful for a small real game loop, not only smoke tests.
-
-Proven flow:
-
-```text
-1. Reload or enable the Godot addon.
-2. Export GDCTL_BRIDGE_HOST and GDCTL_BRIDGE_TOKEN in the devcontainer.
-3. Verify bridge info and addon status.
-4. Create/open scenes over TCP.
-5. Add and configure nodes with typed values.
-6. Write and check GDScript from the CLI.
-7. Attach scripts to scene nodes.
-8. Save scenes through the deferred scene-save job.
-9. Capture a viewport screenshot over TCP.
-10. Play the scene in Godot and confirm behavior manually.
-```
-
-Commands used in this period:
-
-```bash
-go run ./cmd/gdctl scene create res://mini_racer/PlayerCar.tscn --root CharacterBody2D --name PlayerCar
-go run ./cmd/gdctl scene open res://mini_racer/PlayerCar.tscn
-go run ./cmd/gdctl node add --parent /root/PlayerCar --type ColorRect --name Body
-go run ./cmd/gdctl script write --path res://mini_racer/player_car.gd --body-file examples/player_car.gd
-go run ./cmd/gdctl script check --path res://mini_racer/player_car.gd
-go run ./cmd/gdctl node attach-script --path /root/PlayerCar --script res://mini_racer/player_car.gd
-go run ./cmd/gdctl scene save
-```
-
-Main scene composition:
-
-```bash
-go run ./cmd/gdctl scene create res://mini_racer/Main.tscn --root Node2D --name Main
-go run ./cmd/gdctl scene open res://mini_racer/Main.tscn
-go run ./cmd/gdctl scene instance --parent /root/Main --scene res://mini_racer/PlayerCar.tscn --name PlayerCar
-go run ./cmd/gdctl node add --parent /root/Main --type ColorRect --name TrackOuter
-go run ./cmd/gdctl node add --parent /root/Main --type ColorRect --name TrackInner
-go run ./cmd/gdctl node add --parent /root/Main --type ColorRect --name StartLine
-go run ./cmd/gdctl scene save
-```
-
-Visual checkpoint:
-
-```bash
-go run ./cmd/gdctl viewport screenshot --out /workspace/mini-racer-skeleton.png
-```
-
-Confirmed result:
-
-```text
-The generated mini-racer scene is visible in Godot.
-The player car script passes syntax check.
-The scene is playable after manual confirmation in Godot.
-The CLI can capture a screenshot for visual status checks.
-```
-
-Current limitation:
-
-```text
-This is still a manual command sequence, not yet a single gdctl example command.
-The next milestone should turn this proven flow into a reproducible example generator.
-```
-
-## 8. Current Bridge Structure
+## 7. Current Bridge Structure
 
 The bridge bootstrap and projectless update loop are working. Logical scene paths are working.
 The addon server has started moving reusable logic out of `bridge_server.gd`. Typed CLI/Godot value conversion now lives in `addons/godot_tcp_bridge/typed_values.gd`, command handlers now live under `addons/godot_tcp_bridge/commands/`, bridge self-update logic now lives in `addons/godot_tcp_bridge/addon_update.gd`, request/response protocol helpers now live in `addons/godot_tcp_bridge/protocol.gd`, and async job processing now lives in `addons/godot_tcp_bridge/jobs.gd`.
@@ -302,7 +239,7 @@ gdctl node move --path /root/Main/PlayerCar --parent /root/Main/Track
 
 Scene saving now uses a deferred/editor-process job. Save-as is still intentionally unsupported.
 
-## 9. Shader Whole-File Period
+## 8. Shader Whole-File Period
 
 Shader authoring starts with whole-file operations:
 
@@ -318,7 +255,7 @@ This intentionally avoids partial shader or material parameter mutation at first
 
 `lut write` generates a 256x1 PNG locally from JSON edge profiles and uploads it through `file write-bytes`. This keeps Edge ID + LUT authoring data-driven while reusing one general binary file primitive.
 
-## 10. Current Self-Update Caveat
+## 9. Current Self-Update Caveat
 
 After extracting `addon_update.gd`, the currently running Godot addon may need a manual file refresh if `/addon/update` returns:
 
@@ -335,7 +272,7 @@ gdctl node rename --path /root/Node3D/Temp --name TempRenamed --dry-run
 gdctl node move --path /root/Node3D/Temp --parent /root/Node3D --dry-run
 ```
 
-## 11. Bridge Diagnostics
+## 10. Bridge Diagnostics
 
 The addon keeps a small in-memory diagnostic buffer for bridge activity. Use it when a command returns an unclear error or when Godot reports a GDScript issue:
 
