@@ -300,6 +300,81 @@ func handle_group_list(request: Dictionary, context: Dictionary) -> Dictionary:
 	})
 
 
+func handle_duplicate(request: Dictionary, context: Dictionary) -> Dictionary:
+	var checked: Dictionary = context["request"].require_body(request, context, "node.duplicate", "Mutation endpoint requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
+	var path: String = String(params.get("path", ""))
+	var node_name: String = String(params.get("name", ""))
+	var parent_path: String = String(params.get("parent", ""))
+	var dry_run: bool = bool(params.get("dry_run", false))
+
+	var source: Node = context["node_by_path"].call(path)
+	if source == null:
+		return context["bridge_error"].call(404, request_id, "NODE_NOT_FOUND", "Source node does not exist", {"path": path})
+	if source == context["edited_scene_root"].call():
+		return context["bridge_error"].call(400, request_id, "CANNOT_DUPLICATE_SCENE_ROOT", "Scene root cannot be duplicated", {"path": path})
+	if node_name == "" or not node_name.is_valid_identifier():
+		return context["bridge_error"].call(400, request_id, "NODE_NAME_INVALID", "Node name must be a valid identifier", {"name": node_name})
+
+	var target_parent: Node
+	if parent_path == "":
+		target_parent = source.get_parent()
+	else:
+		target_parent = context["node_by_path"].call(parent_path)
+		if target_parent == null:
+			return context["bridge_error"].call(404, request_id, "NODE_PARENT_NOT_FOUND", "Parent node does not exist", {"parent": parent_path})
+
+	var parent_logical: String = context["logical_path"].call(target_parent)
+	var new_path: String = "%s/%s" % [parent_logical.rstrip("/"), node_name]
+	if dry_run:
+		return context["bridge_ok"].call(request_id, {"source_path": path, "path": new_path, "dry_run": true})
+
+	var dup: Node = source.duplicate()
+	dup.name = node_name
+	target_parent.add_child(dup)
+	_set_owner_recursive(dup, context["edited_scene_root"].call())
+	context["mark_scene_dirty"].call()
+	return context["bridge_ok"].call(request_id, {
+		"source_path": path,
+		"path": context["logical_path"].call(dup),
+		"duplicated": true,
+	})
+
+
+func handle_list_properties(request: Dictionary, context: Dictionary) -> Dictionary:
+	var checked: Dictionary = context["request"].require_body(request, context, "node.list_properties", "Node property listing requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
+	var path: String = String(params.get("path", ""))
+	var node: Node = context["node_by_path"].call(path)
+	if node == null:
+		return context["bridge_error"].call(404, request_id, "NODE_NOT_FOUND", "Node does not exist", {"path": path})
+
+	var props: Array = []
+	for p: Dictionary in node.get_property_list():
+		if p["usage"] & PROPERTY_USAGE_EDITOR:
+			props.append({
+				"name": p["name"],
+				"type": type_string(p["type"]),
+				"usage": p["usage"],
+			})
+	return context["bridge_ok"].call(request_id, {
+		"path": context["logical_path"].call(node),
+		"properties": props,
+	})
+
+
+func _set_owner_recursive(node: Node, owner: Node) -> void:
+	node.owner = owner
+	for child: Node in node.get_children():
+		_set_owner_recursive(child, owner)
+
+
 func _renamed_path(path: String, new_name: String) -> String:
 	var index: int = path.rfind("/")
 	if index == -1:

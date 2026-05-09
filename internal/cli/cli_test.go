@@ -1697,6 +1697,315 @@ func TestProjectSettingSetRequiresValidJSON(t *testing.T) {
 	}
 }
 
+func TestNodeDuplicateRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"node", "duplicate", "--path", "/root/Scene/Enemy"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--path and --name") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunNodeDuplicate(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/node/duplicate" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"source_path": "/root/Scene/Enemy",
+				"path":        "/root/Scene/Enemy2",
+				"duplicated":  true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "node", "duplicate",
+		"--path", "/root/Scene/Enemy", "--name", "Enemy2")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "node.duplicate" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["path"] != "/root/Scene/Enemy" || gotEnvelope.Params["name"] != "Enemy2" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Duplicated: /root/Scene/Enemy2 (source: /root/Scene/Enemy)") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestNodeListPropertiesRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"node", "list-properties"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--path") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunNodeListProperties(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/node/list-properties" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path": "/root/Scene/Player",
+				"properties": []any{
+					map[string]any{"name": "position", "type": "Vector2", "usage": 8},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "node", "list-properties", "--path", "/root/Scene/Player")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "node.list_properties" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if !strings.Contains(stdout.String(), "position") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestFileListRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"file", "list"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--path") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunFileList(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/file/list" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":  "res://scenes",
+				"files": []any{"res://scenes/player.tscn"},
+				"dirs":  []any{},
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "file", "list", "--path", "res://scenes")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "file.list" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if !strings.Contains(stdout.String(), "res://scenes") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestFileMkdirRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"file", "mkdir"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--path") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunFileMkdir(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/file/mkdir" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "res://scenes/level1", "created": true},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "file", "mkdir", "--path", "res://scenes/level1")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "file.mkdir" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if !strings.Contains(stdout.String(), "Created: res://scenes/level1") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestFileDeleteRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"file", "delete"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--path") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunFileDelete(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/file/delete" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "res://old.tscn", "deleted": true},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "file", "delete", "--path", "res://old.tscn")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "file.delete" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if !strings.Contains(stdout.String(), "Deleted: res://old.tscn") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestFileExistsRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"file", "exists"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--path") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunFileExists(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/file/exists" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":    "res://scenes/player.tscn",
+				"exists":  true,
+				"is_file": true,
+				"is_dir":  false,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "file", "exists", "--path", "res://scenes/player.tscn")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "file.exists" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if !strings.Contains(stdout.String(), "res://scenes/player.tscn") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestNavigationBakeRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"navigation", "bake"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--path") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunNavigationBake(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/navigation/bake" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":  "/root/Level/NavRegion",
+				"kind":  "NavigationRegion3D",
+				"baked": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "navigation", "bake", "--path", "/root/Level/NavRegion")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "navigation.bake" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["path"] != "/root/Level/NavRegion" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Baked: /root/Level/NavRegion (NavigationRegion3D)") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
 func serverArgs(server *httptest.Server) []string {
 	hostPort := strings.TrimPrefix(server.URL, "http://")
 	parts := strings.Split(hostPort, ":")

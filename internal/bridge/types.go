@@ -206,6 +206,53 @@ type ProjectSettingResult struct {
 	Set   bool   `json:"set,omitempty"`
 }
 
+type NodeDuplicateResult struct {
+	SourcePath string `json:"source_path"`
+	Path       string `json:"path"`
+	DryRun     bool   `json:"dry_run,omitempty"`
+	Duplicated bool   `json:"duplicated,omitempty"`
+}
+
+type PropertyInfo struct {
+	Name  string `json:"name"`
+	Type  string `json:"type"`
+	Usage int    `json:"usage"`
+}
+
+type NodeListPropertiesResult struct {
+	Path       string         `json:"path"`
+	Properties []PropertyInfo `json:"properties"`
+}
+
+type FileListResult struct {
+	Path  string   `json:"path"`
+	Files []string `json:"files"`
+	Dirs  []string `json:"dirs"`
+}
+
+type FileMkdirResult struct {
+	Path    string `json:"path"`
+	Created bool   `json:"created"`
+}
+
+type FileDeleteResult struct {
+	Path    string `json:"path"`
+	Deleted bool   `json:"deleted"`
+}
+
+type FileExistsResult struct {
+	Path   string `json:"path"`
+	Exists bool   `json:"exists"`
+	IsFile bool   `json:"is_file"`
+	IsDir  bool   `json:"is_dir"`
+}
+
+type NavigationBakeResult struct {
+	Path  string `json:"path"`
+	Kind  string `json:"kind"`
+	Baked bool   `json:"baked"`
+}
+
 type LogEntry struct {
 	Time    string         `json:"time"`
 	Level   string         `json:"level"`

@@ -46,17 +46,17 @@ Currently only ShaderMaterial can be created. Missing:
 **5. `animation` commands**
 AnimationPlayer is central to platformers, cutscenes, UI transitions. Need: create track, add keyframe, set animation length, play.
 
-**6. `node duplicate`**
-Pattern used constantly — create one node, duplicate N times for terrain chunks, enemy spawners, UI items, etc.
+~~**6. `node duplicate`**~~
+~~Pattern used constantly — create one node, duplicate N times for terrain chunks, enemy spawners, UI items, etc.~~
 
-**7. File system operations**
-- `file list` — enumerate project files/dirs
-- `file mkdir` — create subdirectories
-- `file delete` — clean up generated assets
-- `file exists` — conditional logic
+~~**7. File system operations**~~
+~~- `file list` — enumerate project files/dirs~~
+~~- `file mkdir` — create subdirectories~~
+~~- `file delete` — clean up generated assets~~
+~~- `file exists` — conditional logic~~
 
-**8. `node list-properties`**
-Discover what properties a node type exposes — essential for AI-assisted building since you can't know all property names from memory.
+~~**8. `node list-properties`**~~
+~~Discover what properties a node type exposes — essential for AI-assisted building since you can't know all property names from memory.~~
 
 ---
 
@@ -68,8 +68,8 @@ Discover what properties a node type exposes — essential for AI-assisted build
 **10. `import set`**
 Configure import settings for textures (filter, compression, sRGB), 3D models (scale, generate LODs), and audio (loop, compression). Without this, assets import with wrong defaults.
 
-**11. `navigation bake`**
-3D navigation demos need `NavigationMesh.bake()` triggered from CLI.
+~~**11. `navigation bake`**~~
+~~3D navigation demos need `NavigationMesh.bake()` triggered from CLI.~~
 
 **12. `scene list` / `resource list`**
 Enumerate scenes and resources in the project (`res://` tree) so a build script can discover what assets exist.
@@ -104,15 +104,15 @@ Multiplayer demos need `MultiplayerPeer` configuration, but this is largely done
 | `node group` | Most 2D/3D | Low | ✅ done |
 | `resource create` (general) | Most 3D, GUI | High | — |
 | `animation` commands | 2D/3D/GUI | High | — |
-| `node duplicate` | Most | Low | — |
-| File system ops | All | Low | — |
-| `node list-properties` | All (tooling) | Low | — |
+| `node duplicate` | Most | Low | ✅ done |
+| File system ops | All | Low | ✅ done |
+| `node list-properties` | All (tooling) | Low | ✅ done |
 | `tilemap` | 2D tile demos | High | — |
 | `import set` | 2D/3D asset demos | Medium | — |
-| `navigation bake` | 3D navigation | Low | — |
+| `navigation bake` | 3D navigation | Low | ✅ done |
 | `project run` | All (testing) | Medium | — |
 | `audio bus` | Audio demos | Medium | — |
 | `theme` | GUI demos | Medium | — |
 
-The next most impactful additions would be **node duplicate**, **file system ops**, and **node list-properties** —
-all low-effort and broadly useful across demo categories.
+All low-effort items (**node duplicate**, **file system ops**, **node list-properties**, **navigation bake**) are now done (2026-05-09).
+The next most impactful additions are **import set** (medium effort) and **animation commands** / **resource create** (high effort).

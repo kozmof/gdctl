@@ -656,6 +656,108 @@ func (c *Client) ProjectSettingSet(ctx context.Context, requestID, key string, v
 	return out, json.Unmarshal(encoded, &out)
 }
 
+func (c *Client) NodeDuplicate(ctx context.Context, requestID, path, name, parent string, dryRun bool) (NodeDuplicateResult, error) {
+	params := map[string]any{"path": path, "name": name, "dry_run": dryRun}
+	if parent != "" {
+		params["parent"] = parent
+	}
+	env := RequestEnvelope{RequestID: requestID, Op: "node.duplicate", Params: params}
+	result, err := c.postEnvelope(ctx, "/node/duplicate", env)
+	if err != nil {
+		return NodeDuplicateResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return NodeDuplicateResult{}, err
+	}
+	var out NodeDuplicateResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) NodeListProperties(ctx context.Context, requestID, path string) (NodeListPropertiesResult, error) {
+	env := RequestEnvelope{RequestID: requestID, Op: "node.list_properties", Params: map[string]any{"path": path}}
+	result, err := c.postEnvelope(ctx, "/node/list-properties", env)
+	if err != nil {
+		return NodeListPropertiesResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return NodeListPropertiesResult{}, err
+	}
+	var out NodeListPropertiesResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) FileList(ctx context.Context, requestID, path string, recursive bool) (FileListResult, error) {
+	env := RequestEnvelope{RequestID: requestID, Op: "file.list", Params: map[string]any{"path": path, "recursive": recursive}}
+	result, err := c.postEnvelope(ctx, "/file/list", env)
+	if err != nil {
+		return FileListResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return FileListResult{}, err
+	}
+	var out FileListResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) FileMkdir(ctx context.Context, requestID, path string) (FileMkdirResult, error) {
+	env := RequestEnvelope{RequestID: requestID, Op: "file.mkdir", Params: map[string]any{"path": path}}
+	result, err := c.postEnvelope(ctx, "/file/mkdir", env)
+	if err != nil {
+		return FileMkdirResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return FileMkdirResult{}, err
+	}
+	var out FileMkdirResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) FileDelete(ctx context.Context, requestID, path string) (FileDeleteResult, error) {
+	env := RequestEnvelope{RequestID: requestID, Op: "file.delete", Params: map[string]any{"path": path}}
+	result, err := c.postEnvelope(ctx, "/file/delete", env)
+	if err != nil {
+		return FileDeleteResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return FileDeleteResult{}, err
+	}
+	var out FileDeleteResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) FileExists(ctx context.Context, requestID, path string) (FileExistsResult, error) {
+	env := RequestEnvelope{RequestID: requestID, Op: "file.exists", Params: map[string]any{"path": path}}
+	result, err := c.postEnvelope(ctx, "/file/exists", env)
+	if err != nil {
+		return FileExistsResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return FileExistsResult{}, err
+	}
+	var out FileExistsResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) NavigationBake(ctx context.Context, requestID, path string) (NavigationBakeResult, error) {
+	env := RequestEnvelope{RequestID: requestID, Op: "navigation.bake", Params: map[string]any{"path": path}}
+	result, err := c.postEnvelope(ctx, "/navigation/bake", env)
+	if err != nil {
+		return NavigationBakeResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return NavigationBakeResult{}, err
+	}
+	var out NavigationBakeResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
 func (c *Client) UpdateAddon(ctx context.Context, requestID string, manifest map[string]any, files []AddonUpdateFile) (AddonUpdateResult, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,

@@ -96,6 +96,10 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 						return runNodeGroupList(ctx, client, rest[3:], stdout)
 					}
 				}
+			case "duplicate":
+				return runNodeDuplicate(ctx, client, rest[2:], stdout)
+			case "list-properties":
+				return runNodeListProperties(ctx, client, rest[2:], stdout)
 			}
 		}
 	case "script":
@@ -130,6 +134,21 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			switch rest[1] {
 			case "write-bytes":
 				return runFileWriteBytes(ctx, client, rest[2:], stdout)
+			case "list":
+				return runFileList(ctx, client, rest[2:], stdout)
+			case "mkdir":
+				return runFileMkdir(ctx, client, rest[2:], stdout)
+			case "delete":
+				return runFileDelete(ctx, client, rest[2:], stdout)
+			case "exists":
+				return runFileExists(ctx, client, rest[2:], stdout)
+			}
+		}
+	case "navigation":
+		if len(rest) >= 2 {
+			switch rest[1] {
+			case "bake":
+				return runNavigationBake(ctx, client, rest[2:], stdout)
 			}
 		}
 	case "lut":
@@ -906,6 +925,50 @@ func runNodeGroupList(ctx context.Context, client *bridge.Client, args []string,
 	return nil
 }
 
+func runNodeDuplicate(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("node duplicate", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "source node path")
+	name := fs.String("name", "", "name for the duplicate")
+	parent := fs.String("parent", "", "parent node path (defaults to source's parent)")
+	dryRun := fs.Bool("dry-run", false, "preview without modifying scene")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *name == "" {
+		return fmt.Errorf("node duplicate requires --path and --name")
+	}
+	result, err := client.NodeDuplicate(ctx, requestID(), *path, *name, *parent, *dryRun)
+	if err != nil {
+		return err
+	}
+	if result.DryRun {
+		fmt.Fprintf(stdout, "Dry run ok: %s\n", result.Path)
+		return nil
+	}
+	fmt.Fprintf(stdout, "Duplicated: %s (source: %s)\n", result.Path, result.SourcePath)
+	return nil
+}
+
+func runNodeListProperties(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("node list-properties", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "node path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" {
+		return fmt.Errorf("node list-properties requires --path")
+	}
+	result, err := client.NodeListProperties(ctx, requestID(), *path)
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(result.Properties)
+}
+
 func runSignalConnect(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("signal connect", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -1198,6 +1261,99 @@ func runFileWriteBytes(ctx context.Context, client *bridge.Client, args []string
 		return err
 	}
 	fmt.Fprintf(stdout, "File written: %s (%d bytes)\n", result.Path, result.Bytes)
+	return nil
+}
+
+func runFileList(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("file list", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "res:// directory path")
+	recursive := fs.Bool("recursive", false, "list recursively")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" {
+		return fmt.Errorf("file list requires --path")
+	}
+	result, err := client.FileList(ctx, requestID(), *path, *recursive)
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(result)
+}
+
+func runFileMkdir(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("file mkdir", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "res:// directory path to create")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" {
+		return fmt.Errorf("file mkdir requires --path")
+	}
+	result, err := client.FileMkdir(ctx, requestID(), *path)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Created: %s\n", result.Path)
+	return nil
+}
+
+func runFileDelete(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("file delete", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "res:// path to delete")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" {
+		return fmt.Errorf("file delete requires --path")
+	}
+	result, err := client.FileDelete(ctx, requestID(), *path)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Deleted: %s\n", result.Path)
+	return nil
+}
+
+func runFileExists(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("file exists", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "res:// path to check")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" {
+		return fmt.Errorf("file exists requires --path")
+	}
+	result, err := client.FileExists(ctx, requestID(), *path)
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(result)
+}
+
+func runNavigationBake(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("navigation bake", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "NavigationRegion node path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" {
+		return fmt.Errorf("navigation bake requires --path")
+	}
+	result, err := client.NavigationBake(ctx, requestID(), *path)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Baked: %s (%s)\n", result.Path, result.Kind)
 	return nil
 }
 
@@ -1495,6 +1651,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node group add --path PATH --group GROUP")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node group remove --path PATH --group GROUP")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node group list --path PATH")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node duplicate --path PATH --name NAME [--parent PARENT] [--dry-run]")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node list-properties --path PATH")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script create --path PATH --extends CLASS [--force]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script write --path PATH (--body TEXT | --body-file FILE)")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script check --path PATH")
@@ -1502,6 +1660,11 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] shader check --path PATH")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] material write --path PATH --shader SHADER [--texture-param NAME=RESOURCE]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file write-bytes --path PATH --in FILE")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file list --path PATH [--recursive]")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file mkdir --path PATH")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file delete --path PATH")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file exists --path PATH")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] navigation bake --path PATH")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] lut write --path PATH --profiles FILE")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] signal connect --from PATH --signal NAME --to PATH --method METHOD")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] signal disconnect --from PATH --signal NAME --to PATH --method METHOD")

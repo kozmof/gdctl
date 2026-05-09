@@ -20,6 +20,7 @@ const FileCommands = preload("res://addons/godot_tcp_bridge/commands/file_comman
 const ViewportCommands = preload("res://addons/godot_tcp_bridge/commands/viewport_commands.gd")
 const SignalCommands = preload("res://addons/godot_tcp_bridge/commands/signal_commands.gd")
 const ProjectCommands = preload("res://addons/godot_tcp_bridge/commands/project_commands.gd")
+const NavigationCommands = preload("res://addons/godot_tcp_bridge/commands/navigation_commands.gd")
 const AddonUpdate = preload("res://addons/godot_tcp_bridge/addon_update.gd")
 const Protocol = preload("res://addons/godot_tcp_bridge/protocol.gd")
 const LogBuffer = preload("res://addons/godot_tcp_bridge/log_buffer.gd")
@@ -39,6 +40,7 @@ var file_commands = FileCommands.new()
 var viewport_commands = ViewportCommands.new()
 var signal_commands = SignalCommands.new()
 var project_commands = ProjectCommands.new()
+var navigation_commands = NavigationCommands.new()
 var addon_update = AddonUpdate.new()
 var protocol = Protocol.new()
 var log_buffer = LogBuffer.new()
@@ -212,6 +214,20 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return project_commands.handle_setting_get(request, _command_context())
 	if method == "POST" and path == "/project/setting-set":
 		return project_commands.handle_setting_set(request, _command_context())
+	if method == "POST" and path == "/node/duplicate":
+		return node_commands.handle_duplicate(request, _command_context())
+	if method == "POST" and path == "/node/list-properties":
+		return node_commands.handle_list_properties(request, _command_context())
+	if method == "POST" and path == "/file/list":
+		return file_commands.handle_list(request, _command_context())
+	if method == "POST" and path == "/file/mkdir":
+		return file_commands.handle_mkdir(request, _command_context())
+	if method == "POST" and path == "/file/delete":
+		return file_commands.handle_delete(request, _command_context())
+	if method == "POST" and path == "/file/exists":
+		return file_commands.handle_exists(request, _command_context())
+	if method == "POST" and path == "/navigation/bake":
+		return navigation_commands.handle_bake(request, _command_context())
 	if method == "POST" and path == "/script/check":
 		return script_commands.handle_check(request, _command_context())
 	if method == "POST" and path == "/script/create":
@@ -324,6 +340,13 @@ func _capabilities() -> Array:
 		"signal.disconnect",
 		"project.setting_get",
 		"project.setting_set",
+		"node.duplicate",
+		"node.list_properties",
+		"file.list",
+		"file.mkdir",
+		"file.delete",
+		"file.exists",
+		"navigation.bake",
 		"script.check",
 		"script.create",
 		"script.write",
