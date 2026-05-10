@@ -635,22 +635,10 @@ func runSceneOpen(ctx context.Context, client *bridge.Client, args []string, std
 	if *path == "" {
 		return fmt.Errorf("scene open requires --path")
 	}
-	result, err := client.OpenScene(ctx, requestID(), *path)
+	pathValue, root, err := openSceneAndWait(ctx, client, *path, *timeout)
 	if err != nil {
 		return err
 	}
-	if result.JobID == "" {
-		return fmt.Errorf("scene open did not return a job id")
-	}
-	job, err := waitForJob(ctx, client, result.JobID, *timeout, "scene open")
-	if err != nil {
-		return err
-	}
-	pathValue, _ := job.Result["path"].(string)
-	if pathValue == "" {
-		pathValue = result.Path
-	}
-	root, _ := job.Result["root"].(string)
 	fmt.Fprintf(stdout, "Scene opened: %s\n", pathValue)
 	if root != "" {
 		fmt.Fprintf(stdout, "Root: %s\n", root)
@@ -689,23 +677,51 @@ func runSceneSave(ctx context.Context, client *bridge.Client, args []string, std
 	if *path != "" {
 		return fmt.Errorf("scene save --path is temporarily unsupported; save the scene once in Godot, then run scene save")
 	}
-	result, err := client.SaveScene(ctx, requestID(), "")
+	pathValue, err := saveSceneAndWait(ctx, client, *timeout)
 	if err != nil {
 		return err
+	}
+	fmt.Fprintf(stdout, "Scene saved: %s\n", pathValue)
+	return nil
+}
+
+func openSceneAndWait(ctx context.Context, client *bridge.Client, path string, timeout time.Duration) (string, string, error) {
+	result, err := client.OpenScene(ctx, requestID(), path)
+	if err != nil {
+		return "", "", err
 	}
 	if result.JobID == "" {
-		return fmt.Errorf("scene save did not return a job id")
+		return "", "", fmt.Errorf("scene open did not return a job id")
 	}
-	job, err := waitForJob(ctx, client, result.JobID, *timeout, "scene save")
+	job, err := waitForJob(ctx, client, result.JobID, timeout, "scene open")
 	if err != nil {
-		return err
+		return "", "", err
 	}
 	pathValue, _ := job.Result["path"].(string)
 	if pathValue == "" {
 		pathValue = result.Path
 	}
-	fmt.Fprintf(stdout, "Scene saved: %s\n", pathValue)
-	return nil
+	root, _ := job.Result["root"].(string)
+	return pathValue, root, nil
+}
+
+func saveSceneAndWait(ctx context.Context, client *bridge.Client, timeout time.Duration) (string, error) {
+	result, err := client.SaveScene(ctx, requestID(), "")
+	if err != nil {
+		return "", err
+	}
+	if result.JobID == "" {
+		return "", fmt.Errorf("scene save did not return a job id")
+	}
+	job, err := waitForJob(ctx, client, result.JobID, timeout, "scene save")
+	if err != nil {
+		return "", err
+	}
+	pathValue, _ := job.Result["path"].(string)
+	if pathValue == "" {
+		pathValue = result.Path
+	}
+	return pathValue, nil
 }
 
 func waitForJob(ctx context.Context, client *bridge.Client, jobID string, timeout time.Duration, label string) (bridge.Job, error) {
@@ -901,17 +917,33 @@ func runNodeAttachScript(ctx context.Context, client *bridge.Client, args []stri
 	fs.SetOutput(io.Discard)
 	path := fs.String("path", "", "node path")
 	scriptPath := fs.String("script", "", "script resource path")
+	scenePath := fs.String("scene", "", "scene path to open before attaching and save after attaching")
+	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for scene open/save jobs")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *path == "" || *scriptPath == "" {
 		return fmt.Errorf("node attach-script requires --path and --script")
 	}
+	if *scenePath != "" {
+		openedPath, _, err := openSceneAndWait(ctx, client, *scenePath, *timeout)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Scene opened: %s\n", openedPath)
+	}
 	result, err := client.AttachScript(ctx, requestID(), *path, *scriptPath)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "Attached script: %s -> %s\n", result.Script, result.Path)
+	if *scenePath != "" {
+		savedPath, err := saveSceneAndWait(ctx, client, *timeout)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Scene saved: %s\n", savedPath)
+	}
 	return nil
 }
 
@@ -2088,13 +2120,17 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "attach-script",
-			line: "  gdctl [--host host] [--port port] [--token token] node attach-script --path PATH --script SCRIPT",
+			line: "  gdctl [--host host] [--port port] [--token token] node attach-script --path PATH --script SCRIPT [--scene SCENE] [--timeout DURATION]",
 			desc: "attach a script to a node after syntax-checking it",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "node path"},
 				{name: "script", meta: "PATH", usage: "script resource path (res://)"},
+				{name: "scene", meta: "SCENE", usage: "open this scene before attaching and save it after attaching"},
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for scene open/save jobs (default 5s)"},
 			},
 			notes: []string{
+				"Without --scene, the command mutates the currently open editor scene.",
+				"With --scene, the command opens that scene, attaches the script, and saves it.",
 				"Invalid GDScript reports Godot's diagnostic, line number, and nearby source context when available.",
 			},
 		},

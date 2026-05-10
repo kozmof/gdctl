@@ -72,6 +72,7 @@ gdctl script create --path res://scripts/player_car.gd --extends CharacterBody2D
 gdctl script write --path res://scripts/player_car.gd --body-file ./player_car.gd
 gdctl script check --path res://scripts/player_car.gd
 gdctl node attach-script --path /root/PlayerCar --script res://scripts/player_car.gd
+gdctl node attach-script --scene res://scenes/PlayerCar.tscn --path /root/PlayerCar --script res://scripts/player_car.gd
 gdctl shader write --path res://shaders/edge_mix_3d.gdshader --body-file ./edge_mix_3d.gdshader
 gdctl shader check --path res://shaders/edge_mix_3d.gdshader
 gdctl material write --path res://materials/edge_mix.tres --shader res://shaders/edge_mix_3d.gdshader
@@ -186,6 +187,11 @@ gdctl script write \
 gdctl node attach-script \
   --path /root/SmokeScene \
   --script res://gdctl_tmp/smoke_script.gd
+
+gdctl node attach-script \
+  --scene res://gdctl_tmp/SmokeScene.tscn \
+  --path /root/SmokeScene \
+  --script res://gdctl_tmp/smoke_script.gd
 ```
 
 `script create` writes a minimal script like:
@@ -195,7 +201,7 @@ extends Node2D
 ```
 
 `script write` syntax-checks the provided body with Godot before writing it. If Godot rejects the script, the command fails with `SCRIPT_SYNTAX_INVALID` and includes Godot's diagnostic, line number, and nearby source context when the running engine exposes those details.
-`node attach-script` syntax-checks the target script again before loading and attaching it to the node, and reports the same diagnostics on failure.
+`node attach-script` syntax-checks the target script again before loading and attaching it to the node, and reports the same diagnostics on failure. By default it mutates the currently open editor scene; with `--scene`, it opens that scene, attaches the script, and saves it.
 
 ## Current Shader Workflow
 

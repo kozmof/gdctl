@@ -75,6 +75,23 @@ func TestRunHelpScriptWriteIncludesDiagnosticsNote(t *testing.T) {
 	}
 }
 
+func TestRunHelpNodeAttachScriptIncludesSceneOption(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), []string{"help", "node.attach-script"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"node attach-script --path PATH --script SCRIPT [--scene SCENE]",
+		"--scene SCENE",
+		"opens that scene, attaches the script, and saves it",
+		"Invalid GDScript reports Godot's diagnostic",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
+		}
+	}
+}
+
 func TestRunSceneTree(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(bridge.SceneTreeResponse{
@@ -495,6 +512,96 @@ func TestRunNodeAttachScript(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Attached script: res://scripts/player.gd -> /root/Main") {
 		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRunNodeAttachScriptWithScene(t *testing.T) {
+	var ops []string
+	var attachEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/scene/open":
+			ops = append(ops, "open")
+			var envelope bridge.RequestEnvelope
+			if err := json.NewDecoder(r.Body).Decode(&envelope); err != nil {
+				t.Fatal(err)
+			}
+			if envelope.Params["path"] != "res://scenes/Player.tscn" {
+				t.Fatalf("open params = %#v", envelope.Params)
+			}
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"queued": true, "job_id": "open-1", "path": "res://scenes/Player.tscn"},
+			})
+		case "/jobs/open-1":
+			ops = append(ops, "open-job")
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{
+				OK: true,
+				Job: bridge.Job{
+					ID:     "open-1",
+					Kind:   "scene.open",
+					Status: "succeeded",
+					Result: map[string]any{"path": "res://scenes/Player.tscn", "root": "/root/Player"},
+				},
+			})
+		case "/node/attach-script":
+			ops = append(ops, "attach")
+			if err := json.NewDecoder(r.Body).Decode(&attachEnvelope); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK: true,
+				Result: map[string]any{
+					"path":     "/root/Player",
+					"script":   "res://scripts/player.gd",
+					"attached": true,
+				},
+			})
+		case "/scene/save":
+			ops = append(ops, "save")
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"queued": true, "job_id": "save-1", "path": "res://scenes/Player.tscn"},
+			})
+		case "/jobs/save-1":
+			ops = append(ops, "save-job")
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{
+				OK: true,
+				Job: bridge.Job{
+					ID:     "save-1",
+					Kind:   "scene.save",
+					Status: "succeeded",
+					Result: map[string]any{"path": "res://scenes/Player.tscn"},
+				},
+			})
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "node", "attach-script", "--scene", "res://scenes/Player.tscn", "--path", "/root/Player", "--script", "res://scripts/player.gd")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(ops, ","), "open,open-job,attach,save,save-job"; got != want {
+		t.Fatalf("ops = %s", got)
+	}
+	if attachEnvelope.Op != "node.attach_script" {
+		t.Fatalf("op = %q", attachEnvelope.Op)
+	}
+	if attachEnvelope.Params["path"] != "/root/Player" || attachEnvelope.Params["script"] != "res://scripts/player.gd" {
+		t.Fatalf("attach params = %#v", attachEnvelope.Params)
+	}
+	for _, want := range []string{
+		"Scene opened: res://scenes/Player.tscn",
+		"Attached script: res://scripts/player.gd -> /root/Player",
+		"Scene saved: res://scenes/Player.tscn",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
+		}
 	}
 }
 
