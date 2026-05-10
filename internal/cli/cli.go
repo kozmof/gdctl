@@ -21,6 +21,7 @@ import (
 	embeddedaddons "gdctl/addons"
 	"gdctl/internal/addon"
 	"gdctl/internal/bridge"
+	"gdctl/internal/version"
 )
 
 var newAddonManager = func() addon.Manager {
@@ -40,6 +41,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		printUsage(stderr)
 		return fmt.Errorf("missing command")
 	}
+	rest = normalizeCommandArgs(rest)
 
 	client := bridge.NewClient(cfg)
 	addonManager := newAddonManager()
@@ -205,6 +207,35 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 
 	printUsage(stderr)
 	return fmt.Errorf("unknown command: %s", strings.Join(rest, " "))
+}
+
+func normalizeCommandArgs(args []string) []string {
+	if len(args) >= 2 && args[0] == "help" && strings.Contains(args[1], ".") {
+		parts := strings.Split(args[1], ".")
+		normalized := []string{"help"}
+		for _, part := range parts {
+			if part != "" {
+				normalized = append(normalized, part)
+			}
+		}
+		if len(normalized) > 1 {
+			return append(normalized, args[2:]...)
+		}
+	}
+	if len(args) == 0 || !strings.Contains(args[0], ".") {
+		return args
+	}
+	parts := strings.Split(args[0], ".")
+	normalized := make([]string, 0, len(parts)+len(args)-1)
+	for _, part := range parts {
+		if part != "" {
+			normalized = append(normalized, part)
+		}
+	}
+	if len(normalized) == 0 {
+		return args
+	}
+	return append(normalized, args[1:]...)
 }
 
 func runBridge(ctx context.Context, client *bridge.Client, manager addon.Manager, args []string, stdout io.Writer) error {
@@ -494,7 +525,7 @@ func printAddonStatus(stdout io.Writer, status addon.Status, jsonOut bool) error
 }
 
 func printRuntimeAddonStatus(stdout io.Writer, ping bridge.PingResponse, jsonOut bool) error {
-	compatible := ping.PluginVersion == "" || ping.PluginVersion == "0.1.0"
+	compatible := ping.PluginVersion == "" || ping.PluginVersion == version.EmbeddedBridgeVersion
 	if jsonOut {
 		return json.NewEncoder(stdout).Encode(map[string]any{
 			"installed":        ping.OK,
@@ -1232,7 +1263,6 @@ func runResourceCreate(ctx context.Context, client *bridge.Client, args []string
 	return nil
 }
 
-
 type stringListFlag []string
 
 func (s *stringListFlag) String() string {
@@ -1805,6 +1835,7 @@ type helpCmd struct {
 	line  string
 	desc  string
 	flags []helpFlag
+	notes []string
 }
 
 type helpGroup struct {
@@ -1833,7 +1864,7 @@ var helpGroups = []helpGroup{
 			line: "  gdctl help [topic]",
 			desc: "show usage information",
 			flags: []helpFlag{
-				{name: "topic", meta: "TOPIC", usage: "command group or specific command (e.g. scene, scene create)"},
+				{name: "topic", meta: "TOPIC", usage: "command group or specific command (e.g. scene, scene create, scene.create)"},
 			},
 		},
 	}},
@@ -2058,10 +2089,13 @@ var helpGroups = []helpGroup{
 		{
 			sub:  "attach-script",
 			line: "  gdctl [--host host] [--port port] [--token token] node attach-script --path PATH --script SCRIPT",
-			desc: "attach a script to a node",
+			desc: "attach a script to a node after syntax-checking it",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "node path"},
 				{name: "script", meta: "PATH", usage: "script resource path (res://)"},
+			},
+			notes: []string{
+				"Invalid GDScript reports Godot's diagnostic, line number, and nearby source context when available.",
 			},
 		},
 		{
@@ -2124,11 +2158,14 @@ var helpGroups = []helpGroup{
 		{
 			sub:  "write",
 			line: "  gdctl [--host host] [--port port] [--token token] script write --path PATH (--body TEXT | --body-file FILE)",
-			desc: "write a GDScript file body",
+			desc: "syntax-check and write a GDScript file body",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "script path (res://)"},
 				{name: "body", meta: "TEXT", usage: "script body as a string"},
 				{name: "body-file", meta: "FILE", usage: "local file containing the script body"},
+			},
+			notes: []string{
+				"Invalid GDScript is not written and reports Godot's diagnostic, line number, and nearby source context when available.",
 			},
 		},
 		{
@@ -2137,6 +2174,9 @@ var helpGroups = []helpGroup{
 			desc: "syntax-check a GDScript file",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "script path (res://)"},
+			},
+			notes: []string{
+				"Invalid GDScript reports Godot's diagnostic, line number, and nearby source context when available.",
 			},
 		},
 	}},
@@ -2333,6 +2373,8 @@ func printUsage(w io.Writer) {
 			fmt.Fprintln(w, cmd.line)
 		}
 	}
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Dotted aliases are supported for multi-word commands, e.g. gdctl file.mkdir and gdctl project.setting.get.")
 }
 
 func runHelp(args []string, stdout io.Writer) error {
@@ -2377,28 +2419,38 @@ func runHelp(args []string, stdout io.Writer) error {
 func printCommandHelp(stdout io.Writer, cmd helpCmd) error {
 	fmt.Fprintln(stdout, "Usage:")
 	fmt.Fprintln(stdout, cmd.line)
-	if len(cmd.flags) == 0 {
-		return nil
+	if cmd.desc != "" {
+		fmt.Fprintln(stdout)
+		fmt.Fprintln(stdout, cmd.desc)
 	}
-	fmt.Fprintln(stdout)
-	maxWidth := 0
-	for _, f := range cmd.flags {
-		w := 2 + len(f.name)
-		if f.meta != "" {
-			w += 1 + len(f.meta)
+	if len(cmd.flags) > 0 {
+		fmt.Fprintln(stdout)
+		maxWidth := 0
+		for _, f := range cmd.flags {
+			w := 2 + len(f.name)
+			if f.meta != "" {
+				w += 1 + len(f.meta)
+			}
+			if w > maxWidth {
+				maxWidth = w
+			}
 		}
-		if w > maxWidth {
-			maxWidth = w
+		for _, f := range cmd.flags {
+			var flagStr string
+			if f.meta != "" {
+				flagStr = fmt.Sprintf("--%s %s", f.name, f.meta)
+			} else {
+				flagStr = fmt.Sprintf("--%s", f.name)
+			}
+			fmt.Fprintf(stdout, "  %-*s  %s\n", maxWidth, flagStr, f.usage)
 		}
 	}
-	for _, f := range cmd.flags {
-		var flagStr string
-		if f.meta != "" {
-			flagStr = fmt.Sprintf("--%s %s", f.name, f.meta)
-		} else {
-			flagStr = fmt.Sprintf("--%s", f.name)
+	if len(cmd.notes) > 0 {
+		fmt.Fprintln(stdout)
+		fmt.Fprintln(stdout, "Notes:")
+		for _, note := range cmd.notes {
+			fmt.Fprintf(stdout, "  %s\n", note)
 		}
-		fmt.Fprintf(stdout, "  %-*s  %s\n", maxWidth, flagStr, f.usage)
 	}
 	return nil
 }

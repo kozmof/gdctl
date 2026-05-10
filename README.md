@@ -82,6 +82,13 @@ gdctl lut write --path res://textures/edge_lut.png --profiles ./edge_profiles.js
 gdctl viewport screenshot --out ./status.png
 ```
 
+Multi-word commands can also be written with a dotted alias for quick interactive use:
+
+```bash
+gdctl file.mkdir --path res://scenes
+gdctl project.setting.get --key application/run/main_scene
+```
+
 Scene node paths are logical paths rooted at the edited scene root:
 
 ```text
@@ -187,8 +194,8 @@ gdctl node attach-script \
 extends Node2D
 ```
 
-`script write` syntax-checks the provided body with Godot before writing it. If Godot rejects the script, the command fails with `SCRIPT_SYNTAX_INVALID`.
-`node attach-script` syntax-checks the target script again before loading and attaching it to the node.
+`script write` syntax-checks the provided body with Godot before writing it. If Godot rejects the script, the command fails with `SCRIPT_SYNTAX_INVALID` and includes Godot's diagnostic, line number, and nearby source context when the running engine exposes those details.
+`node attach-script` syntax-checks the target script again before loading and attaching it to the node, and reports the same diagnostics on failure.
 
 ## Current Shader Workflow
 

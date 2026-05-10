@@ -2,6 +2,28 @@
 extends RefCounted
 
 
+class SyntaxLogCapture extends Logger:
+	var entries: Array[Dictionary] = []
+
+	func _log_error(function: String, file: String, line: int, code: String, rationale: String, editor_notify: bool, error_type: int, script_backtraces: Array[ScriptBacktrace]) -> void:
+		entries.append({
+			"function": function,
+			"file": file,
+			"line": line,
+			"code": code,
+			"rationale": rationale,
+			"editor_notify": editor_notify,
+			"error_type": error_type,
+		})
+
+	func _log_message(message: String, error: bool) -> void:
+		if error:
+			entries.append({
+				"message": message,
+				"error": error,
+			})
+
+
 func handle_add(request: Dictionary, context: Dictionary) -> Dictionary:
 	var checked: Dictionary = context["request"].require_body(request, context, "node.add", "Mutation endpoint requires bearer token")
 	if not bool(checked.get("ok", false)):
@@ -386,10 +408,74 @@ func _script_syntax_error(script_path: String, source: String, request_id: Strin
 	var script := GDScript.new()
 	script.resource_path = script_path
 	script.source_code = source
+	var capture := SyntaxLogCapture.new()
+	var capture_enabled := OS.has_method("add_logger") and OS.has_method("remove_logger")
+	if capture_enabled:
+		OS.add_logger(capture)
 	var err: Error = script.reload()
+	if capture_enabled:
+		OS.remove_logger(capture)
 	if err == OK:
 		return {}
+	var detail := _script_syntax_error_detail(script_path, source, err, capture.entries)
 	return context["bridge_error"].call(400, request_id, "SCRIPT_SYNTAX_INVALID", "Script did not pass Godot syntax check", {
+		"path": detail["path"],
+		"error": detail["error"],
+		"diagnostic": detail["diagnostic"],
+		"line": detail["line"],
+		"source": detail["source"],
+	})
+
+
+func _script_syntax_error_detail(script_path: String, source: String, err: Error, entries: Array[Dictionary]) -> Dictionary:
+	var diagnostic := ""
+	var line := -1
+	for entry in entries:
+		var entry_file := String(entry.get("file", ""))
+		var message := _script_syntax_entry_message(entry)
+		if entry_file == script_path or message.contains(script_path):
+			diagnostic = message
+			line = int(entry.get("line", -1))
+			break
+	if diagnostic == "" and not entries.is_empty():
+		var entry := entries[entries.size() - 1]
+		diagnostic = _script_syntax_entry_message(entry)
+		line = int(entry.get("line", -1))
+	if diagnostic == "":
+		diagnostic = error_string(err)
+	return {
 		"path": script_path,
 		"error": error_string(err),
-	})
+		"diagnostic": diagnostic,
+		"line": line,
+		"source": _script_syntax_source_context(source, line),
+	}
+
+
+func _script_syntax_entry_message(entry: Dictionary) -> String:
+	var message := String(entry.get("rationale", ""))
+	if message == "":
+		message = String(entry.get("code", ""))
+	if message == "":
+		message = String(entry.get("message", ""))
+	return message
+
+
+func _script_syntax_source_context(source: String, line: int) -> Array[Dictionary]:
+	if line <= 0:
+		var empty: Array[Dictionary] = []
+		return empty
+	var lines := source.split("\n", true)
+	if line > lines.size():
+		var empty: Array[Dictionary] = []
+		return empty
+	var start := max(1, line - 2)
+	var end := min(lines.size(), line + 2)
+	var context: Array[Dictionary] = []
+	for number in range(start, end + 1):
+		context.append({
+			"line": number,
+			"text": lines[number - 1],
+			"error": number == line,
+		})
+	return context

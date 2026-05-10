@@ -25,7 +25,7 @@ func TestRunPing(t *testing.T) {
 			OK:            true,
 			Engine:        "Godot",
 			EngineVersion: "4.4.1",
-			PluginVersion: "0.1.0",
+			PluginVersion: "0.1.1",
 			ProjectName:   "my-game",
 		})
 	}))
@@ -36,7 +36,39 @@ func TestRunPing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Godot bridge: ok", "Engine: Godot 4.4.1", "Project: my-game", "Plugin: 0.1.0"} {
+	for _, want := range []string{"Godot bridge: ok", "Engine: Godot 4.4.1", "Project: my-game", "Plugin: 0.1.1"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
+		}
+	}
+}
+
+func TestRunHelpIncludesDottedAliasNote(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), []string{"help"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Dotted aliases are supported",
+		"gdctl file.mkdir",
+		"gdctl project.setting.get",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
+		}
+	}
+}
+
+func TestRunHelpScriptWriteIncludesDiagnosticsNote(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), []string{"help", "script.write"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"script write --path PATH",
+		"syntax-check and write a GDScript file body",
+		"Godot's diagnostic, line number, and nearby source context",
+	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
 		}
@@ -1231,7 +1263,7 @@ func TestBridgeInfoProjectless(t *testing.T) {
 			Service:         "godot-bridge",
 			Engine:          "Godot",
 			EngineVersion:   "4.6",
-			PluginVersion:   "0.1.0",
+			PluginVersion:   "0.1.1",
 			ProjectName:     "demo",
 			ProjectPath:     "C:/demo/",
 			AuthEnabled:     true,
@@ -1259,7 +1291,7 @@ func TestAddonStatusWithoutProjectUsesRuntime(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(bridge.PingResponse{
 			OK:              true,
-			PluginVersion:   "0.1.0",
+			PluginVersion:   "0.1.1",
 			ProtocolVersion: "gdctl.v1",
 			ProjectPath:     "C:/demo/",
 			Capabilities:    []string{"addon.update"},
@@ -1284,7 +1316,7 @@ func TestAddonDoctorWithoutProjectUsesRuntime(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(bridge.PingResponse{
 			OK:            true,
-			PluginVersion: "0.1.0",
+			PluginVersion: "0.1.1",
 		})
 	}))
 	defer server.Close()
@@ -1374,7 +1406,7 @@ func TestAddonStatusJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(bridge.PingResponse{
 			OK:              true,
-			PluginVersion:   "0.1.0",
+			PluginVersion:   "0.1.1",
 			ProtocolVersion: "gdctl.v1",
 			Capabilities:    []string{"scene.tree"},
 		})
@@ -1857,6 +1889,35 @@ func TestRunFileMkdir(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	args := append(serverArgs(server), "--token", "secret", "file", "mkdir", "--path", "res://scenes/level1")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "file.mkdir" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if !strings.Contains(stdout.String(), "Created: res://scenes/level1") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRunDottedCommandAlias(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/file/mkdir" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "res://scenes/level1", "created": true},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "file.mkdir", "--path", "res://scenes/level1")
 	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}

@@ -1,7 +1,7 @@
 @tool
 extends RefCounted
 
-const PLUGIN_VERSION := "0.1.0"
+const PLUGIN_VERSION := "0.1.1"
 const PROTOCOL_VERSION := "gdctl.v1"
 const DEFAULT_HOST := "127.0.0.1"
 const DEFAULT_PORT := 7777

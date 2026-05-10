@@ -1,5 +1,10 @@
 package bridge
 
+import (
+	"fmt"
+	"strings"
+)
+
 type PingResponse struct {
 	OK              bool     `json:"ok"`
 	Service         string   `json:"service"`
@@ -26,10 +31,79 @@ func (e *BridgeError) Error() string {
 	if e == nil {
 		return ""
 	}
+	var base string
 	if e.Code == "" {
-		return e.Message
+		base = e.Message
+	} else {
+		base = e.Code + ": " + e.Message
 	}
-	return e.Code + ": " + e.Message
+	if len(e.Detail) == 0 {
+		return base
+	}
+	var suffix []string
+	path, _ := e.Detail["path"].(string)
+	line := detailInt(e.Detail["line"])
+	if path != "" && line > 0 {
+		suffix = append(suffix, fmt.Sprintf("%s:%d", path, line))
+	} else if path != "" {
+		suffix = append(suffix, path)
+	} else if line > 0 {
+		suffix = append(suffix, fmt.Sprintf("line %d", line))
+	}
+	if diagnostic, _ := e.Detail["diagnostic"].(string); diagnostic != "" {
+		suffix = append(suffix, diagnostic)
+	} else if errText, _ := e.Detail["error"].(string); errText != "" {
+		suffix = append(suffix, errText)
+	}
+	if len(suffix) > 0 {
+		base += " (" + strings.Join(suffix, ": ") + ")"
+	}
+	if source := formatSourceContext(e.Detail["source"]); source != "" {
+		base += "\n" + source
+	}
+	return base
+}
+
+func detailInt(value any) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case jsonNumber:
+		i, _ := v.Int64()
+		return int(i)
+	default:
+		return 0
+	}
+}
+
+type jsonNumber interface {
+	Int64() (int64, error)
+}
+
+func formatSourceContext(value any) string {
+	items, ok := value.([]any)
+	if !ok || len(items) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		line := detailInt(entry["line"])
+		text, _ := entry["text"].(string)
+		marker := " "
+		if isErrorLine, _ := entry["error"].(bool); isErrorLine {
+			marker = ">"
+		}
+		lines = append(lines, fmt.Sprintf("%s %4d | %s", marker, line, text))
+	}
+	return strings.Join(lines, "\n")
 }
 
 type BridgeResponse[T any] struct {
@@ -153,7 +227,6 @@ type ResourceCreateResult struct {
 	Type    string `json:"type"`
 	Created bool   `json:"created"`
 }
-
 
 type FileWriteBytesResult struct {
 	Path    string `json:"path"`
