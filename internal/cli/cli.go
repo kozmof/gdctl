@@ -122,11 +122,11 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return runShaderCheck(ctx, client, rest[2:], stdout)
 			}
 		}
-	case "material":
+	case "resource":
 		if len(rest) >= 2 {
 			switch rest[1] {
-			case "write":
-				return runMaterialWrite(ctx, client, rest[2:], stdout)
+			case "create":
+				return runResourceCreate(ctx, client, rest[2:], stdout)
 			}
 		}
 	case "file":
@@ -134,6 +134,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			switch rest[1] {
 			case "write-bytes":
 				return runFileWriteBytes(ctx, client, rest[2:], stdout)
+			case "lut-write":
+				return runLUTWrite(ctx, client, rest[2:], stdout)
 			case "list":
 				return runFileList(ctx, client, rest[2:], stdout)
 			case "mkdir":
@@ -149,13 +151,6 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			switch rest[1] {
 			case "bake":
 				return runNavigationBake(ctx, client, rest[2:], stdout)
-			}
-		}
-	case "lut":
-		if len(rest) >= 2 {
-			switch rest[1] {
-			case "write":
-				return runLUTWrite(ctx, client, rest[2:], stdout)
 			}
 		}
 	case "signal":
@@ -1186,34 +1181,37 @@ func runShaderWrite(ctx context.Context, client *bridge.Client, args []string, s
 	return nil
 }
 
-func runMaterialWrite(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
-	fs := flag.NewFlagSet("material write", flag.ContinueOnError)
+func runResourceCreate(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("resource create", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	path := fs.String("path", "", "material resource path")
-	shaderPath := fs.String("shader", "", "shader resource path")
-	textureParams := stringListFlag{}
-	fs.Var(&textureParams, "texture-param", "shader texture parameter in name=res://path form")
+	path := fs.String("path", "", "resource file path (res:// .tres)")
+	resourceType := fs.String("type", "", "Godot resource class name (e.g. StandardMaterial3D)")
+	propFlags := stringListFlag{}
+	fs.Var(&propFlags, "prop", "property in name=TYPED_JSON form, e.g. --prop albedo_color='{\"kind\":\"Color\",\"value\":[1,0,0,1]}'")
+	shaderParamFlags := stringListFlag{}
+	fs.Var(&shaderParamFlags, "shader-param", "ShaderMaterial parameter in name=res://path form")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *path == "" || *shaderPath == "" {
-		return fmt.Errorf("material write requires --path and --shader")
+	if *path == "" || *resourceType == "" {
+		return fmt.Errorf("resource create requires --path and --type")
 	}
-	parsedTextureParams, err := parseNameResourcePairs(textureParams)
+	props, err := parseNameJSONPairs(propFlags)
 	if err != nil {
 		return err
 	}
-	result, err := client.WriteMaterial(ctx, requestID(), *path, *shaderPath, parsedTextureParams)
+	shaderParams, err := parseNameResourcePairs(shaderParamFlags)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "Material written: %s\n", result.Path)
-	fmt.Fprintf(stdout, "Shader: %s\n", result.Shader)
-	if len(result.TextureParams) > 0 {
-		fmt.Fprintf(stdout, "Texture params: %d\n", len(result.TextureParams))
+	result, err := client.CreateResource(ctx, requestID(), *path, *resourceType, props, shaderParams)
+	if err != nil {
+		return err
 	}
+	fmt.Fprintf(stdout, "Resource created: %s (%s)\n", result.Path, result.Type)
 	return nil
 }
+
 
 type stringListFlag []string
 
@@ -1224,6 +1222,22 @@ func (s *stringListFlag) String() string {
 func (s *stringListFlag) Set(value string) error {
 	*s = append(*s, value)
 	return nil
+}
+
+func parseNameJSONPairs(values []string) (map[string]any, error) {
+	out := map[string]any{}
+	for _, value := range values {
+		name, jsonVal, ok := strings.Cut(value, "=")
+		if !ok || name == "" || jsonVal == "" {
+			return nil, fmt.Errorf("--prop must use name=JSON_VALUE")
+		}
+		var decoded any
+		if err := json.Unmarshal([]byte(jsonVal), &decoded); err != nil {
+			return nil, fmt.Errorf("--prop %s value must be typed JSON: %w", name, err)
+		}
+		out[name] = decoded
+	}
+	return out, nil
 }
 
 func parseNameResourcePairs(values []string) (map[string]string, error) {
@@ -1366,7 +1380,7 @@ type edgeProfile struct {
 }
 
 func runLUTWrite(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
-	fs := flag.NewFlagSet("lut write", flag.ContinueOnError)
+	fs := flag.NewFlagSet("file lut-write", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	path := fs.String("path", "", "resource PNG path")
 	profilesPath := fs.String("profiles", "", "local edge profile JSON path")
@@ -1374,7 +1388,7 @@ func runLUTWrite(ctx context.Context, client *bridge.Client, args []string, stdo
 		return err
 	}
 	if *path == "" || *profilesPath == "" {
-		return fmt.Errorf("lut write requires --path and --profiles")
+		return fmt.Errorf("file lut-write requires --path and --profiles")
 	}
 	data, err := os.ReadFile(*profilesPath)
 	if err != nil {
@@ -1658,14 +1672,14 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script check --path PATH")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] shader write --path PATH (--body TEXT | --body-file FILE)")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] shader check --path PATH")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] material write --path PATH --shader SHADER [--texture-param NAME=RESOURCE]")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] resource create --path PATH --type TYPE [--prop NAME=TYPED_JSON] [--shader-param NAME=RESOURCE]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file write-bytes --path PATH --in FILE")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file lut-write --path PATH --profiles FILE")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file list --path PATH [--recursive]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file mkdir --path PATH")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file delete --path PATH")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file exists --path PATH")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] navigation bake --path PATH")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] lut write --path PATH --profiles FILE")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] signal connect --from PATH --signal NAME --to PATH --method METHOD")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] signal disconnect --from PATH --signal NAME --to PATH --method METHOD")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] project setting get --key KEY")

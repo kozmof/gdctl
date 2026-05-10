@@ -447,29 +447,28 @@ func (c *Client) WriteShader(ctx context.Context, requestID, path, body string) 
 	return out, nil
 }
 
-func (c *Client) WriteMaterial(ctx context.Context, requestID, path, shaderPath string, textureParams map[string]string) (MaterialWriteResult, error) {
+
+func (c *Client) CreateResource(ctx context.Context, requestID, path, resourceType string, props map[string]any, shaderParams map[string]string) (ResourceCreateResult, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,
-		Op:        "material.write",
+		Op:        "resource.create",
 		Params: map[string]any{
-			"path":           path,
-			"shader":         shaderPath,
-			"texture_params": textureParams,
+			"path":          path,
+			"type":          resourceType,
+			"props":         props,
+			"shader_params": shaderParams,
 		},
 	}
-	result, err := c.postEnvelope(ctx, "/material/write", env)
+	result, err := c.postEnvelope(ctx, "/resource/create", env)
 	if err != nil {
-		return MaterialWriteResult{}, err
+		return ResourceCreateResult{}, err
 	}
 	encoded, err := json.Marshal(result)
 	if err != nil {
-		return MaterialWriteResult{}, err
+		return ResourceCreateResult{}, err
 	}
-	var out MaterialWriteResult
-	if err := json.Unmarshal(encoded, &out); err != nil {
-		return MaterialWriteResult{}, err
-	}
-	return out, nil
+	var out ResourceCreateResult
+	return out, json.Unmarshal(encoded, &out)
 }
 
 func (c *Client) WriteFileBytes(ctx context.Context, requestID, path, contentBase64 string) (FileWriteBytesResult, error) {

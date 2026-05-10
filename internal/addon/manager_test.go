@@ -182,7 +182,7 @@ func TestEmbeddedAddonManifestIncludesCommandDirectory(t *testing.T) {
 		"commands/node_commands.gd",
 		"commands/script_commands.gd",
 		"commands/shader_commands.gd",
-		"commands/material_commands.gd",
+		"commands/resource_commands.gd",
 		"commands/file_commands.gd",
 		"commands/viewport_commands.gd",
 	}

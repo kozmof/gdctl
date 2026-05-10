@@ -47,6 +47,16 @@ func decode(encoded: Variant) -> Dictionary:
 			for item in raw_strings:
 				string_array.append(String(item))
 			return {"ok": true, "value": string_array}
+		"resource":
+			var resource_path: String = String(raw)
+			if resource_path == "" or not resource_path.begins_with("res://"):
+				return {"ok": false, "error": "Resource value must be a res:// path"}
+			if not FileAccess.file_exists(resource_path):
+				return {"ok": false, "error": "Resource file does not exist: " + resource_path}
+			var res: Resource = ResourceLoader.load(resource_path, "", ResourceLoader.CACHE_MODE_REPLACE)
+			if res == null:
+				return {"ok": false, "error": "Could not load resource: " + resource_path}
+			return {"ok": true, "value": res}
 	return {"ok": false, "error": "Unsupported value kind: " + kind}
 
 

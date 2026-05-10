@@ -15,7 +15,7 @@ const SceneCommands = preload("res://addons/godot_tcp_bridge/commands/scene_comm
 const NodeCommands = preload("res://addons/godot_tcp_bridge/commands/node_commands.gd")
 const ScriptCommands = preload("res://addons/godot_tcp_bridge/commands/script_commands.gd")
 const ShaderCommands = preload("res://addons/godot_tcp_bridge/commands/shader_commands.gd")
-const MaterialCommands = preload("res://addons/godot_tcp_bridge/commands/material_commands.gd")
+const ResourceCommands = preload("res://addons/godot_tcp_bridge/commands/resource_commands.gd")
 const FileCommands = preload("res://addons/godot_tcp_bridge/commands/file_commands.gd")
 const ViewportCommands = preload("res://addons/godot_tcp_bridge/commands/viewport_commands.gd")
 const SignalCommands = preload("res://addons/godot_tcp_bridge/commands/signal_commands.gd")
@@ -35,7 +35,7 @@ var scene_commands = SceneCommands.new()
 var node_commands = NodeCommands.new()
 var script_commands = ScriptCommands.new()
 var shader_commands = ShaderCommands.new()
-var material_commands = MaterialCommands.new()
+var resource_commands = ResourceCommands.new()
 var file_commands = FileCommands.new()
 var viewport_commands = ViewportCommands.new()
 var signal_commands = SignalCommands.new()
@@ -238,8 +238,8 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return shader_commands.handle_check(request, _command_context())
 	if method == "POST" and path == "/shader/write":
 		return shader_commands.handle_write(request, _command_context())
-	if method == "POST" and path == "/material/write":
-		return material_commands.handle_write(request, _command_context())
+	if method == "POST" and path == "/resource/create":
+		return resource_commands.handle_create(request, _command_context())
 	if method == "POST" and path == "/file/write-bytes":
 		return file_commands.handle_write_bytes(request, _command_context())
 	if method == "POST" and path == "/viewport/screenshot":
@@ -352,7 +352,7 @@ func _capabilities() -> Array:
 		"script.write",
 		"shader.check",
 		"shader.write",
-		"material.write",
+		"resource.create",
 		"file.write_bytes",
 		"viewport.screenshot",
 		"addon.update",

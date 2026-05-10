@@ -13,9 +13,8 @@
 | Project | setting get, setting set |
 | Script | create, write, check |
 | Shader | write, check |
-| Material | write (ShaderMaterial only) |
-| File | write-bytes |
-| LUT | write |
+| Resource | create (any Resource subclass; typed props, resource-typed props, shader params) |
+| File | write-bytes, lut-write, list, mkdir, delete, exists |
 | Viewport | screenshot |
 
 ---
@@ -34,14 +33,16 @@ All three implemented (2026-05-09). See current capabilities table above.
 
 ### High priority — needed by most demos
 
-**4. `resource create` (general)**
-Currently only ShaderMaterial can be created. Missing:
-- `StandardMaterial3D` / `ORM` (3D demos)
-- `Environment` + `Sky` (3D lighting, sky shaders, volumetric fog)
-- `PhysicsMaterial` (physics demos)
-- `AudioStreamPlayer` resources
-- `FontFile` (GUI/font demos)
-- `AnimationLibrary`
+~~**4. `resource create` (general)**~~
+~~Currently only ShaderMaterial can be created. Missing:~~
+~~- `StandardMaterial3D` / `ORM` (3D demos)~~
+~~- `Environment` + `Sky` (3D lighting, sky shaders, volumetric fog)~~
+~~- `PhysicsMaterial` (physics demos)~~
+~~- `AudioStreamPlayer` resources~~
+~~- `FontFile` (GUI/font demos)~~
+~~- `AnimationLibrary`~~
+
+Implemented (2026-05-10). `resource create --path PATH --type TYPE` works for any Godot Resource subclass. Supports `--prop name=TYPED_JSON` (including `{"kind":"Resource","value":"res://path"}` for resource-typed properties) and `--shader-param name=res://path` for ShaderMaterial texture parameters. `material write` is removed — ShaderMaterial creation goes through `resource create`. `lut write` moved to `file lut-write`.
 
 **5. `animation` commands**
 AnimationPlayer is central to platformers, cutscenes, UI transitions. Need: create track, add keyframe, set animation length, play.
@@ -102,7 +103,7 @@ Multiplayer demos need `MultiplayerPeer` configuration, but this is largely done
 | `signal connect` | All | Medium | ✅ done |
 | `project setting set/get` | All | Medium | ✅ done |
 | `node group` | Most 2D/3D | Low | ✅ done |
-| `resource create` (general) | Most 3D, GUI | High | — |
+| `resource create` (general) | Most 3D, GUI | High | ✅ done |
 | `animation` commands | 2D/3D/GUI | High | — |
 | `node duplicate` | Most | Low | ✅ done |
 | File system ops | All | Low | ✅ done |
@@ -115,4 +116,5 @@ Multiplayer demos need `MultiplayerPeer` configuration, but this is largely done
 | `theme` | GUI demos | Medium | — |
 
 All low-effort items (**node duplicate**, **file system ops**, **node list-properties**, **navigation bake**) are now done (2026-05-09).
-The next most impactful additions are **import set** (medium effort) and **animation commands** / **resource create** (high effort).
+**resource create** is now done (2026-05-10) — covers all resource types with typed props, resource-typed props, and shader params.
+The next most impactful additions are **animation commands** (high effort) and **import set** (medium effort).
