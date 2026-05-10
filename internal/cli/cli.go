@@ -13,6 +13,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -64,6 +65,10 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return runSceneTree(ctx, client, stdout)
 			case "save":
 				return runSceneSave(ctx, client, rest[2:], stdout)
+			case "list":
+				return runSceneList(ctx, client, rest[2:], stdout)
+			case "run":
+				return runSceneRun(ctx, cfg, rest[2:], stdout)
 			}
 		}
 	case "node":
@@ -127,6 +132,15 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			switch rest[1] {
 			case "create":
 				return runResourceCreate(ctx, client, rest[2:], stdout)
+			case "list":
+				return runResourceList(ctx, client, rest[2:], stdout)
+			}
+		}
+	case "import":
+		if len(rest) >= 2 {
+			switch rest[1] {
+			case "set":
+				return runImportSet(ctx, client, rest[2:], stdout)
 			}
 		}
 	case "file":
@@ -174,6 +188,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 						return runProjectSettingSet(ctx, client, rest[3:], stdout)
 					}
 				}
+			case "run":
+				return runProjectRun(ctx, cfg, rest[2:], stdout)
 			}
 		}
 	case "viewport":
@@ -284,6 +300,7 @@ func parseGlobalFlags(args []string) (bridge.Config, []string, error) {
 	port := fs.Int("port", cfg.Port, "bridge port")
 	token := fs.String("token", cfg.Token, "bridge bearer token")
 	project := fs.String("project", cfg.Project, "Godot project path")
+	godot := fs.String("godot", cfg.GodotPath, "headless Godot binary path")
 	if err := fs.Parse(args); err != nil {
 		return cfg, nil, err
 	}
@@ -291,6 +308,7 @@ func parseGlobalFlags(args []string) (bridge.Config, []string, error) {
 	cfg.Port = *port
 	cfg.Token = *token
 	cfg.Project = *project
+	cfg.GodotPath = *godot
 	return cfg, fs.Args(), nil
 }
 
@@ -1240,6 +1258,22 @@ func parseNameJSONPairs(values []string) (map[string]any, error) {
 	return out, nil
 }
 
+func parseNameRawJSONPairs(values []string) (map[string]any, error) {
+	out := map[string]any{}
+	for _, value := range values {
+		name, jsonVal, ok := strings.Cut(value, "=")
+		if !ok || name == "" || jsonVal == "" {
+			return nil, fmt.Errorf("--param must use name=JSON_VALUE")
+		}
+		var decoded any
+		if err := json.Unmarshal([]byte(jsonVal), &decoded); err != nil {
+			return nil, fmt.Errorf("--param %s value must be JSON: %w", name, err)
+		}
+		out[name] = decoded
+	}
+	return out, nil
+}
+
 func parseNameResourcePairs(values []string) (map[string]string, error) {
 	out := map[string]string{}
 	for _, value := range values {
@@ -1504,6 +1538,125 @@ func runViewportScreenshot(ctx context.Context, client *bridge.Client, args []st
 	return nil
 }
 
+func runImportSet(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("import set", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "asset path (res://textures/player.png)")
+	paramFlags := stringListFlag{}
+	fs.Var(&paramFlags, "param", "import param in name=VALUE form where VALUE is raw JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" {
+		return fmt.Errorf("import set requires --path")
+	}
+	params, err := parseNameRawJSONPairs(paramFlags)
+	if err != nil {
+		return err
+	}
+	result, err := client.ImportSet(ctx, requestID(), *path, params)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Import set: %s (%d params)\n", result.Path, result.Params)
+	return nil
+}
+
+func runSceneList(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("scene list", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	dir := fs.String("dir", "res://", "res:// directory to search")
+	recursive := fs.Bool("recursive", true, "search recursively")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	result, err := client.SceneList(ctx, requestID(), *dir, *recursive)
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(result)
+}
+
+func runResourceList(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("resource list", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	dir := fs.String("dir", "res://", "res:// directory to search")
+	recursive := fs.Bool("recursive", true, "search recursively")
+	ext := fs.String("ext", "", "file extension filter (e.g. .tres)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	result, err := client.ResourceList(ctx, requestID(), *dir, *ext, *recursive)
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(result)
+}
+
+func runProjectRun(ctx context.Context, cfg bridge.Config, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("project run", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	scene := fs.String("scene", "", "scene to run (res://main.tscn); omit to use the project main scene")
+	timeout := fs.Duration("timeout", 30*time.Second, "maximum time to wait for Godot to exit")
+	godot := fs.String("godot", cfg.GodotPath, "headless Godot binary path")
+	project := fs.String("project", cfg.Project, "Godot project path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *godot == "" {
+		return fmt.Errorf("project run requires a headless Godot binary: set GDCTL_GODOT_PATH, --godot, or pass --godot PATH")
+	}
+	if *project == "" {
+		return fmt.Errorf("project run requires --project or GDCTL_PROJECT pointing to the Godot project directory")
+	}
+	return execGodotHeadless(ctx, *godot, *project, *scene, *timeout, stdout)
+}
+
+func runSceneRun(ctx context.Context, cfg bridge.Config, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("scene run", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "scene path (res://main.tscn)")
+	timeout := fs.Duration("timeout", 30*time.Second, "maximum time to wait for Godot to exit")
+	godot := fs.String("godot", cfg.GodotPath, "headless Godot binary path")
+	project := fs.String("project", cfg.Project, "Godot project path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" {
+		return fmt.Errorf("scene run requires --path")
+	}
+	if *godot == "" {
+		return fmt.Errorf("scene run requires a headless Godot binary: set GDCTL_GODOT_PATH, --godot, or pass --godot PATH")
+	}
+	if *project == "" {
+		return fmt.Errorf("scene run requires --project or GDCTL_PROJECT pointing to the Godot project directory")
+	}
+	return execGodotHeadless(ctx, *godot, *project, *path, *timeout, stdout)
+}
+
+func execGodotHeadless(ctx context.Context, godotBin, projectPath, scene string, timeout time.Duration, stdout io.Writer) error {
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	argv := []string{"--headless", "--path", projectPath}
+	if scene != "" {
+		argv = append(argv, scene)
+	}
+	cmd := exec.CommandContext(runCtx, godotBin, argv...)
+	cmd.Stdout = stdout
+	cmd.Stderr = stdout
+	if err := cmd.Run(); err != nil {
+		if runCtx.Err() != nil {
+			return fmt.Errorf("project run timed out after %s", timeout)
+		}
+		return fmt.Errorf("project run failed: %w", err)
+	}
+	return nil
+}
+
 func intFromJobResult(value any) int {
 	switch typed := value.(type) {
 	case int:
@@ -1607,7 +1760,11 @@ func runDoctor(ctx context.Context, cfg bridge.Config, client *bridge.Client, ma
 	} else {
 		fmt.Fprintln(stdout, "[ok] mutation token configured")
 	}
-	fmt.Fprintln(stdout, "[warn] no Linux headless Godot configured")
+	if cfg.GodotPath == "" {
+		fmt.Fprintln(stdout, "[warn] no headless Godot configured (set GDCTL_GODOT_PATH or --godot)")
+	} else {
+		fmt.Fprintf(stdout, "[ok] headless Godot: %s\n", cfg.GodotPath)
+	}
 	fmt.Fprintln(stdout)
 	if usable {
 		fmt.Fprintln(stdout, "Result: usable")
@@ -1654,6 +1811,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene instance --parent PATH --scene SCENE --name NAME")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene tree")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene save")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene list [--dir res://] [--recursive]")
+	fmt.Fprintln(w, "  gdctl [--project PATH] [--godot PATH] scene run --path SCENE [--timeout DURATION]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node add --parent PATH --type TYPE --name NAME [--dry-run]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node remove --path PATH [--dry-run]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node rename --path PATH --name NAME [--dry-run]")
@@ -1673,6 +1832,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] shader write --path PATH (--body TEXT | --body-file FILE)")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] shader check --path PATH")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] resource create --path PATH --type TYPE [--prop NAME=TYPED_JSON] [--shader-param NAME=RESOURCE]")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] resource list [--dir res://] [--recursive] [--ext EXT]")
+	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] import set --path PATH [--param NAME=VALUE]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file write-bytes --path PATH --in FILE")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file lut-write --path PATH --profiles FILE")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file list --path PATH [--recursive]")
@@ -1684,5 +1845,6 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] signal disconnect --from PATH --signal NAME --to PATH --method METHOD")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] project setting get --key KEY")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] project setting set --key KEY --value TYPED_JSON")
+	fmt.Fprintln(w, "  gdctl [--project PATH] [--godot PATH] project run [--scene SCENE] [--timeout DURATION]")
 	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] viewport screenshot --out FILE [--kind 2d|3d] [--index N]")
 }

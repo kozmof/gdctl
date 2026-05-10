@@ -743,6 +743,64 @@ func (c *Client) FileExists(ctx context.Context, requestID, path string) (FileEx
 	return out, json.Unmarshal(encoded, &out)
 }
 
+func (c *Client) ImportSet(ctx context.Context, requestID, path string, params map[string]any) (ImportSetResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "import.set",
+		Params:    map[string]any{"path": path, "params": params},
+	}
+	result, err := c.postEnvelope(ctx, "/import/set", env)
+	if err != nil {
+		return ImportSetResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return ImportSetResult{}, err
+	}
+	var out ImportSetResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) SceneList(ctx context.Context, requestID, dir string, recursive bool) (SceneListResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "scene.list",
+		Params:    map[string]any{"dir": dir, "recursive": recursive},
+	}
+	result, err := c.postEnvelope(ctx, "/scene/list", env)
+	if err != nil {
+		return SceneListResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return SceneListResult{}, err
+	}
+	var out SceneListResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) ResourceList(ctx context.Context, requestID, dir, ext string, recursive bool) (ResourceListResult, error) {
+	params := map[string]any{"dir": dir, "recursive": recursive}
+	if ext != "" {
+		params["ext"] = ext
+	}
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "resource.list",
+		Params:    params,
+	}
+	result, err := c.postEnvelope(ctx, "/resource/list", env)
+	if err != nil {
+		return ResourceListResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return ResourceListResult{}, err
+	}
+	var out ResourceListResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
 func (c *Client) NavigationBake(ctx context.Context, requestID, path string) (NavigationBakeResult, error) {
 	env := RequestEnvelope{RequestID: requestID, Op: "navigation.bake", Params: map[string]any{"path": path}}
 	result, err := c.postEnvelope(ctx, "/navigation/bake", env)

@@ -253,6 +253,22 @@ type NavigationBakeResult struct {
 	Baked bool   `json:"baked"`
 }
 
+type ImportSetResult struct {
+	Path    string `json:"path"`
+	Params  int    `json:"params"`
+	Applied bool   `json:"applied"`
+}
+
+type SceneListResult struct {
+	Dir    string   `json:"dir"`
+	Scenes []string `json:"scenes"`
+}
+
+type ResourceListResult struct {
+	Dir       string   `json:"dir"`
+	Resources []string `json:"resources"`
+}
+
 type LogEntry struct {
 	Time    string         `json:"time"`
 	Level   string         `json:"level"`

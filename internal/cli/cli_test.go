@@ -2136,3 +2136,192 @@ func TestResourceCreateRequiresPathAndType(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// Feature 10: import set
+
+func TestRunImportSet(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/import/set" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":    "res://textures/player.png",
+				"params":  float64(2),
+				"applied": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "import", "set",
+		"--path", "res://textures/player.png",
+		"--param", "compress/mode=0",
+		"--param", "filter/mode=1",
+	)
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "import.set" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["path"] != "res://textures/player.png" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	params, ok := gotEnvelope.Params["params"].(map[string]any)
+	if !ok {
+		t.Fatalf("params.params = %#v", gotEnvelope.Params["params"])
+	}
+	if params["compress/mode"] != float64(0) || params["filter/mode"] != float64(1) {
+		t.Fatalf("params.params = %#v", params)
+	}
+	if !strings.Contains(stdout.String(), "Import set: res://textures/player.png (2 params)") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestImportSetRequiresPathBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"import", "set", "--param", "compress/mode=0"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--path") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestImportSetParamRequiresValidJSON(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"import", "set", "--path", "res://textures/player.png", "--param", "compress/mode=not-json"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected JSON parse error")
+	}
+	if !strings.Contains(err.Error(), "JSON") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// Feature 12: scene list / resource list
+
+func TestRunSceneList(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/scene/list" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"dir":    "res://",
+				"scenes": []any{"res://scenes/main.tscn", "res://scenes/level1.tscn"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "scene", "list", "--dir", "res://")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "scene.list" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["dir"] != "res://" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "main.tscn") || !strings.Contains(stdout.String(), "level1.tscn") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRunResourceList(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/resource/list" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"dir":       "res://",
+				"resources": []any{"res://materials/ground.tres", "res://materials/wall.tres"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "resource", "list", "--dir", "res://", "--ext", ".tres")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "resource.list" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["dir"] != "res://" || gotEnvelope.Params["ext"] != ".tres" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "ground.tres") || !strings.Contains(stdout.String(), "wall.tres") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+// Feature 13: project run / scene run
+
+func TestProjectRunRequiresGodotBeforeExec(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"--project", t.TempDir(), "project", "run"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected error when godot not configured")
+	}
+	if !strings.Contains(err.Error(), "headless Godot") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestProjectRunRequiresProjectBeforeExec(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"--godot", "/usr/bin/godot4", "project", "run"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected error when project not configured")
+	}
+	if !strings.Contains(err.Error(), "--project") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestSceneRunRequiresPathBeforeExec(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"--godot", "/usr/bin/godot4", "--project", t.TempDir(), "scene", "run"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--path") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestSceneRunRequiresGodotBeforeExec(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"--project", t.TempDir(), "scene", "run", "--path", "res://main.tscn"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected error when godot not configured")
+	}
+	if !strings.Contains(err.Error(), "headless Godot") {
+		t.Fatalf("err = %v", err)
+	}
+}

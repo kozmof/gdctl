@@ -66,6 +66,45 @@ func handle_create(request: Dictionary, context: Dictionary) -> Dictionary:
 	})
 
 
+func handle_list(request: Dictionary, context: Dictionary) -> Dictionary:
+	var checked: Dictionary = context["request"].require_body(request, context, "resource.list", "Resource list requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
+	var dir: String = String(params.get("dir", "res://"))
+	var recursive: bool = bool(params.get("recursive", true))
+	var ext_filter: String = String(params.get("ext", ""))
+	if dir == "" or not dir.begins_with("res://"):
+		return context["bridge_error"].call(400, request_id, "DIR_PATH_INVALID", "Directory must be a res:// path", {"dir": dir})
+	if dir.find("..") != -1:
+		return context["bridge_error"].call(400, request_id, "DIR_PATH_INVALID", "Directory must not contain ..", {"dir": dir})
+	var abs_dir: String = ProjectSettings.globalize_path(dir)
+	if not DirAccess.dir_exists_absolute(abs_dir):
+		return context["bridge_error"].call(404, request_id, "DIR_NOT_FOUND", "Directory does not exist", {"dir": dir})
+
+	var resources: Array = []
+	_collect_resources(dir, resources, recursive, ext_filter)
+	return context["bridge_ok"].call(request_id, {
+		"dir": dir,
+		"resources": resources,
+	})
+
+
+func _collect_resources(dir: String, out: Array, recursive: bool, ext_filter: String) -> void:
+	for f: String in DirAccess.get_files_at(dir):
+		var keep: bool = false
+		if ext_filter != "":
+			keep = f.ends_with(ext_filter)
+		else:
+			keep = f.ends_with(".tres") or f.ends_with(".res")
+		if keep:
+			out.append(dir.path_join(f))
+	if recursive:
+		for d: String in DirAccess.get_directories_at(dir):
+			_collect_resources(dir.path_join(d), out, true, ext_filter)
+
+
 func _ensure_resource_dir(resource_path: String) -> Error:
 	var dir_path: String = resource_path.get_base_dir()
 	if dir_path == "" or dir_path == "res://":

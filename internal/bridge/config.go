@@ -18,11 +18,12 @@ const (
 )
 
 type Config struct {
-	Host     string
-	Port     int
-	Protocol string
-	Token    string
-	Project  string
+	Host       string
+	Port       int
+	Protocol   string
+	Token      string
+	Project    string
+	GodotPath  string
 }
 
 func DefaultConfig() Config {
@@ -45,6 +46,9 @@ func ConfigFromEnv() Config {
 	}
 	if token := os.Getenv("GDCTL_BRIDGE_TOKEN"); token != "" {
 		cfg.Token = token
+	}
+	if godot := os.Getenv("GDCTL_GODOT_PATH"); godot != "" {
+		cfg.GodotPath = godot
 	}
 	return cfg
 }

@@ -21,6 +21,7 @@ const ViewportCommands = preload("res://addons/godot_tcp_bridge/commands/viewpor
 const SignalCommands = preload("res://addons/godot_tcp_bridge/commands/signal_commands.gd")
 const ProjectCommands = preload("res://addons/godot_tcp_bridge/commands/project_commands.gd")
 const NavigationCommands = preload("res://addons/godot_tcp_bridge/commands/navigation_commands.gd")
+const ImportCommands = preload("res://addons/godot_tcp_bridge/commands/import_commands.gd")
 const AddonUpdate = preload("res://addons/godot_tcp_bridge/addon_update.gd")
 const Protocol = preload("res://addons/godot_tcp_bridge/protocol.gd")
 const LogBuffer = preload("res://addons/godot_tcp_bridge/log_buffer.gd")
@@ -41,6 +42,7 @@ var viewport_commands = ViewportCommands.new()
 var signal_commands = SignalCommands.new()
 var project_commands = ProjectCommands.new()
 var navigation_commands = NavigationCommands.new()
+var import_commands = ImportCommands.new()
 var addon_update = AddonUpdate.new()
 var protocol = Protocol.new()
 var log_buffer = LogBuffer.new()
@@ -246,6 +248,12 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return viewport_commands.handle_screenshot(request, _command_context())
 	if method == "POST" and path == "/addon/update":
 		return addon_update.handle_update(request, _command_context())
+	if method == "POST" and path == "/import/set":
+		return import_commands.handle_set(request, _command_context())
+	if method == "POST" and path == "/scene/list":
+		return scene_commands.handle_list(request, _command_context())
+	if method == "POST" and path == "/resource/list":
+		return resource_commands.handle_list(request, _command_context())
 	return protocol.bridge_error(404, "", "UNKNOWN_ENDPOINT", "Unknown bridge endpoint", {"method": method, "path": path})
 
 
@@ -276,6 +284,7 @@ func _command_context() -> Dictionary:
 		"node_info": Callable(self, "_node_info"),
 		"logical_path": Callable(self, "_logical_path"),
 		"mark_scene_dirty": Callable(self, "_mark_scene_dirty"),
+		"reimport_files": Callable(self, "_reimport_files"),
 		"queue_job": Callable(self, "_queue_job"),
 		"typed_values": typed_values,
 		"log_buffer": log_buffer,
@@ -357,6 +366,9 @@ func _capabilities() -> Array:
 		"viewport.screenshot",
 		"addon.update",
 		"bridge.logs",
+		"import.set",
+		"scene.list",
+		"resource.list",
 	]
 
 
@@ -414,6 +426,11 @@ func _logical_path(node: Node) -> String:
 func _mark_scene_dirty() -> void:
 	if editor_plugin:
 		editor_plugin.get_editor_interface().mark_scene_as_unsaved()
+
+
+func _reimport_files(paths: PackedStringArray) -> void:
+	if editor_plugin:
+		editor_plugin.get_editor_interface().get_resource_filesystem().reimport_files(paths)
 
 
 func _log_request(request: Dictionary) -> void:

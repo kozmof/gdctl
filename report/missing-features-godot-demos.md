@@ -66,17 +66,23 @@ AnimationPlayer is central to platformers, cutscenes, UI transitions. Need: crea
 **9. `tilemap` commands**
 2D tile demos require setting up TileSet resources and painting tiles onto a TileMap. No analog exists in the current CLI.
 
-**10. `import set`**
-Configure import settings for textures (filter, compression, sRGB), 3D models (scale, generate LODs), and audio (loop, compression). Without this, assets import with wrong defaults.
+~~**10. `import set`**~~
+~~Configure import settings for textures (filter, compression, sRGB), 3D models (scale, generate LODs), and audio (loop, compression). Without this, assets import with wrong defaults.~~
+
+Implemented (2026-05-10). `import set --path PATH --param name=VALUE` reads the asset's `.import` ConfigFile, patches the `[params]` section, saves it, and triggers `EditorFileSystem.reimport_files`. Param values are raw JSON (integers, booleans, floats, strings).
 
 ~~**11. `navigation bake`**~~
 ~~3D navigation demos need `NavigationMesh.bake()` triggered from CLI.~~
 
-**12. `scene list` / `resource list`**
-Enumerate scenes and resources in the project (`res://` tree) so a build script can discover what assets exist.
+~~**12. `scene list` / `resource list`**~~
+~~Enumerate scenes and resources in the project (`res://` tree) so a build script can discover what assets exist.~~
 
-**13. `project run` / `scene run`**
-Launch a scene headlessly to test it (requires a headless Godot binary — the `doctor` output already acknowledges this is missing).
+Implemented (2026-05-10). `scene list [--dir res://] [--recursive]` finds all `.tscn` files; `resource list [--dir res://] [--recursive] [--ext .tres]` finds `.tres`/`.res` files (or any extension via `--ext`). Both return JSON arrays.
+
+~~**13. `project run` / `scene run`**~~
+~~Launch a scene headlessly to test it (requires a headless Godot binary — the `doctor` output already acknowledges this is missing).~~
+
+Implemented (2026-05-10). `project run [--scene res://main.tscn] [--timeout 30s]` and `scene run --path res://scene.tscn` exec a headless Godot binary (`GDCTL_GODOT_PATH` env or `--godot` flag) with `--headless --path <project>`. `doctor` now reports the configured binary or warns when missing.
 
 ---
 
@@ -109,12 +115,14 @@ Multiplayer demos need `MultiplayerPeer` configuration, but this is largely done
 | File system ops | All | Low | ✅ done |
 | `node list-properties` | All (tooling) | Low | ✅ done |
 | `tilemap` | 2D tile demos | High | — |
-| `import set` | 2D/3D asset demos | Medium | — |
+| `import set` | 2D/3D asset demos | Medium | ✅ done |
 | `navigation bake` | 3D navigation | Low | ✅ done |
-| `project run` | All (testing) | Medium | — |
+| `scene list` / `resource list` | All (tooling) | Medium | ✅ done |
+| `project run` / `scene run` | All (testing) | Medium | ✅ done |
 | `audio bus` | Audio demos | Medium | — |
 | `theme` | GUI demos | Medium | — |
 
 All low-effort items (**node duplicate**, **file system ops**, **node list-properties**, **navigation bake**) are now done (2026-05-09).
 **resource create** is now done (2026-05-10) — covers all resource types with typed props, resource-typed props, and shader params.
-The next most impactful additions are **animation commands** (high effort) and **import set** (medium effort).
+**import set**, **scene list** / **resource list**, and **project run** / **scene run** are now done (2026-05-10).
+The remaining impactful additions are **animation commands** (high effort) and **tilemap** (high effort).
