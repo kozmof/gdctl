@@ -355,6 +355,23 @@ type LogsResponse struct {
 	Entries []LogEntry `json:"entries"`
 }
 
+type RunStartResult struct {
+	Running      bool   `json:"running"`
+	Scene        string `json:"scene,omitempty"`
+	PlayingScene string `json:"playing_scene,omitempty"`
+}
+
+type RunStatusResult struct {
+	Running      bool   `json:"running"`
+	PlayingScene string `json:"playing_scene,omitempty"`
+}
+
+type RunStopResult struct {
+	Stopped      bool   `json:"stopped"`
+	Running      bool   `json:"running"`
+	PlayingScene string `json:"playing_scene,omitempty"`
+}
+
 type Job struct {
 	ID        string         `json:"id"`
 	Kind      string         `json:"kind"`

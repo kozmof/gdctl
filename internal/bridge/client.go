@@ -67,6 +67,84 @@ func (c *Client) ClearLogs(ctx context.Context, requestID string) error {
 	return err
 }
 
+func (c *Client) RunStart(ctx context.Context, requestID, scene string, main, clearLogs bool) (RunStartResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "run.start",
+		Params: map[string]any{
+			"scene":      scene,
+			"main":       main,
+			"clear_logs": clearLogs,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/run/start", env)
+	if err != nil {
+		return RunStartResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return RunStartResult{}, err
+	}
+	var out RunStartResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return RunStartResult{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) RunStatus(ctx context.Context, requestID string) (RunStatusResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "run.status",
+		Params:    map[string]any{},
+	}
+	result, err := c.postEnvelope(ctx, "/run/status", env)
+	if err != nil {
+		return RunStatusResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return RunStatusResult{}, err
+	}
+	var out RunStatusResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return RunStatusResult{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) RunStop(ctx context.Context, requestID string) (RunStopResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "run.stop",
+		Params:    map[string]any{},
+	}
+	result, err := c.postEnvelope(ctx, "/run/stop", env)
+	if err != nil {
+		return RunStopResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return RunStopResult{}, err
+	}
+	var out RunStopResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return RunStopResult{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) RunLogs(ctx context.Context) ([]LogEntry, error) {
+	var out LogsResponse
+	if err := c.getJSON(ctx, "/run/logs", &out); err != nil {
+		return nil, err
+	}
+	if !out.OK {
+		return nil, fmt.Errorf("run logs request failed")
+	}
+	return out.Entries, nil
+}
+
 func (c *Client) Job(ctx context.Context, jobID string) (Job, error) {
 	var out JobResponse
 	if err := c.getJSON(ctx, "/jobs/"+jobID, &out); err != nil {
@@ -446,7 +524,6 @@ func (c *Client) WriteShader(ctx context.Context, requestID, path, body string) 
 	}
 	return out, nil
 }
-
 
 func (c *Client) CreateResource(ctx context.Context, requestID, path, resourceType string, props map[string]any, shaderParams map[string]string) (ResourceCreateResult, error) {
 	env := RequestEnvelope{

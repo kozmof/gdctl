@@ -1,7 +1,7 @@
 @tool
 extends RefCounted
 
-const PLUGIN_VERSION := "0.1.1"
+const PLUGIN_VERSION := "0.1.3"
 const PROTOCOL_VERSION := "gdctl.v1"
 const DEFAULT_HOST := "127.0.0.1"
 const DEFAULT_PORT := 7777
@@ -27,6 +27,27 @@ const Protocol = preload("res://addons/godot_tcp_bridge/protocol.gd")
 const LogBuffer = preload("res://addons/godot_tcp_bridge/log_buffer.gd")
 const LogCommands = preload("res://addons/godot_tcp_bridge/commands/log_commands.gd")
 const Jobs = preload("res://addons/godot_tcp_bridge/jobs.gd")
+
+class RuntimeLogCapture extends Logger:
+	var log_buffer
+
+	func _log_error(function: String, file: String, line: int, code: String, rationale: String, editor_notify: bool, error_type: int, script_backtraces: Array[ScriptBacktrace]) -> void:
+		var message := rationale
+		if message == "":
+			message = code
+		log_buffer.add("error", "runtime.error", message, {
+			"function": function,
+			"file": file,
+			"line": line,
+			"code": code,
+			"rationale": rationale,
+			"editor_notify": editor_notify,
+			"error_type": error_type,
+		})
+
+	func _log_message(message: String, error: bool) -> void:
+		if error:
+			log_buffer.add("error", "runtime.stderr", message, {})
 
 var editor_plugin: EditorPlugin
 var typed_values = TypedValues.new()
@@ -55,6 +76,7 @@ var port := DEFAULT_PORT
 var auth_enabled := true
 var token := ""
 var running := false
+var runtime_logger
 
 
 func start() -> void:
@@ -72,6 +94,10 @@ func start() -> void:
 		log_buffer.add("error", "bridge.start", "Failed to listen", {"host": host, "port": port, "error": error_string(err)})
 		return
 	running = true
+	if runtime_logger == null:
+		runtime_logger = RuntimeLogCapture.new()
+		runtime_logger.log_buffer = log_buffer
+		OS.add_logger(runtime_logger)
 	print("Godot TCP Bridge listening on %s:%d" % [host, port])
 	log_buffer.add("info", "bridge.start", "Listening", {"host": host, "port": port, "auth_enabled": auth_enabled})
 
@@ -82,7 +108,11 @@ func stop() -> void:
 		if peer:
 			peer.disconnect_from_host()
 	clients.clear()
-	tcp_server.stop()
+	if tcp_server != null:
+		tcp_server.stop()
+	if runtime_logger != null:
+		OS.remove_logger(runtime_logger)
+		runtime_logger = null
 	running = false
 	log_buffer.add("info", "bridge.stop", "Stopped", {})
 
@@ -254,7 +284,91 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return scene_commands.handle_list(request, _command_context())
 	if method == "POST" and path == "/resource/list":
 		return resource_commands.handle_list(request, _command_context())
+	if method == "POST" and path == "/run/start":
+		return _handle_run_start(request)
+	if method == "POST" and path == "/run/status":
+		return _handle_run_status(request)
+	if method == "POST" and path == "/run/stop":
+		return _handle_run_stop(request)
+	if method == "GET" and path == "/run/logs":
+		return _handle_run_logs(request)
 	return protocol.bridge_error(404, "", "UNKNOWN_ENDPOINT", "Unknown bridge endpoint", {"method": method, "path": path})
+
+
+func _handle_run_start(request: Dictionary) -> Dictionary:
+	var checked: Dictionary = command_request.require_body(request, _command_context(), "run.start", "Run start requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	if not _editor_plugin_available():
+		return protocol.bridge_error(503, String(checked["request_id"]), "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {})
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
+	var scene: String = String(params.get("scene", ""))
+	var main: bool = bool(params.get("main", false))
+	var clear_logs: bool = bool(params.get("clear_logs", true))
+	var editor_interface := editor_plugin.get_editor_interface()
+	if clear_logs:
+		log_buffer.clear()
+		log_buffer.add("info", "run.logs", "Runtime logs cleared", {})
+	if editor_interface.is_playing_scene():
+		return protocol.bridge_error(409, request_id, "RUN_ALREADY_PLAYING", "A scene is already running", {"playing_scene": editor_interface.get_playing_scene()})
+	if scene != "":
+		if not ResourceLoader.exists(scene):
+			return protocol.bridge_error(404, request_id, "RUN_SCENE_NOT_FOUND", "Scene does not exist", {"scene": scene})
+		editor_interface.play_custom_scene(scene)
+	elif main:
+		editor_interface.play_main_scene()
+	else:
+		editor_interface.play_current_scene()
+	log_buffer.add("info", "run.start", "Started editor run", {"scene": scene, "main": main})
+	return protocol.bridge_ok(request_id, {
+		"running": true,
+		"scene": scene,
+		"playing_scene": editor_interface.get_playing_scene(),
+	})
+
+
+func _handle_run_status(request: Dictionary) -> Dictionary:
+	var checked: Dictionary = command_request.require_body(request, _command_context(), "run.status", "Run status requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	if not _editor_plugin_available():
+		return protocol.bridge_error(503, String(checked["request_id"]), "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {})
+	var editor_interface := editor_plugin.get_editor_interface()
+	return protocol.bridge_ok(String(checked["request_id"]), {
+		"running": editor_interface.is_playing_scene(),
+		"playing_scene": editor_interface.get_playing_scene(),
+	})
+
+
+func _handle_run_stop(request: Dictionary) -> Dictionary:
+	var checked: Dictionary = command_request.require_body(request, _command_context(), "run.stop", "Run stop requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	if not _editor_plugin_available():
+		return protocol.bridge_error(503, String(checked["request_id"]), "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {})
+	var editor_interface := editor_plugin.get_editor_interface()
+	var was_running := editor_interface.is_playing_scene()
+	var playing_scene := editor_interface.get_playing_scene()
+	if was_running:
+		editor_interface.stop_playing_scene()
+		log_buffer.add("info", "run.stop", "Stopped editor run", {"playing_scene": playing_scene})
+	return protocol.bridge_ok(String(checked["request_id"]), {
+		"stopped": was_running,
+		"running": false,
+		"playing_scene": playing_scene,
+	})
+
+
+func _handle_run_logs(request: Dictionary) -> Dictionary:
+	if not _authorized(request):
+		return protocol.bridge_error(401, "", "UNAUTHORIZED", "Run logs require bearer token", {})
+	var entries: Array[Dictionary] = []
+	for entry in log_buffer.list():
+		var source := String(entry.get("source", ""))
+		if source.begins_with("run.") or source.begins_with("runtime."):
+			entries.append(entry)
+	return protocol.http_json(200, {"ok": true, "entries": entries})
 
 
 func _handle_job_status(_request: Dictionary, path: String) -> Dictionary:
@@ -286,6 +400,7 @@ func _command_context() -> Dictionary:
 		"mark_scene_dirty": Callable(self, "_mark_scene_dirty"),
 		"reimport_files": Callable(self, "_reimport_files"),
 		"queue_job": Callable(self, "_queue_job"),
+		"editor_plugin": editor_plugin,
 		"typed_values": typed_values,
 		"log_buffer": log_buffer,
 		"addon_root": ADDON_ROOT,
@@ -369,6 +484,10 @@ func _capabilities() -> Array:
 		"import.set",
 		"scene.list",
 		"resource.list",
+		"run.start",
+		"run.status",
+		"run.stop",
+		"run.logs",
 	]
 
 

@@ -148,6 +148,68 @@ func TestClientClearLogsRequest(t *testing.T) {
 	}
 }
 
+func TestClientRunStartRequest(t *testing.T) {
+	var gotEnvelope RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/run/start" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"running":       true,
+				"scene":         "res://main.tscn",
+				"playing_scene": "main",
+			},
+		})
+	}))
+	defer server.Close()
+
+	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http", Token: "secret"}
+	client := NewClient(cfg)
+	result, err := client.RunStart(context.Background(), "cli-test", "res://main.tscn", false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "run.start" || gotEnvelope.Params["scene"] != "res://main.tscn" || gotEnvelope.Params["clear_logs"] != true {
+		t.Fatalf("envelope = %#v", gotEnvelope)
+	}
+	if !result.Running || result.Scene != "res://main.tscn" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestClientRunLogsRequest(t *testing.T) {
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/run/logs" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		_ = json.NewEncoder(w).Encode(LogsResponse{
+			OK:      true,
+			Entries: []LogEntry{{Time: "now", Level: "error", Source: "runtime.error", Message: "boom"}},
+		})
+	}))
+	defer server.Close()
+
+	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http", Token: "secret"}
+	client := NewClient(cfg)
+	entries, err := client.RunLogs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if len(entries) != 1 || entries[0].Message != "boom" {
+		t.Fatalf("entries = %#v", entries)
+	}
+}
+
 func TestClientJobRequest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/jobs/save-1" {

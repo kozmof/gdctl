@@ -54,6 +54,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return runAddon(ctx, cfg, client, addonManager, rest[1:], stdout)
 	case "bridge":
 		return runBridge(ctx, client, addonManager, rest[1:], stdout)
+	case "run":
+		return runRun(ctx, client, rest[1:], stdout)
 	case "scene":
 		if len(rest) >= 2 {
 			switch rest[1] {
@@ -236,6 +238,114 @@ func normalizeCommandArgs(args []string) []string {
 		return args
 	}
 	return append(normalized, args[1:]...)
+}
+
+func runRun(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("run requires a subcommand")
+	}
+	switch args[0] {
+	case "start":
+		return runRunStart(ctx, client, args[1:], stdout)
+	case "status":
+		return runRunStatus(ctx, client, stdout)
+	case "stop":
+		return runRunStop(ctx, client, stdout)
+	case "logs":
+		return runRunLogs(ctx, client, args[1:], stdout)
+	default:
+		return fmt.Errorf("unknown run command: %s", strings.Join(args, " "))
+	}
+}
+
+func runRunStart(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("run start", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	scene := fs.String("scene", "", "scene path to run")
+	main := fs.Bool("main", false, "run the project main scene")
+	clearLogs := fs.Bool("clear-logs", true, "clear runtime logs before starting")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *scene != "" && *main {
+		return fmt.Errorf("run start requires at most one of --scene or --main")
+	}
+	result, err := client.RunStart(ctx, requestID(), *scene, *main, *clearLogs)
+	if err != nil {
+		return err
+	}
+	if result.Scene != "" {
+		fmt.Fprintf(stdout, "Run started: %s\n", result.Scene)
+	} else if result.PlayingScene != "" {
+		fmt.Fprintf(stdout, "Run started: %s\n", result.PlayingScene)
+	} else {
+		fmt.Fprintln(stdout, "Run started")
+	}
+	return nil
+}
+
+func runRunStatus(ctx context.Context, client *bridge.Client, stdout io.Writer) error {
+	result, err := client.RunStatus(ctx, requestID())
+	if err != nil {
+		return err
+	}
+	if result.Running {
+		if result.PlayingScene != "" {
+			fmt.Fprintf(stdout, "Run status: running (%s)\n", result.PlayingScene)
+		} else {
+			fmt.Fprintln(stdout, "Run status: running")
+		}
+		return nil
+	}
+	fmt.Fprintln(stdout, "Run status: stopped")
+	return nil
+}
+
+func runRunStop(ctx context.Context, client *bridge.Client, stdout io.Writer) error {
+	result, err := client.RunStop(ctx, requestID())
+	if err != nil {
+		return err
+	}
+	if result.Stopped {
+		fmt.Fprintln(stdout, "Run stopped")
+	} else {
+		fmt.Fprintln(stdout, "Run was not running")
+	}
+	return nil
+}
+
+func runRunLogs(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("run logs", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	jsonOut := fs.Bool("json", false, "write logs as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	entries, err := client.RunLogs(ctx)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(map[string]any{"entries": entries})
+	}
+	if len(entries) == 0 {
+		fmt.Fprintln(stdout, "No run logs")
+		return nil
+	}
+	for _, entry := range entries {
+		fmt.Fprintf(stdout, "%s [%s] %s: %s", entry.Time, entry.Level, entry.Source, entry.Message)
+		if len(entry.Detail) > 0 {
+			encoded, err := json.Marshal(entry.Detail)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(stdout, " %s", encoded)
+		}
+		fmt.Fprintln(stdout)
+	}
+	return nil
 }
 
 func runBridge(ctx context.Context, client *bridge.Client, manager addon.Manager, args []string, stdout io.Writer) error {
@@ -1980,6 +2090,40 @@ var helpGroups = []helpGroup{
 			sub:  "addon-update",
 			line: "  gdctl [--host host] [--port port] [--token token] bridge addon-update",
 			desc: "update the addon over the bridge",
+		},
+	}},
+	{name: "run", cmds: []helpCmd{
+		{
+			sub:  "start",
+			line: "  gdctl [--host host] [--port port] [--token token] run start [--scene SCENE | --main] [--clear-logs=false]",
+			desc: "start a scene from the already-open Godot editor",
+			flags: []helpFlag{
+				{name: "scene", meta: "SCENE", usage: "scene to run with the editor (res://main.tscn)"},
+				{name: "main", usage: "run the project main scene"},
+				{name: "clear-logs", meta: "BOOL", usage: "clear run logs before starting (default true)"},
+			},
+			notes: []string{
+				"Omit --scene and --main to run the current editor scene.",
+				"This uses the host editor through the bridge, so it does not require GDCTL_GODOT_PATH.",
+			},
+		},
+		{
+			sub:  "status",
+			line: "  gdctl [--host host] [--port port] [--token token] run status",
+			desc: "show whether the editor is currently running a scene",
+		},
+		{
+			sub:  "stop",
+			line: "  gdctl [--host host] [--port port] [--token token] run stop",
+			desc: "stop the scene currently running from the editor",
+		},
+		{
+			sub:  "logs",
+			line: "  gdctl [--host host] [--port port] [--token token] run logs [--json]",
+			desc: "read run/debug logs captured by the bridge",
+			flags: []helpFlag{
+				{name: "json", usage: "write logs as JSON"},
+			},
 		},
 	}},
 	{name: "scene", cmds: []helpCmd{
