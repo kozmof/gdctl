@@ -199,6 +199,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return runViewportScreenshot(ctx, client, rest[2:], stdout)
 			}
 		}
+	case "help":
+		return runHelp(rest[1:], stdout)
 	}
 
 	printUsage(stderr)
@@ -1792,59 +1794,611 @@ func valueOrDash(value string) string {
 	return value
 }
 
+type helpFlag struct {
+	name  string
+	meta  string
+	usage string
+}
+
+type helpCmd struct {
+	sub   string
+	line  string
+	desc  string
+	flags []helpFlag
+}
+
+type helpGroup struct {
+	name string
+	cmds []helpCmd
+}
+
+var helpGroups = []helpGroup{
+	{name: "global", cmds: []helpCmd{
+		{
+			sub:  "ping",
+			line: "  gdctl [--host host] [--port port] [--token token] [--project path] ping",
+			desc: "check bridge connectivity",
+		},
+		{
+			sub:  "doctor",
+			line: "  gdctl [--host host] [--port port] [--token token] [--project path] doctor [--project PATH] [--fix]",
+			desc: "diagnose addon and bridge setup",
+			flags: []helpFlag{
+				{name: "project", meta: "PATH", usage: "Godot project path"},
+				{name: "fix", usage: "install and enable the addon when needed"},
+			},
+		},
+		{
+			sub:  "help",
+			line: "  gdctl help [topic]",
+			desc: "show usage information",
+			flags: []helpFlag{
+				{name: "topic", meta: "TOPIC", usage: "command group or specific command (e.g. scene, scene create)"},
+			},
+		},
+	}},
+	{name: "addon", cmds: []helpCmd{
+		{
+			sub:  "install",
+			line: "  gdctl addon install --project PATH [--force]",
+			desc: "install the addon into a Godot project",
+			flags: []helpFlag{
+				{name: "project", meta: "PATH", usage: "Godot project path"},
+				{name: "force", usage: "overwrite conflicting addon files"},
+			},
+		},
+		{
+			sub:  "enable",
+			line: "  gdctl addon enable --project PATH",
+			desc: "enable the addon in project.godot",
+			flags: []helpFlag{
+				{name: "project", meta: "PATH", usage: "Godot project path"},
+			},
+		},
+		{
+			sub:  "disable",
+			line: "  gdctl addon disable --project PATH",
+			desc: "disable the addon in project.godot",
+			flags: []helpFlag{
+				{name: "project", meta: "PATH", usage: "Godot project path"},
+			},
+		},
+		{
+			sub:  "status",
+			line: "  gdctl addon status [--project PATH] [--json]",
+			desc: "show addon installation and runtime status",
+			flags: []helpFlag{
+				{name: "project", meta: "PATH", usage: "Godot project path (omit to query the live bridge)"},
+				{name: "json", usage: "write status as JSON"},
+			},
+		},
+		{
+			sub:  "update",
+			line: "  gdctl addon update [--project PATH]",
+			desc: "update the addon files",
+			flags: []helpFlag{
+				{name: "project", meta: "PATH", usage: "Godot project path (omit to update over the bridge)"},
+			},
+		},
+		{
+			sub:  "remove",
+			line: "  gdctl addon remove --project PATH",
+			desc: "remove the addon from a Godot project",
+			flags: []helpFlag{
+				{name: "project", meta: "PATH", usage: "Godot project path"},
+			},
+		},
+		{
+			sub:  "doctor",
+			line: "  gdctl addon doctor [--project PATH] [--fix]",
+			desc: "diagnose addon setup and optionally fix issues",
+			flags: []helpFlag{
+				{name: "project", meta: "PATH", usage: "Godot project path (omit to use runtime mode)"},
+				{name: "fix", usage: "install and enable the addon when needed"},
+			},
+		},
+	}},
+	{name: "bridge", cmds: []helpCmd{
+		{
+			sub:  "info",
+			line: "  gdctl [--host host] [--port port] bridge info",
+			desc: "show bridge connection details",
+		},
+		{
+			sub:  "logs",
+			line: "  gdctl [--host host] [--port port] [--token token] bridge logs [--json] [--clear]",
+			desc: "read bridge log entries",
+			flags: []helpFlag{
+				{name: "json", usage: "write logs as JSON"},
+				{name: "clear", usage: "clear logs after reading"},
+			},
+		},
+		{
+			sub:  "addon-update",
+			line: "  gdctl [--host host] [--port port] [--token token] bridge addon-update",
+			desc: "update the addon over the bridge",
+		},
+	}},
+	{name: "scene", cmds: []helpCmd{
+		{
+			sub:  "create",
+			line: "  gdctl [--host host] [--port port] [--token token] scene create --path PATH --root TYPE --name NAME [--force]",
+			desc: "create a new scene file",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "scene file path (e.g. res://scenes/Main.tscn)"},
+				{name: "root", meta: "TYPE", usage: "root node type (e.g. Node2D, Node3D)"},
+				{name: "name", meta: "NAME", usage: "root node name"},
+				{name: "force", usage: "overwrite an existing scene file"},
+			},
+		},
+		{
+			sub:  "open",
+			line: "  gdctl [--host host] [--port port] [--token token] scene open --path PATH",
+			desc: "open a scene in the editor",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "scene file path (e.g. res://scenes/Main.tscn)"},
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for open job (default 5s)"},
+			},
+		},
+		{
+			sub:  "instance",
+			line: "  gdctl [--host host] [--port port] [--token token] scene instance --parent PATH --scene SCENE --name NAME",
+			desc: "instance a scene under a parent node",
+			flags: []helpFlag{
+				{name: "parent", meta: "PATH", usage: "parent node path"},
+				{name: "scene", meta: "SCENE", usage: "scene resource path (res://)"},
+				{name: "name", meta: "NAME", usage: "instance node name"},
+			},
+		},
+		{
+			sub:  "tree",
+			line: "  gdctl [--host host] [--port port] [--token token] scene tree",
+			desc: "print the current scene node tree",
+		},
+		{
+			sub:  "save",
+			line: "  gdctl [--host host] [--port port] [--token token] scene save",
+			desc: "save the current scene",
+			flags: []helpFlag{
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for save job (default 5s)"},
+			},
+		},
+		{
+			sub:  "list",
+			line: "  gdctl [--host host] [--port port] [--token token] scene list [--dir res://] [--recursive]",
+			desc: "list .tscn files in the project",
+			flags: []helpFlag{
+				{name: "dir", meta: "PATH", usage: "res:// directory to search (default res://)"},
+				{name: "recursive", usage: "search recursively (default true)"},
+			},
+		},
+		{
+			sub:  "run",
+			line: "  gdctl [--project PATH] [--godot PATH] scene run --path SCENE [--timeout DURATION]",
+			desc: "run a scene with headless Godot",
+			flags: []helpFlag{
+				{name: "path", meta: "SCENE", usage: "scene path (res://main.tscn)"},
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for Godot to exit (default 30s)"},
+				{name: "godot", meta: "PATH", usage: "headless Godot binary path (or set GDCTL_GODOT_PATH)"},
+				{name: "project", meta: "PATH", usage: "Godot project path (or set GDCTL_PROJECT)"},
+			},
+		},
+	}},
+	{name: "node", cmds: []helpCmd{
+		{
+			sub:  "add",
+			line: "  gdctl [--host host] [--port port] [--token token] node add --parent PATH --type TYPE --name NAME [--dry-run]",
+			desc: "add a node to the scene",
+			flags: []helpFlag{
+				{name: "parent", meta: "PATH", usage: "parent node path"},
+				{name: "type", meta: "TYPE", usage: "Godot node type (e.g. Node2D, CharacterBody3D)"},
+				{name: "name", meta: "NAME", usage: "new node name"},
+				{name: "dry-run", usage: "validate without mutating"},
+			},
+		},
+		{
+			sub:  "remove",
+			line: "  gdctl [--host host] [--port port] [--token token] node remove --path PATH [--dry-run]",
+			desc: "remove a node from the scene",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "node path"},
+				{name: "dry-run", usage: "validate without mutating"},
+			},
+		},
+		{
+			sub:  "rename",
+			line: "  gdctl [--host host] [--port port] [--token token] node rename --path PATH --name NAME [--dry-run]",
+			desc: "rename a node",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "node path"},
+				{name: "name", meta: "NAME", usage: "new node name"},
+				{name: "dry-run", usage: "validate without mutating"},
+			},
+		},
+		{
+			sub:  "move",
+			line: "  gdctl [--host host] [--port port] [--token token] node move --path PATH --parent PARENT [--index N] [--dry-run]",
+			desc: "move a node to a new parent",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "node path"},
+				{name: "parent", meta: "PATH", usage: "new parent node path"},
+				{name: "index", meta: "N", usage: "child index under new parent (-1 = append)"},
+				{name: "dry-run", usage: "validate without mutating"},
+			},
+		},
+		{
+			sub:  "get",
+			line: "  gdctl [--host host] [--port port] [--token token] node get --path PATH --property PROPERTY",
+			desc: "get a node property value",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "node path"},
+				{name: "property", meta: "NAME", usage: "property name"},
+			},
+		},
+		{
+			sub:  "set",
+			line: "  gdctl [--host host] [--port port] [--token token] node set --path PATH --property PROPERTY --value TYPED_JSON",
+			desc: "set a node property value",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "node path"},
+				{name: "property", meta: "NAME", usage: "property name"},
+				{name: "value", meta: "TYPED_JSON", usage: `typed JSON value (e.g. {"kind":"Vector2","value":[200,400]})`},
+			},
+		},
+		{
+			sub:  "set-resource",
+			line: "  gdctl [--host host] [--port port] [--token token] node set-resource --path PATH --property PROPERTY --resource RESOURCE",
+			desc: "assign a resource to a node property",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "node path"},
+				{name: "property", meta: "NAME", usage: "property name"},
+				{name: "resource", meta: "PATH", usage: "resource path (res://)"},
+			},
+		},
+		{
+			sub:  "attach-script",
+			line: "  gdctl [--host host] [--port port] [--token token] node attach-script --path PATH --script SCRIPT",
+			desc: "attach a script to a node",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "node path"},
+				{name: "script", meta: "PATH", usage: "script resource path (res://)"},
+			},
+		},
+		{
+			sub:  "group add",
+			line: "  gdctl [--host host] [--port port] [--token token] node group add --path PATH --group GROUP",
+			desc: "add a node to a group",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "node path"},
+				{name: "group", meta: "NAME", usage: "group name"},
+			},
+		},
+		{
+			sub:  "group remove",
+			line: "  gdctl [--host host] [--port port] [--token token] node group remove --path PATH --group GROUP",
+			desc: "remove a node from a group",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "node path"},
+				{name: "group", meta: "NAME", usage: "group name"},
+			},
+		},
+		{
+			sub:  "group list",
+			line: "  gdctl [--host host] [--port port] [--token token] node group list --path PATH",
+			desc: "list groups on a node",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "node path"},
+			},
+		},
+		{
+			sub:  "duplicate",
+			line: "  gdctl [--host host] [--port port] [--token token] node duplicate --path PATH --name NAME [--parent PARENT] [--dry-run]",
+			desc: "duplicate a node",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "source node path"},
+				{name: "name", meta: "NAME", usage: "name for the duplicate"},
+				{name: "parent", meta: "PATH", usage: "parent node path (defaults to source's parent)"},
+				{name: "dry-run", usage: "preview without modifying scene"},
+			},
+		},
+		{
+			sub:  "list-properties",
+			line: "  gdctl [--host host] [--port port] [--token token] node list-properties --path PATH",
+			desc: "list all exported properties on a node",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "node path"},
+			},
+		},
+	}},
+	{name: "script", cmds: []helpCmd{
+		{
+			sub:  "create",
+			line: "  gdctl [--host host] [--port port] [--token token] script create --path PATH --extends CLASS [--force]",
+			desc: "create a new GDScript file",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "script path (res://)"},
+				{name: "extends", meta: "CLASS", usage: "base Godot class name (e.g. CharacterBody2D)"},
+				{name: "force", usage: "overwrite an existing script"},
+			},
+		},
+		{
+			sub:  "write",
+			line: "  gdctl [--host host] [--port port] [--token token] script write --path PATH (--body TEXT | --body-file FILE)",
+			desc: "write a GDScript file body",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "script path (res://)"},
+				{name: "body", meta: "TEXT", usage: "script body as a string"},
+				{name: "body-file", meta: "FILE", usage: "local file containing the script body"},
+			},
+		},
+		{
+			sub:  "check",
+			line: "  gdctl [--host host] [--port port] [--token token] script check --path PATH",
+			desc: "syntax-check a GDScript file",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "script path (res://)"},
+			},
+		},
+	}},
+	{name: "shader", cmds: []helpCmd{
+		{
+			sub:  "write",
+			line: "  gdctl [--host host] [--port port] [--token token] shader write --path PATH (--body TEXT | --body-file FILE)",
+			desc: "write a shader file",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "shader path (res://)"},
+				{name: "body", meta: "TEXT", usage: "shader body as a string"},
+				{name: "body-file", meta: "FILE", usage: "local file containing the shader body"},
+			},
+		},
+		{
+			sub:  "check",
+			line: "  gdctl [--host host] [--port port] [--token token] shader check --path PATH",
+			desc: "syntax-check a shader file",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "shader path (res://)"},
+			},
+		},
+	}},
+	{name: "resource", cmds: []helpCmd{
+		{
+			sub:  "create",
+			line: "  gdctl [--host host] [--port port] [--token token] resource create --path PATH --type TYPE [--prop NAME=TYPED_JSON] [--shader-param NAME=RESOURCE]",
+			desc: "create a Godot resource file",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "resource file path (res://, .tres)"},
+				{name: "type", meta: "TYPE", usage: "Godot resource class name (e.g. StandardMaterial3D)"},
+				{name: "prop", meta: "NAME=TYPED_JSON", usage: "property value in name=TYPED_JSON form (repeatable)"},
+				{name: "shader-param", meta: "NAME=PATH", usage: "ShaderMaterial param in name=res://path form (repeatable)"},
+			},
+		},
+		{
+			sub:  "list",
+			line: "  gdctl [--host host] [--port port] [--token token] resource list [--dir res://] [--recursive] [--ext EXT]",
+			desc: "list resource files in the project",
+			flags: []helpFlag{
+				{name: "dir", meta: "PATH", usage: "res:// directory to search (default res://)"},
+				{name: "recursive", usage: "search recursively (default true)"},
+				{name: "ext", meta: "EXT", usage: "file extension filter (e.g. .tres)"},
+			},
+		},
+	}},
+	{name: "import", cmds: []helpCmd{
+		{
+			sub:  "set",
+			line: "  gdctl [--host host] [--port port] [--token token] import set --path PATH [--param NAME=VALUE]",
+			desc: "set import parameters for an asset",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "asset path (e.g. res://textures/player.png)"},
+				{name: "param", meta: "NAME=VALUE", usage: "import param in name=VALUE form where VALUE is raw JSON (repeatable)"},
+			},
+		},
+	}},
+	{name: "file", cmds: []helpCmd{
+		{
+			sub:  "write-bytes",
+			line: "  gdctl [--host host] [--port port] [--token token] file write-bytes --path PATH --in FILE",
+			desc: "upload binary data to a resource path",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "resource file path (res://)"},
+				{name: "in", meta: "FILE", usage: "local input file path"},
+			},
+		},
+		{
+			sub:  "lut-write",
+			line: "  gdctl [--host host] [--port port] [--token token] file lut-write --path PATH --profiles FILE",
+			desc: "generate and upload a 256x1 edge LUT PNG",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "resource PNG path (res://)"},
+				{name: "profiles", meta: "FILE", usage: "local edge profile JSON path"},
+			},
+		},
+		{
+			sub:  "list",
+			line: "  gdctl [--host host] [--port port] [--token token] file list --path PATH [--recursive]",
+			desc: "list files in a res:// directory",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "res:// directory path"},
+				{name: "recursive", usage: "list recursively"},
+			},
+		},
+		{
+			sub:  "mkdir",
+			line: "  gdctl [--host host] [--port port] [--token token] file mkdir --path PATH",
+			desc: "create a res:// directory",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "res:// directory path to create"},
+			},
+		},
+		{
+			sub:  "delete",
+			line: "  gdctl [--host host] [--port port] [--token token] file delete --path PATH",
+			desc: "delete a res:// file",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "res:// path to delete"},
+			},
+		},
+		{
+			sub:  "exists",
+			line: "  gdctl [--host host] [--port port] [--token token] file exists --path PATH",
+			desc: "check whether a res:// path exists",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "res:// path to check"},
+			},
+		},
+	}},
+	{name: "navigation", cmds: []helpCmd{
+		{
+			sub:  "bake",
+			line: "  gdctl [--host host] [--port port] [--token token] navigation bake --path PATH",
+			desc: "bake a navigation mesh",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "NavigationRegion node path"},
+			},
+		},
+	}},
+	{name: "signal", cmds: []helpCmd{
+		{
+			sub:  "connect",
+			line: "  gdctl [--host host] [--port port] [--token token] signal connect --from PATH --signal NAME --to PATH --method METHOD",
+			desc: "connect a signal between two nodes",
+			flags: []helpFlag{
+				{name: "from", meta: "PATH", usage: "source node path"},
+				{name: "signal", meta: "NAME", usage: "signal name"},
+				{name: "to", meta: "PATH", usage: "target node path"},
+				{name: "method", meta: "NAME", usage: "method name on target node"},
+			},
+		},
+		{
+			sub:  "disconnect",
+			line: "  gdctl [--host host] [--port port] [--token token] signal disconnect --from PATH --signal NAME --to PATH --method METHOD",
+			desc: "disconnect a signal between two nodes",
+			flags: []helpFlag{
+				{name: "from", meta: "PATH", usage: "source node path"},
+				{name: "signal", meta: "NAME", usage: "signal name"},
+				{name: "to", meta: "PATH", usage: "target node path"},
+				{name: "method", meta: "NAME", usage: "method name on target node"},
+			},
+		},
+	}},
+	{name: "project", cmds: []helpCmd{
+		{
+			sub:  "setting get",
+			line: "  gdctl [--host host] [--port port] [--token token] project setting get --key KEY",
+			desc: "get a project setting value",
+			flags: []helpFlag{
+				{name: "key", meta: "KEY", usage: "project setting key"},
+			},
+		},
+		{
+			sub:  "setting set",
+			line: "  gdctl [--host host] [--port port] [--token token] project setting set --key KEY --value TYPED_JSON",
+			desc: "set a project setting value",
+			flags: []helpFlag{
+				{name: "key", meta: "KEY", usage: "project setting key"},
+				{name: "value", meta: "TYPED_JSON", usage: `typed JSON value (e.g. {"kind":"int","value":1920})`},
+			},
+		},
+		{
+			sub:  "run",
+			line: "  gdctl [--project PATH] [--godot PATH] project run [--scene SCENE] [--timeout DURATION]",
+			desc: "run the project with headless Godot",
+			flags: []helpFlag{
+				{name: "scene", meta: "SCENE", usage: "scene to run (res://main.tscn); omit to use project main scene"},
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for Godot to exit (default 30s)"},
+				{name: "godot", meta: "PATH", usage: "headless Godot binary path (or set GDCTL_GODOT_PATH)"},
+				{name: "project", meta: "PATH", usage: "Godot project path (or set GDCTL_PROJECT)"},
+			},
+		},
+	}},
+	{name: "viewport", cmds: []helpCmd{
+		{
+			sub:  "screenshot",
+			line: "  gdctl [--host host] [--port port] [--token token] viewport screenshot --out FILE [--kind 2d|3d] [--index N]",
+			desc: "capture the editor viewport as a PNG",
+			flags: []helpFlag{
+				{name: "out", meta: "FILE", usage: "local PNG output path"},
+				{name: "kind", meta: "KIND", usage: "editor viewport kind: 2d or 3d (default 2d)"},
+				{name: "index", meta: "N", usage: "3D viewport index (default 0)"},
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for screenshot job (default 5s)"},
+			},
+		},
+	}},
+}
+
 func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] [--project path] ping")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] [--project path] doctor [--project PATH] [--fix]")
-	fmt.Fprintln(w, "  gdctl addon install --project PATH [--force]")
-	fmt.Fprintln(w, "  gdctl addon enable --project PATH")
-	fmt.Fprintln(w, "  gdctl addon disable --project PATH")
-	fmt.Fprintln(w, "  gdctl addon status [--project PATH] [--json]")
-	fmt.Fprintln(w, "  gdctl addon update [--project PATH]")
-	fmt.Fprintln(w, "  gdctl addon remove --project PATH")
-	fmt.Fprintln(w, "  gdctl addon doctor [--project PATH] [--fix]")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] bridge info")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] bridge logs [--json] [--clear]")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] bridge addon-update")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene create --path PATH --root TYPE --name NAME [--force]")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene open --path PATH")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene instance --parent PATH --scene SCENE --name NAME")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene tree")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene save")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] scene list [--dir res://] [--recursive]")
-	fmt.Fprintln(w, "  gdctl [--project PATH] [--godot PATH] scene run --path SCENE [--timeout DURATION]")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node add --parent PATH --type TYPE --name NAME [--dry-run]")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node remove --path PATH [--dry-run]")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node rename --path PATH --name NAME [--dry-run]")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node move --path PATH --parent PARENT [--index N] [--dry-run]")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node get --path PATH --property PROPERTY")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node set --path PATH --property PROPERTY --value TYPED_JSON")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node set-resource --path PATH --property PROPERTY --resource RESOURCE")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node attach-script --path PATH --script SCRIPT")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node group add --path PATH --group GROUP")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node group remove --path PATH --group GROUP")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node group list --path PATH")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node duplicate --path PATH --name NAME [--parent PARENT] [--dry-run]")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] node list-properties --path PATH")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script create --path PATH --extends CLASS [--force]")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script write --path PATH (--body TEXT | --body-file FILE)")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] script check --path PATH")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] shader write --path PATH (--body TEXT | --body-file FILE)")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] shader check --path PATH")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] resource create --path PATH --type TYPE [--prop NAME=TYPED_JSON] [--shader-param NAME=RESOURCE]")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] resource list [--dir res://] [--recursive] [--ext EXT]")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] import set --path PATH [--param NAME=VALUE]")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file write-bytes --path PATH --in FILE")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file lut-write --path PATH --profiles FILE")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file list --path PATH [--recursive]")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file mkdir --path PATH")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file delete --path PATH")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] file exists --path PATH")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] navigation bake --path PATH")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] signal connect --from PATH --signal NAME --to PATH --method METHOD")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] signal disconnect --from PATH --signal NAME --to PATH --method METHOD")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] project setting get --key KEY")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] project setting set --key KEY --value TYPED_JSON")
-	fmt.Fprintln(w, "  gdctl [--project PATH] [--godot PATH] project run [--scene SCENE] [--timeout DURATION]")
-	fmt.Fprintln(w, "  gdctl [--host host] [--port port] [--token token] viewport screenshot --out FILE [--kind 2d|3d] [--index N]")
+	for _, g := range helpGroups {
+		for _, cmd := range g.cmds {
+			fmt.Fprintln(w, cmd.line)
+		}
+	}
+}
+
+func runHelp(args []string, stdout io.Writer) error {
+	if len(args) == 0 {
+		printUsage(stdout)
+		return nil
+	}
+	for _, g := range helpGroups {
+		if g.name == args[0] {
+			if len(args) == 1 {
+				fmt.Fprintln(stdout, "Usage:")
+				for _, cmd := range g.cmds {
+					fmt.Fprintln(stdout, cmd.line)
+				}
+				return nil
+			}
+			sub := strings.Join(args[1:], " ")
+			for _, cmd := range g.cmds {
+				if cmd.sub == sub {
+					return printCommandHelp(stdout, cmd)
+				}
+			}
+			return fmt.Errorf("unknown subcommand %q under %q", sub, g.name)
+		}
+	}
+	if len(args) == 1 {
+		for _, g := range helpGroups {
+			for _, cmd := range g.cmds {
+				if cmd.sub == args[0] {
+					return printCommandHelp(stdout, cmd)
+				}
+			}
+		}
+	}
+	fmt.Fprintf(stdout, "Unknown help topic %q. Available topics:\n", args[0])
+	for _, g := range helpGroups {
+		fmt.Fprintf(stdout, "  %s\n", g.name)
+	}
+	return fmt.Errorf("unknown help topic: %s", args[0])
+}
+
+func printCommandHelp(stdout io.Writer, cmd helpCmd) error {
+	fmt.Fprintln(stdout, "Usage:")
+	fmt.Fprintln(stdout, cmd.line)
+	if len(cmd.flags) == 0 {
+		return nil
+	}
+	fmt.Fprintln(stdout)
+	maxWidth := 0
+	for _, f := range cmd.flags {
+		w := 2 + len(f.name)
+		if f.meta != "" {
+			w += 1 + len(f.meta)
+		}
+		if w > maxWidth {
+			maxWidth = w
+		}
+	}
+	for _, f := range cmd.flags {
+		var flagStr string
+		if f.meta != "" {
+			flagStr = fmt.Sprintf("--%s %s", f.name, f.meta)
+		} else {
+			flagStr = fmt.Sprintf("--%s", f.name)
+		}
+		fmt.Fprintf(stdout, "  %-*s  %s\n", maxWidth, flagStr, f.usage)
+	}
+	return nil
 }
