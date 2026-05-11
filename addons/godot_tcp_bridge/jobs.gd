@@ -44,6 +44,8 @@ func process(context: Dictionary) -> void:
 		_run_scene_save_job(job_id, context)
 	elif String(job.get("kind", "")) == "viewport.screenshot":
 		_run_viewport_screenshot_job(job_id, context)
+	elif String(job.get("kind", "")) == "run.screenshot":
+		_run_run_screenshot_job(job_id, context)
 	else:
 		_finish_error(job_id, "JOB_KIND_UNKNOWN", "Unknown job kind", {"kind": job.get("kind", "")}, context)
 
@@ -140,6 +142,43 @@ func _run_viewport_screenshot_job(job_id: String, context: Dictionary) -> void:
 		"format": "png",
 		"kind": kind,
 		"index": int(detail.get("index", 0)),
+		"width": image.get_width(),
+		"height": image.get_height(),
+		"content_base64": Marshalls.raw_to_base64(png),
+	}, context)
+
+
+func _run_run_screenshot_job(job_id: String, context: Dictionary) -> void:
+	var job: Dictionary = jobs[job_id]
+	var detail: Dictionary = job.get("detail", {})
+	var frames_remaining: int = int(detail.get("frames_remaining", 0))
+	if frames_remaining > 0:
+		detail["frames_remaining"] = frames_remaining - 1
+		job["detail"] = detail
+		job["status"] = "running"
+		job["updated_at"] = Time.get_datetime_string_from_system(true)
+		jobs[job_id] = job
+		pending_jobs.append(job_id)
+		return
+
+	if not ClassDB.class_has_method("DisplayServer", "screen_get_image"):
+		_finish_error(job_id, "RUN_SCREENSHOT_UNSUPPORTED", "DisplayServer.screen_get_image is unavailable in this Godot build", {}, context)
+		return
+	var screen: int = int(detail.get("screen", 0))
+	if screen < 0 or screen >= DisplayServer.get_screen_count():
+		_finish_error(job_id, "RUN_SCREEN_INVALID", "Screen index is out of range", {"screen": screen}, context)
+		return
+	var image: Image = DisplayServer.screen_get_image(screen)
+	if image == null or image.is_empty():
+		_finish_error(job_id, "RUN_SCREENSHOT_EMPTY", "Host screen image is empty", {"screen": screen}, context)
+		return
+	var png: PackedByteArray = image.save_png_to_buffer()
+	if png.is_empty():
+		_finish_error(job_id, "RUN_SCREENSHOT_PNG_EMPTY", "Could not encode run screenshot as PNG", {"screen": screen}, context)
+		return
+	_finish_ok(job_id, {
+		"format": "png",
+		"screen": screen,
 		"width": image.get_width(),
 		"height": image.get_height(),
 		"content_base64": Marshalls.raw_to_base64(png),

@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -253,6 +254,8 @@ func runRun(ctx context.Context, client *bridge.Client, args []string, stdout io
 		return runRunStop(ctx, client, stdout)
 	case "logs":
 		return runRunLogs(ctx, client, args[1:], stdout)
+	case "screenshot":
+		return runRunScreenshot(ctx, client, args[1:], stdout)
 	default:
 		return fmt.Errorf("unknown run command: %s", strings.Join(args, " "))
 	}
@@ -344,6 +347,46 @@ func runRunLogs(ctx context.Context, client *bridge.Client, args []string, stdou
 			fmt.Fprintf(stdout, " %s", encoded)
 		}
 		fmt.Fprintln(stdout)
+	}
+	return nil
+}
+
+func runRunScreenshot(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("run screenshot", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	outPath := fs.String("out", "", "local PNG output path")
+	screen := fs.Int("screen", 0, "host display screen index")
+	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for screenshot job")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	path := *outPath
+	if path == "" {
+		path = defaultScreenshotPath()
+	}
+	if *screen < 0 {
+		return fmt.Errorf("run screenshot --screen must be 0 or greater")
+	}
+	result, err := client.RunScreenshot(ctx, requestID(), *screen)
+	if err != nil {
+		return err
+	}
+	if result.JobID == "" {
+		return fmt.Errorf("run screenshot did not return a job id")
+	}
+	job, err := waitForJob(ctx, client, result.JobID, *timeout, "run screenshot")
+	if err != nil {
+		return err
+	}
+	if err := writeScreenshotJob(path, job); err != nil {
+		return err
+	}
+	width := intFromJobResult(job.Result["width"])
+	height := intFromJobResult(job.Result["height"])
+	if width > 0 && height > 0 {
+		fmt.Fprintf(stdout, "Run screenshot written: %s (%dx%d)\n", path, width, height)
+	} else {
+		fmt.Fprintf(stdout, "Run screenshot written: %s\n", path)
 	}
 	return nil
 }
@@ -1715,15 +1758,7 @@ func runViewportScreenshot(ctx context.Context, client *bridge.Client, args []st
 	if err != nil {
 		return err
 	}
-	content, _ := job.Result["content_base64"].(string)
-	if content == "" {
-		return fmt.Errorf("viewport screenshot job did not return PNG data")
-	}
-	data, err := base64.StdEncoding.DecodeString(content)
-	if err != nil {
-		return fmt.Errorf("decode screenshot PNG: %w", err)
-	}
-	if err := os.WriteFile(*outPath, data, 0o644); err != nil {
+	if err := writeScreenshotJob(*outPath, job); err != nil {
 		return err
 	}
 	width := intFromJobResult(job.Result["width"])
@@ -1734,6 +1769,30 @@ func runViewportScreenshot(ctx context.Context, client *bridge.Client, args []st
 		fmt.Fprintf(stdout, "Screenshot written: %s\n", *outPath)
 	}
 	return nil
+}
+
+func writeScreenshotJob(outPath string, job bridge.Job) error {
+	content, _ := job.Result["content_base64"].(string)
+	if content == "" {
+		return fmt.Errorf("%s job did not return PNG data", strings.ReplaceAll(job.Kind, ".", " "))
+	}
+	data, err := base64.StdEncoding.DecodeString(content)
+	if err != nil {
+		return fmt.Errorf("decode screenshot PNG: %w", err)
+	}
+	if dir := filepath.Dir(outPath); dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	if err := os.WriteFile(outPath, data, 0o644); err != nil {
+		return err
+	}
+	return nil
+}
+
+func defaultScreenshotPath() string {
+	return filepath.Join("screenshots", time.Now().UTC().Format("20060102-150405")+".png")
 }
 
 func runImportSet(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
@@ -2159,6 +2218,19 @@ var helpGroups = []helpGroup{
 			desc: "read run/debug logs captured by the bridge",
 			flags: []helpFlag{
 				{name: "json", usage: "write logs as JSON"},
+			},
+		},
+		{
+			sub:  "screenshot",
+			line: "  gdctl [--host host] [--port port] [--token token] run screenshot [--out FILE] [--screen N]",
+			desc: "capture the host screen while an editor-run scene is playing",
+			flags: []helpFlag{
+				{name: "out", meta: "FILE", usage: "local PNG output path (default screenshots/YYYYMMDD-HHMMSS.png)"},
+				{name: "screen", meta: "N", usage: "host display screen index (default 0)"},
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for screenshot job (default 5s)"},
+			},
+			notes: []string{
+				"Editor-run games launch outside the editor plugin SceneTree, so this captures the host screen, not a cropped game viewport.",
 			},
 		},
 	}},

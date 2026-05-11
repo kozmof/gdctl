@@ -1,7 +1,7 @@
 @tool
 extends RefCounted
 
-const PLUGIN_VERSION := "0.1.3"
+const PLUGIN_VERSION := "0.1.4"
 const PROTOCOL_VERSION := "gdctl.v1"
 const DEFAULT_HOST := "127.0.0.1"
 const DEFAULT_PORT := 7777
@@ -292,6 +292,8 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return _handle_run_stop(request)
 	if method == "GET" and path == "/run/logs":
 		return _handle_run_logs(request)
+	if method == "POST" and path == "/run/screenshot":
+		return _handle_run_screenshot(request)
 	return protocol.bridge_error(404, "", "UNKNOWN_ENDPOINT", "Unknown bridge endpoint", {"method": method, "path": path})
 
 
@@ -369,6 +371,31 @@ func _handle_run_logs(request: Dictionary) -> Dictionary:
 		if source.begins_with("run.") or source.begins_with("runtime."):
 			entries.append(entry)
 	return protocol.http_json(200, {"ok": true, "entries": entries})
+
+
+func _handle_run_screenshot(request: Dictionary) -> Dictionary:
+	var checked: Dictionary = command_request.require_body(request, _command_context(), "run.screenshot", "Run screenshot requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	if not _editor_plugin_available():
+		return protocol.bridge_error(503, String(checked["request_id"]), "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {})
+	var editor_interface := editor_plugin.get_editor_interface()
+	if not editor_interface.is_playing_scene():
+		return protocol.bridge_error(409, String(checked["request_id"]), "RUN_NOT_PLAYING", "No scene is currently running", {})
+	var params: Dictionary = checked["params"]
+	var screen: int = int(params.get("screen", 0))
+	if screen < 0 or screen >= DisplayServer.get_screen_count():
+		return protocol.bridge_error(400, String(checked["request_id"]), "RUN_SCREEN_INVALID", "Screen index is out of range", {"screen": screen})
+	var job_id: String = String(_queue_job("run.screenshot", {
+		"screen": screen,
+		"frames_remaining": 2,
+		"request_id": String(checked["request_id"]),
+	}))
+	return protocol.bridge_ok(String(checked["request_id"]), {
+		"queued": true,
+		"job_id": job_id,
+		"screen": screen,
+	})
 
 
 func _handle_job_status(_request: Dictionary, path: String) -> Dictionary:
@@ -488,6 +515,7 @@ func _capabilities() -> Array:
 		"run.status",
 		"run.stop",
 		"run.logs",
+		"run.screenshot",
 	]
 
 

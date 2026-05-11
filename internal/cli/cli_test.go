@@ -25,7 +25,7 @@ func TestRunPing(t *testing.T) {
 			OK:            true,
 			Engine:        "Godot",
 			EngineVersion: "4.4.1",
-			PluginVersion: "0.1.3",
+			PluginVersion: "0.1.4",
 			ProjectName:   "my-game",
 		})
 	}))
@@ -36,7 +36,7 @@ func TestRunPing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Godot bridge: ok", "Engine: Godot 4.4.1", "Project: my-game", "Plugin: 0.1.3"} {
+	for _, want := range []string{"Godot bridge: ok", "Engine: Godot 4.4.1", "Project: my-game", "Plugin: 0.1.4"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
 		}
@@ -1092,6 +1092,74 @@ func TestRunViewportScreenshot(t *testing.T) {
 	}
 }
 
+func TestRunScreenshot(t *testing.T) {
+	requests := 0
+	var gotEnvelope bridge.RequestEnvelope
+	outPath := filepath.Join(t.TempDir(), "run.png")
+	pngData := []byte("fake-run-png")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		switch r.URL.Path {
+		case "/run/screenshot":
+			if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK: true,
+				Result: map[string]any{
+					"queued": true,
+					"job_id": "run-shot-1",
+					"screen": 1,
+				},
+			})
+		case "/jobs/run-shot-1":
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{
+				OK: true,
+				Job: bridge.Job{
+					ID:     "run-shot-1",
+					Kind:   "run.screenshot",
+					Status: "succeeded",
+					Result: map[string]any{
+						"format":         "png",
+						"screen":         1,
+						"width":          1280,
+						"height":         720,
+						"content_base64": base64.StdEncoding.EncodeToString(pngData),
+					},
+				},
+			})
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), append(serverArgs(server), "run", "screenshot", "--out", outPath, "--screen", "1"), &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "run.screenshot" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["screen"] != float64(1) {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	gotData, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotData) != string(pngData) {
+		t.Fatalf("png data = %q", gotData)
+	}
+	if !strings.Contains(stdout.String(), "Run screenshot written:") || !strings.Contains(stdout.String(), "1280x720") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d", requests)
+	}
+}
+
 func TestViewportScreenshotRequiresOutBeforeNetwork(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := Run(context.Background(), []string{"viewport", "screenshot"}, &stdout, &stderr)
@@ -1386,7 +1454,7 @@ func TestBridgeInfoProjectless(t *testing.T) {
 			Service:         "godot-bridge",
 			Engine:          "Godot",
 			EngineVersion:   "4.6",
-			PluginVersion:   "0.1.3",
+			PluginVersion:   "0.1.4",
 			ProjectName:     "demo",
 			ProjectPath:     "C:/demo/",
 			AuthEnabled:     true,
@@ -1414,7 +1482,7 @@ func TestAddonStatusWithoutProjectUsesRuntime(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(bridge.PingResponse{
 			OK:              true,
-			PluginVersion:   "0.1.3",
+			PluginVersion:   "0.1.4",
 			ProtocolVersion: "gdctl.v1",
 			ProjectPath:     "C:/demo/",
 			Capabilities:    []string{"addon.update"},
@@ -1439,7 +1507,7 @@ func TestAddonDoctorWithoutProjectUsesRuntime(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(bridge.PingResponse{
 			OK:            true,
-			PluginVersion: "0.1.3",
+			PluginVersion: "0.1.4",
 		})
 	}))
 	defer server.Close()
@@ -1529,7 +1597,7 @@ func TestAddonStatusJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(bridge.PingResponse{
 			OK:              true,
-			PluginVersion:   "0.1.3",
+			PluginVersion:   "0.1.4",
 			ProtocolVersion: "gdctl.v1",
 			Capabilities:    []string{"scene.tree"},
 		})

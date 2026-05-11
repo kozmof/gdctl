@@ -210,6 +210,48 @@ func TestClientRunLogsRequest(t *testing.T) {
 	}
 }
 
+func TestClientRunScreenshotRequest(t *testing.T) {
+	var gotAuth string
+	var gotEnvelope RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/run/screenshot" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"queued": true,
+				"job_id": "run-shot-1",
+				"screen": 1,
+			},
+		})
+	}))
+	defer server.Close()
+
+	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http", Token: "secret"}
+	client := NewClient(cfg)
+	result, err := client.RunScreenshot(context.Background(), "cli-test", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if gotEnvelope.Op != "run.screenshot" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["screen"] != float64(1) {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if result.JobID != "run-shot-1" || !result.Queued || result.Screen != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestClientJobRequest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/jobs/save-1" {

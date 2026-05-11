@@ -372,6 +372,16 @@ type RunStopResult struct {
 	PlayingScene string `json:"playing_scene,omitempty"`
 }
 
+type RunScreenshotResult struct {
+	Format        string `json:"format,omitempty"`
+	Screen        int    `json:"screen,omitempty"`
+	Width         int    `json:"width,omitempty"`
+	Height        int    `json:"height,omitempty"`
+	ContentBase64 string `json:"content_base64,omitempty"`
+	Queued        bool   `json:"queued,omitempty"`
+	JobID         string `json:"job_id,omitempty"`
+}
+
 type Job struct {
 	ID        string         `json:"id"`
 	Kind      string         `json:"kind"`
