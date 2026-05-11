@@ -1550,6 +1550,36 @@ func TestAddonStatusJSON(t *testing.T) {
 	}
 }
 
+func TestAddonRollbackRestoresLatestBackup(t *testing.T) {
+	useTestAddon(t)
+	project := newCLIProject(t)
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), []string{"addon", "install", "--project", project}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	originalPlugin := readFile(t, filepath.Join(project, addon.AddonDir, "plugin.cfg"))
+	stdout.Reset()
+	if err := Run(context.Background(), []string{"addon", "update", "--project", project}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "Backup:") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+	if err := os.WriteFile(filepath.Join(project, addon.AddonDir, "plugin.cfg"), []byte("broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	if err := Run(context.Background(), []string{"addon", "rollback", "--project", project}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "addon rolled back") || !strings.Contains(stdout.String(), "Restored:") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+	if got := readFile(t, filepath.Join(project, addon.AddonDir, "plugin.cfg")); got != originalPlugin {
+		t.Fatalf("plugin.cfg = %q, want %q", got, originalPlugin)
+	}
+}
+
 func TestAddonDoctorFixInstallsAndEnables(t *testing.T) {
 	useTestAddon(t)
 	project := newCLIProject(t)

@@ -133,6 +133,49 @@ func TestUpdateCreatesBackupAndPreservesUnknownFiles(t *testing.T) {
 	}
 }
 
+func TestRollbackRestoresLatestBackupAndRemovesNewManagedFiles(t *testing.T) {
+	project := newProject(t)
+	manager := NewManager(testAddonFS())
+	manager.Now = func() time.Time {
+		return time.Date(2026, 5, 6, 12, 0, 0, 0, time.UTC)
+	}
+	if _, err := manager.Install(InstallOptions{ProjectPath: project}); err != nil {
+		t.Fatal(err)
+	}
+	originalPlugin := readFile(t, filepath.Join(project, AddonDir, "plugin.cfg"))
+
+	result, err := manager.Update(UpdateOptions{ProjectPath: project})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Backup == "" {
+		t.Fatal("expected backup")
+	}
+
+	if err := os.WriteFile(filepath.Join(project, AddonDir, "plugin.cfg"), []byte("broken live addon"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, AddonDir, ManifestName), []byte(`{"name":"godot_tcp_bridge","version":"bad","files":["plugin.cfg","new_command.gd","gdctl_manifest.json"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, AddonDir, "new_command.gd"), []byte("still bad"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rollback, err := manager.Rollback(RollbackOptions{ProjectPath: project})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rollback.Changed || rollback.Backup != result.Backup {
+		t.Fatalf("rollback = %#v, backup = %s", rollback, result.Backup)
+	}
+	if got := readFile(t, filepath.Join(project, AddonDir, "plugin.cfg")); got != originalPlugin {
+		t.Fatalf("plugin.cfg = %q, want %q", got, originalPlugin)
+	}
+	if _, err := os.Stat(filepath.Join(project, AddonDir, "new_command.gd")); !os.IsNotExist(err) {
+		t.Fatalf("new managed file still exists, err = %v", err)
+	}
+}
+
 func TestPackageEmbeddedUpdateUsesManifestFiles(t *testing.T) {
 	manifest, files, err := PackageEmbeddedUpdate(testAddonFS())
 	if err != nil {

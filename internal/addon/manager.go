@@ -34,6 +34,11 @@ type UpdateOptions struct {
 	ProjectPath string
 }
 
+type RollbackOptions struct {
+	ProjectPath string
+	BackupPath  string
+}
+
 type StatusOptions struct {
 	ProjectPath  string
 	BridgeConfig bridge.Config
@@ -147,6 +152,80 @@ func (m Manager) Update(opts UpdateOptions) (Result, error) {
 		result.Message = "addon already up to date"
 	}
 	return result, nil
+}
+
+func (m Manager) Rollback(opts RollbackOptions) (Result, error) {
+	project, err := ResolveProject(opts.ProjectPath)
+	if err != nil {
+		return Result{}, err
+	}
+	backup := opts.BackupPath
+	if backup == "" {
+		backup, err = latestBackup(project)
+		if err != nil {
+			return Result{}, err
+		}
+	}
+	if backup == "" {
+		return Result{}, fmt.Errorf("no addon backups found")
+	}
+	if !filepath.IsAbs(backup) {
+		backup = filepath.Join(project.Path, backup)
+	}
+	info, err := os.Stat(backup)
+	if err != nil {
+		return Result{}, fmt.Errorf("backup path does not exist: %s", backup)
+	}
+	if !info.IsDir() {
+		return Result{}, fmt.Errorf("backup path is not a directory: %s", backup)
+	}
+
+	current := loadInstalledManifest(project)
+	if len(current.Files) == 0 {
+		if embedded, err := LoadEmbeddedManifest(m.Source); err == nil {
+			current = embedded
+		}
+	}
+	for _, rel := range current.Files {
+		dst := filepath.Join(project.AddonPath(), filepath.FromSlash(rel))
+		if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+			return Result{}, err
+		}
+		removeEmptyParents(project.AddonPath(), filepath.Dir(dst))
+	}
+
+	copied := false
+	if err := filepath.WalkDir(backup, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(backup, path)
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		dst := filepath.Join(project.AddonPath(), rel)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(dst, data, 0o644); err != nil {
+			return err
+		}
+		copied = true
+		return nil
+	}); err != nil {
+		return Result{}, err
+	}
+	if !copied {
+		return Result{}, fmt.Errorf("backup contains no files: %s", backup)
+	}
+	return Result{Changed: true, Message: "addon rolled back", Backup: backup}, nil
 }
 
 func (m Manager) Enable(projectPath string) (Result, error) {
@@ -369,4 +448,26 @@ func removeEmptyParents(root, dir string) {
 		}
 		dir = filepath.Dir(dir)
 	}
+}
+
+func latestBackup(project Project) (string, error) {
+	root := filepath.Join(project.Path, "addons", BackupRootName)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	var latest string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if latest == "" || name > filepath.Base(latest) {
+			latest = filepath.Join(root, name)
+		}
+	}
+	return latest, nil
 }

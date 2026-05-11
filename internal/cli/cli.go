@@ -562,6 +562,23 @@ func runAddon(ctx context.Context, cfg bridge.Config, client *bridge.Client, man
 		}
 		printAddonResult(stdout, result)
 		return nil
+	case "rollback":
+		fs := flag.NewFlagSet("addon rollback", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		project := fs.String("project", cfg.Project, "Godot project path")
+		backup := fs.String("backup", "", "backup directory to restore; defaults to latest")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *project == "" {
+			return fmt.Errorf("addon rollback requires --project")
+		}
+		result, err := manager.Rollback(addon.RollbackOptions{ProjectPath: *project, BackupPath: *backup})
+		if err != nil {
+			return err
+		}
+		printAddonRollbackResult(stdout, result)
+		return nil
 	case "status":
 		fs := flag.NewFlagSet("addon status", flag.ContinueOnError)
 		fs.SetOutput(io.Discard)
@@ -607,6 +624,13 @@ func printAddonResult(stdout io.Writer, result addon.Result) {
 	fmt.Fprintln(stdout, result.Message)
 	if result.Backup != "" {
 		fmt.Fprintf(stdout, "Backup: %s\n", result.Backup)
+	}
+}
+
+func printAddonRollbackResult(stdout io.Writer, result addon.Result) {
+	fmt.Fprintln(stdout, result.Message)
+	if result.Backup != "" {
+		fmt.Fprintf(stdout, "Restored: %s\n", result.Backup)
 	}
 }
 
@@ -2051,6 +2075,18 @@ var helpGroups = []helpGroup{
 			desc: "update the addon files",
 			flags: []helpFlag{
 				{name: "project", meta: "PATH", usage: "Godot project path (omit to update over the bridge)"},
+			},
+		},
+		{
+			sub:  "rollback",
+			line: "  gdctl addon rollback --project PATH [--backup PATH]",
+			desc: "restore addon files from a filesystem backup",
+			flags: []helpFlag{
+				{name: "project", meta: "PATH", usage: "Godot project path"},
+				{name: "backup", meta: "PATH", usage: "backup directory to restore (defaults to latest)"},
+			},
+			notes: []string{
+				"Use this when a bad addon update prevents the bridge from starting.",
 			},
 		},
 		{
