@@ -323,6 +323,7 @@ func runRunLogs(ctx context.Context, client *bridge.Client, args []string, stdou
 	fs := flag.NewFlagSet("run logs", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	jsonOut := fs.Bool("json", false, "write logs as JSON")
+	clear := fs.Bool("clear", false, "clear run logs after reading")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -333,22 +334,26 @@ func runRunLogs(ctx context.Context, client *bridge.Client, args []string, stdou
 	if *jsonOut {
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
-		return enc.Encode(map[string]any{"entries": entries})
-	}
-	if len(entries) == 0 {
-		fmt.Fprintln(stdout, "No run logs")
-		return nil
-	}
-	for _, entry := range entries {
-		fmt.Fprintf(stdout, "%s [%s] %s: %s", entry.Time, entry.Level, entry.Source, entry.Message)
-		if len(entry.Detail) > 0 {
-			encoded, err := json.Marshal(entry.Detail)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(stdout, " %s", encoded)
+		if err := enc.Encode(map[string]any{"entries": entries}); err != nil {
+			return err
 		}
-		fmt.Fprintln(stdout)
+	} else if len(entries) == 0 {
+		fmt.Fprintln(stdout, "No run logs")
+	} else {
+		for _, entry := range entries {
+			fmt.Fprintf(stdout, "%s [%s] %s: %s", entry.Time, entry.Level, entry.Source, entry.Message)
+			if len(entry.Detail) > 0 {
+				encoded, err := json.Marshal(entry.Detail)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(stdout, " %s", encoded)
+			}
+			fmt.Fprintln(stdout)
+		}
+	}
+	if *clear {
+		return client.ClearRunLogs(ctx, requestID())
 	}
 	return nil
 }
@@ -2414,10 +2419,11 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "logs",
-			line: "  gdctl [--host host] [--port port] [--token token] run logs [--json]",
+			line: "  gdctl [--host host] [--port port] [--token token] run logs [--json] [--clear]",
 			desc: "read run/debug logs captured by the bridge",
 			flags: []helpFlag{
 				{name: "json", usage: "write logs as JSON"},
+				{name: "clear", usage: "clear run logs after reading"},
 			},
 		},
 		{

@@ -63,6 +63,7 @@ gdctl run start --main
 gdctl run status
 gdctl run logs
 gdctl run logs --json
+gdctl run logs --clear
 gdctl run screenshot --out ./run.png
 gdctl run screenshot --source screen --out ./host-screen.png
 gdctl run stop
@@ -112,7 +113,21 @@ gdctl run screenshot --out ./signal-harbor.png
 gdctl run stop
 ```
 
-`run start` clears run logs by default. Use `--clear-logs=false` to preserve prior entries. `run logs` returns bridge-captured run/error messages when Godot exposes them to the editor-side logger.
+`run start` clears run logs by default. Use `--clear-logs=false` to preserve prior entries. `run logs` returns bridge-captured run/error messages plus game-side helper logs. Use `run logs --clear` to read and then clear the run log buffer.
+
+Game scripts can write standardized CLI-readable probes through the helper autoload that `run start` installs. Use `probe`, `info`, `warn`, `error`, or the generic `log_event(level, source, message, detail)`:
+
+```gdscript
+var gdctl := get_node_or_null("/root/GdctlRuntimeBridge")
+if gdctl:
+	gdctl.probe("foo", "ready", {
+		"player_position": player.global_position,
+		"parcels": total_parcels,
+		"moving_platforms": moving_platforms.size(),
+	})
+```
+
+The helper prefixes custom sources with `runtime.`, so the example appears in `gdctl run logs` as `runtime.foo`.
 
 `run screenshot` captures the running game viewport by default. It uses a small gdctl runtime helper autoload that `run start` registers before launching the scene. Use `--source screen` for the legacy whole-host-screen capture.
 

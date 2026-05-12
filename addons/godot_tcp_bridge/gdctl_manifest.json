@@ -1,6 +1,6 @@
 {
   "name": "godot_tcp_bridge",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "files": [
     "plugin.cfg",
     "bridge_plugin.gd",

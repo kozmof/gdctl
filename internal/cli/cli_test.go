@@ -25,7 +25,7 @@ func TestRunPing(t *testing.T) {
 			OK:            true,
 			Engine:        "Godot",
 			EngineVersion: "4.4.1",
-			PluginVersion: "0.1.7",
+			PluginVersion: "0.1.8",
 			ProjectName:   "my-game",
 		})
 	}))
@@ -36,7 +36,7 @@ func TestRunPing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Godot bridge: ok", "Engine: Godot 4.4.1", "Project: my-game", "Plugin: 0.1.7"} {
+	for _, want := range []string{"Godot bridge: ok", "Engine: Godot 4.4.1", "Project: my-game", "Plugin: 0.1.8"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
 		}
@@ -1708,7 +1708,7 @@ func TestBridgeInfoProjectless(t *testing.T) {
 			Service:         "godot-bridge",
 			Engine:          "Godot",
 			EngineVersion:   "4.6",
-			PluginVersion:   "0.1.7",
+			PluginVersion:   "0.1.8",
 			ProjectName:     "demo",
 			ProjectPath:     "C:/demo/",
 			AuthEnabled:     true,
@@ -1736,7 +1736,7 @@ func TestAddonStatusWithoutProjectUsesRuntime(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(bridge.PingResponse{
 			OK:              true,
-			PluginVersion:   "0.1.7",
+			PluginVersion:   "0.1.8",
 			ProtocolVersion: "gdctl.v1",
 			ProjectPath:     "C:/demo/",
 			Capabilities:    []string{"addon.update"},
@@ -1761,7 +1761,7 @@ func TestAddonDoctorWithoutProjectUsesRuntime(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(bridge.PingResponse{
 			OK:            true,
-			PluginVersion: "0.1.7",
+			PluginVersion: "0.1.8",
 		})
 	}))
 	defer server.Close()
@@ -1851,7 +1851,7 @@ func TestAddonStatusJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(bridge.PingResponse{
 			OK:              true,
-			PluginVersion:   "0.1.7",
+			PluginVersion:   "0.1.8",
 			ProtocolVersion: "gdctl.v1",
 			Capabilities:    []string{"scene.tree"},
 		})
@@ -2926,6 +2926,46 @@ func TestRunLogsCommand(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "runtime.error: boom") {
 		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRunLogsCommandClear(t *testing.T) {
+	var cleared bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/run/logs":
+			_ = json.NewEncoder(w).Encode(bridge.LogsResponse{
+				OK:      true,
+				Entries: []bridge.LogEntry{{Time: "now", Level: "info", Source: "runtime.skyline", Message: "ready"}},
+			})
+		case "/run/logs/clear":
+			cleared = true
+			var env bridge.RequestEnvelope
+			if err := json.NewDecoder(r.Body).Decode(&env); err != nil {
+				t.Fatal(err)
+			}
+			if env.Op != "run.logs.clear" {
+				t.Fatalf("envelope = %#v", env)
+			}
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"cleared": true},
+			})
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), append(serverArgs(server), "--token", "secret", "run", "logs", "--clear"), &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "runtime.skyline: ready") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+	if !cleared {
+		t.Fatal("expected run logs to be cleared")
 	}
 }
 

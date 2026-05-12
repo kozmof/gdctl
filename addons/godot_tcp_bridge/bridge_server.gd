@@ -1,7 +1,7 @@
 @tool
 extends RefCounted
 
-const PLUGIN_VERSION := "0.1.7"
+const PLUGIN_VERSION := "0.1.8"
 const PROTOCOL_VERSION := "gdctl.v1"
 const DEFAULT_HOST := "127.0.0.1"
 const DEFAULT_PORT := 7777
@@ -10,6 +10,7 @@ const ADDON_ROOT := "res://addons/godot_tcp_bridge/"
 const ADDON_BACKUP_ROOT := "res://addons/.godot_tcp_bridge_backup/"
 const RUNTIME_AUTOLOAD_NAME := "GdctlRuntimeBridge"
 const RUNTIME_AUTOLOAD_PATH := "res://addons/godot_tcp_bridge/runtime/runtime_bridge.gd"
+const RUNTIME_LOG_PATH := "res://.gdctl_runtime/logs/runtime.jsonl"
 const TypedValues = preload("res://addons/godot_tcp_bridge/typed_values.gd")
 const CommandRequest = preload("res://addons/godot_tcp_bridge/commands/request.gd")
 const BridgeCommands = preload("res://addons/godot_tcp_bridge/commands/bridge_commands.gd")
@@ -296,6 +297,8 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return _handle_run_stop(request)
 	if method == "GET" and path == "/run/logs":
 		return _handle_run_logs(request)
+	if method == "POST" and path == "/run/logs/clear":
+		return _handle_run_logs_clear(request)
 	if method == "POST" and path == "/run/screenshot":
 		return _handle_run_screenshot(request)
 	return protocol.bridge_error(404, "", "UNKNOWN_ENDPOINT", "Unknown bridge endpoint", {"method": method, "path": path})
@@ -315,6 +318,7 @@ func _handle_run_start(request: Dictionary) -> Dictionary:
 	var editor_interface := editor_plugin.get_editor_interface()
 	if clear_logs:
 		log_buffer.clear()
+		_clear_runtime_logs()
 		log_buffer.add("info", "run.logs", "Runtime logs cleared", {})
 	if editor_interface.is_playing_scene():
 		return protocol.bridge_error(409, request_id, "RUN_ALREADY_PLAYING", "A scene is already running", {"playing_scene": editor_interface.get_playing_scene()})
@@ -377,7 +381,19 @@ func _handle_run_logs(request: Dictionary) -> Dictionary:
 		var source := String(entry.get("source", ""))
 		if source.begins_with("run.") or source.begins_with("runtime."):
 			entries.append(entry)
+	for entry in _read_runtime_logs():
+		entries.append(entry)
 	return protocol.http_json(200, {"ok": true, "entries": entries})
+
+
+func _handle_run_logs_clear(request: Dictionary) -> Dictionary:
+	var checked: Dictionary = command_request.require_body(request, _command_context(), "run.logs.clear", "Run logs clear requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	log_buffer.clear()
+	_clear_runtime_logs()
+	log_buffer.add("info", "run.logs", "Runtime logs cleared", {})
+	return protocol.bridge_ok(String(checked["request_id"]), {"cleared": true})
 
 
 func _handle_run_screenshot(request: Dictionary) -> Dictionary:
@@ -408,6 +424,45 @@ func _handle_run_screenshot(request: Dictionary) -> Dictionary:
 		"source": source,
 		"screen": screen,
 	})
+
+
+func _read_runtime_logs() -> Array[Dictionary]:
+	var entries: Array[Dictionary] = []
+	if not FileAccess.file_exists(RUNTIME_LOG_PATH):
+		return entries
+	var file := FileAccess.open(RUNTIME_LOG_PATH, FileAccess.READ)
+	if file == null:
+		return entries
+	while not file.eof_reached():
+		var line := file.get_line().strip_edges()
+		if line == "":
+			continue
+		var parsed: Variant = JSON.parse_string(line)
+		if typeof(parsed) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = parsed
+		entries.append({
+			"time": String(entry.get("time", "")),
+			"level": String(entry.get("level", "info")),
+			"source": String(entry.get("source", "runtime.game")),
+			"message": String(entry.get("message", "")),
+			"detail": _dictionary_or_empty(entry.get("detail", {})),
+		})
+	file.close()
+	while entries.size() > 200:
+		entries.pop_front()
+	return entries
+
+
+func _clear_runtime_logs() -> void:
+	if FileAccess.file_exists(RUNTIME_LOG_PATH):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(RUNTIME_LOG_PATH))
+
+
+func _dictionary_or_empty(value: Variant) -> Dictionary:
+	if typeof(value) == TYPE_DICTIONARY:
+		return value
+	return {}
 
 
 func _handle_job_status(_request: Dictionary, path: String) -> Dictionary:
@@ -539,6 +594,7 @@ func _capabilities() -> Array:
 		"run.status",
 		"run.stop",
 		"run.logs",
+		"run.logs.clear",
 		"run.screenshot",
 	]
 

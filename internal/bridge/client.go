@@ -145,6 +145,16 @@ func (c *Client) RunLogs(ctx context.Context) ([]LogEntry, error) {
 	return out.Entries, nil
 }
 
+func (c *Client) ClearRunLogs(ctx context.Context, requestID string) error {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "run.logs.clear",
+		Params:    map[string]any{},
+	}
+	_, err := c.postEnvelope(ctx, "/run/logs/clear", env)
+	return err
+}
+
 func (c *Client) RunScreenshot(ctx context.Context, requestID, source string, screen int) (RunScreenshotResult, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,

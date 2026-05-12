@@ -2,6 +2,8 @@ extends Node
 
 const REQUESTS_DIR := "res://.gdctl_runtime/requests/"
 const RESULTS_DIR := "res://.gdctl_runtime/results/"
+const LOGS_DIR := "res://.gdctl_runtime/logs/"
+const LOG_PATH := "res://.gdctl_runtime/logs/runtime.jsonl"
 
 var active: Dictionary = {}
 
@@ -9,6 +11,46 @@ var active: Dictionary = {}
 func _ready() -> void:
 	_ensure_dir(REQUESTS_DIR)
 	_ensure_dir(RESULTS_DIR)
+	_ensure_dir(LOGS_DIR)
+
+
+func log_event(level: String, source: String, message: String, detail: Dictionary = {}) -> void:
+	var normalized_level := level.strip_edges().to_lower()
+	if normalized_level == "":
+		normalized_level = "info"
+	var normalized_source := source.strip_edges()
+	if normalized_source == "":
+		normalized_source = "runtime.game"
+	elif not normalized_source.begins_with("runtime."):
+		normalized_source = "runtime." + normalized_source
+	var entry := {
+		"time": Time.get_datetime_string_from_system(true),
+		"level": normalized_level,
+		"source": normalized_source,
+		"message": message,
+		"detail": _json_safe(detail),
+	}
+	_append_log(entry)
+
+
+func info(source: String, message: String, detail: Dictionary = {}) -> void:
+	log_event("info", source, message, detail)
+
+
+func warn(source: String, message: String, detail: Dictionary = {}) -> void:
+	log_event("warn", source, message, detail)
+
+
+func error(source: String, message: String, detail: Dictionary = {}) -> void:
+	log_event("error", source, message, detail)
+
+
+func probe(source: String, message: String, detail: Dictionary = {}) -> void:
+	log_event("info", source, message, detail)
+
+
+func clear_logs() -> void:
+	_remove_file(LOG_PATH)
 
 
 func _process(_delta: float) -> void:
@@ -96,6 +138,50 @@ func _write_result(id: String, result: Dictionary) -> void:
 		return
 	file.store_string(JSON.stringify(result))
 	file.close()
+
+
+func _append_log(entry: Dictionary) -> void:
+	_ensure_dir(LOGS_DIR)
+	var file := FileAccess.open(LOG_PATH, FileAccess.READ_WRITE)
+	if file == null:
+		file = FileAccess.open(LOG_PATH, FileAccess.WRITE)
+	if file == null:
+		return
+	file.seek_end()
+	file.store_line(JSON.stringify(entry))
+	file.close()
+
+
+func _json_safe(value: Variant) -> Variant:
+	match typeof(value):
+		TYPE_DICTIONARY:
+			var out := {}
+			for key in value.keys():
+				out[str(key)] = _json_safe(value[key])
+			return out
+		TYPE_ARRAY:
+			var out: Array = []
+			for item in value:
+				out.append(_json_safe(item))
+			return out
+		TYPE_VECTOR2:
+			return [value.x, value.y]
+		TYPE_VECTOR3:
+			return [value.x, value.y, value.z]
+		TYPE_VECTOR4:
+			return [value.x, value.y, value.z, value.w]
+		TYPE_COLOR:
+			return [value.r, value.g, value.b, value.a]
+		TYPE_NODE_PATH:
+			return str(value)
+		TYPE_OBJECT:
+			if value == null:
+				return null
+			if value is Node:
+				return (value as Node).get_path()
+			return str(value)
+		_:
+			return value
 
 
 func _ensure_dir(path: String) -> void:
