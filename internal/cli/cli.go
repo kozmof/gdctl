@@ -355,6 +355,7 @@ func runRunScreenshot(ctx context.Context, client *bridge.Client, args []string,
 	fs := flag.NewFlagSet("run screenshot", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	outPath := fs.String("out", "", "local PNG output path")
+	source := fs.String("source", "game", "screenshot source: game or screen")
 	screen := fs.Int("screen", 0, "host display screen index")
 	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for screenshot job")
 	if err := fs.Parse(args); err != nil {
@@ -367,7 +368,10 @@ func runRunScreenshot(ctx context.Context, client *bridge.Client, args []string,
 	if *screen < 0 {
 		return fmt.Errorf("run screenshot --screen must be 0 or greater")
 	}
-	result, err := client.RunScreenshot(ctx, requestID(), *screen)
+	if *source != "game" && *source != "screen" {
+		return fmt.Errorf("run screenshot --source must be game or screen")
+	}
+	result, err := client.RunScreenshot(ctx, requestID(), *source, *screen)
 	if err != nil {
 		return err
 	}
@@ -383,10 +387,20 @@ func runRunScreenshot(ctx context.Context, client *bridge.Client, args []string,
 	}
 	width := intFromJobResult(job.Result["width"])
 	height := intFromJobResult(job.Result["height"])
+	resultSource, _ := job.Result["source"].(string)
+	if resultSource == "" {
+		resultSource = *source
+	}
+	sourceLabel := resultSource
+	if resultSource == "game" {
+		sourceLabel = "game viewport"
+	} else if resultSource == "screen" {
+		sourceLabel = "host screen"
+	}
 	if width > 0 && height > 0 {
-		fmt.Fprintf(stdout, "Run screenshot written: %s (%dx%d)\n", path, width, height)
+		fmt.Fprintf(stdout, "Run screenshot written: %s (%dx%d, %s)\n", path, width, height, sourceLabel)
 	} else {
-		fmt.Fprintf(stdout, "Run screenshot written: %s\n", path)
+		fmt.Fprintf(stdout, "Run screenshot written: %s (%s)\n", path, sourceLabel)
 	}
 	return nil
 }
@@ -2222,15 +2236,17 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "screenshot",
-			line: "  gdctl [--host host] [--port port] [--token token] run screenshot [--out FILE] [--screen N]",
-			desc: "capture the host screen while an editor-run scene is playing",
+			line: "  gdctl [--host host] [--port port] [--token token] run screenshot [--out FILE] [--source game|screen] [--screen N]",
+			desc: "capture the running game viewport or host screen",
 			flags: []helpFlag{
 				{name: "out", meta: "FILE", usage: "local PNG output path (default screenshots/YYYYMMDD-HHMMSS.png)"},
-				{name: "screen", meta: "N", usage: "host display screen index (default 0)"},
+				{name: "source", meta: "SOURCE", usage: "screenshot source: game or screen (default game)"},
+				{name: "screen", meta: "N", usage: "host display screen index when --source screen is used (default 0)"},
 				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for screenshot job (default 5s)"},
 			},
 			notes: []string{
-				"Editor-run games launch outside the editor plugin SceneTree, so this captures the host screen, not a cropped game viewport.",
+				"Game screenshots require the gdctl runtime helper autoload installed by run start.",
+				"Use --source screen for the legacy whole-host-screen capture.",
 			},
 		},
 	}},

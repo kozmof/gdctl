@@ -234,7 +234,7 @@ func TestClientRunScreenshotRequest(t *testing.T) {
 
 	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http", Token: "secret"}
 	client := NewClient(cfg)
-	result, err := client.RunScreenshot(context.Background(), "cli-test", 1)
+	result, err := client.RunScreenshot(context.Background(), "cli-test", "screen", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestClientRunScreenshotRequest(t *testing.T) {
 	if gotEnvelope.Op != "run.screenshot" {
 		t.Fatalf("op = %q", gotEnvelope.Op)
 	}
-	if gotEnvelope.Params["screen"] != float64(1) {
+	if gotEnvelope.Params["source"] != "screen" || gotEnvelope.Params["screen"] != float64(1) {
 		t.Fatalf("params = %#v", gotEnvelope.Params)
 	}
 	if result.JobID != "run-shot-1" || !result.Queued || result.Screen != 1 {

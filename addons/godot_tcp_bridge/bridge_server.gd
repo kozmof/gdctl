@@ -1,13 +1,15 @@
 @tool
 extends RefCounted
 
-const PLUGIN_VERSION := "0.1.4"
+const PLUGIN_VERSION := "0.1.5"
 const PROTOCOL_VERSION := "gdctl.v1"
 const DEFAULT_HOST := "127.0.0.1"
 const DEFAULT_PORT := 7777
 const TOKEN_PATH := "res://.godot-bridge-token"
 const ADDON_ROOT := "res://addons/godot_tcp_bridge/"
 const ADDON_BACKUP_ROOT := "res://addons/.godot_tcp_bridge_backup/"
+const RUNTIME_AUTOLOAD_NAME := "GdctlRuntimeBridge"
+const RUNTIME_AUTOLOAD_PATH := "res://addons/godot_tcp_bridge/runtime/runtime_bridge.gd"
 const TypedValues = preload("res://addons/godot_tcp_bridge/typed_values.gd")
 const CommandRequest = preload("res://addons/godot_tcp_bridge/commands/request.gd")
 const BridgeCommands = preload("res://addons/godot_tcp_bridge/commands/bridge_commands.gd")
@@ -314,6 +316,9 @@ func _handle_run_start(request: Dictionary) -> Dictionary:
 		log_buffer.add("info", "run.logs", "Runtime logs cleared", {})
 	if editor_interface.is_playing_scene():
 		return protocol.bridge_error(409, request_id, "RUN_ALREADY_PLAYING", "A scene is already running", {"playing_scene": editor_interface.get_playing_scene()})
+	var autoload_err := _ensure_runtime_autoload()
+	if autoload_err != OK:
+		return protocol.bridge_error(500, request_id, "RUNTIME_HELPER_SETUP_FAILED", "Could not register gdctl runtime helper autoload", {"error": error_string(autoload_err)})
 	if scene != "":
 		if not ResourceLoader.exists(scene):
 			return protocol.bridge_error(404, request_id, "RUN_SCENE_NOT_FOUND", "Scene does not exist", {"scene": scene})
@@ -383,10 +388,14 @@ func _handle_run_screenshot(request: Dictionary) -> Dictionary:
 	if not editor_interface.is_playing_scene():
 		return protocol.bridge_error(409, String(checked["request_id"]), "RUN_NOT_PLAYING", "No scene is currently running", {})
 	var params: Dictionary = checked["params"]
+	var source: String = String(params.get("source", "game"))
+	if source != "game" and source != "screen":
+		return protocol.bridge_error(400, String(checked["request_id"]), "RUN_SCREENSHOT_SOURCE_INVALID", "Run screenshot source must be game or screen", {"source": source})
 	var screen: int = int(params.get("screen", 0))
-	if screen < 0 or screen >= DisplayServer.get_screen_count():
+	if source == "screen" and (screen < 0 or screen >= DisplayServer.get_screen_count()):
 		return protocol.bridge_error(400, String(checked["request_id"]), "RUN_SCREEN_INVALID", "Screen index is out of range", {"screen": screen})
 	var job_id: String = String(_queue_job("run.screenshot", {
+		"source": source,
 		"screen": screen,
 		"frames_remaining": 2,
 		"request_id": String(checked["request_id"]),
@@ -394,6 +403,7 @@ func _handle_run_screenshot(request: Dictionary) -> Dictionary:
 	return protocol.bridge_ok(String(checked["request_id"]), {
 		"queued": true,
 		"job_id": job_id,
+		"source": source,
 		"screen": screen,
 	})
 
@@ -453,6 +463,17 @@ func _job_context() -> Dictionary:
 
 func _queue_job(kind: String, detail: Dictionary) -> String:
 	return jobs.queue(kind, detail, _job_context())
+
+
+func _ensure_runtime_autoload() -> Error:
+	if not FileAccess.file_exists(RUNTIME_AUTOLOAD_PATH):
+		return ERR_FILE_NOT_FOUND
+	var key := "autoload/%s" % RUNTIME_AUTOLOAD_NAME
+	var value := "*" + RUNTIME_AUTOLOAD_PATH
+	if ProjectSettings.has_setting(key) and String(ProjectSettings.get_setting(key)) == value:
+		return OK
+	ProjectSettings.set_setting(key, value)
+	return ProjectSettings.save()
 
 
 func _editor_plugin_available() -> bool:

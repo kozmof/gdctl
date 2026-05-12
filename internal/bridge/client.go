@@ -145,11 +145,12 @@ func (c *Client) RunLogs(ctx context.Context) ([]LogEntry, error) {
 	return out.Entries, nil
 }
 
-func (c *Client) RunScreenshot(ctx context.Context, requestID string, screen int) (RunScreenshotResult, error) {
+func (c *Client) RunScreenshot(ctx context.Context, requestID, source string, screen int) (RunScreenshotResult, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,
 		Op:        "run.screenshot",
 		Params: map[string]any{
+			"source": source,
 			"screen": screen,
 		},
 	}

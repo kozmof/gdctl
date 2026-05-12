@@ -64,6 +64,7 @@ gdctl run status
 gdctl run logs
 gdctl run logs --json
 gdctl run screenshot --out ./run.png
+gdctl run screenshot --source screen --out ./host-screen.png
 gdctl run stop
 gdctl scene create --path res://scenes/Main.tscn --root Node2D --name Main
 gdctl scene open --path res://scenes/Main.tscn
@@ -112,7 +113,7 @@ gdctl run stop
 
 `run start` clears run logs by default. Use `--clear-logs=false` to preserve prior entries. `run logs` returns bridge-captured run/error messages when Godot exposes them to the editor-side logger.
 
-`run screenshot` captures the host screen while the editor-run scene is playing. Godot editor play sessions run outside the addon SceneTree, so this is an observation aid rather than a cropped game-viewport capture.
+`run screenshot` captures the running game viewport by default. It uses a small gdctl runtime helper autoload that `run start` registers before launching the scene. Use `--source screen` for the legacy whole-host-screen capture.
 
 Scene node paths are logical paths rooted at the edited scene root:
 

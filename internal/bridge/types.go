@@ -374,6 +374,7 @@ type RunStopResult struct {
 
 type RunScreenshotResult struct {
 	Format        string `json:"format,omitempty"`
+	Source        string `json:"source,omitempty"`
 	Screen        int    `json:"screen,omitempty"`
 	Width         int    `json:"width,omitempty"`
 	Height        int    `json:"height,omitempty"`

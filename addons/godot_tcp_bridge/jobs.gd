@@ -1,6 +1,11 @@
 @tool
 extends RefCounted
 
+const RUNTIME_ROOT := "res://.gdctl_runtime/"
+const RUNTIME_REQUESTS := "res://.gdctl_runtime/requests/"
+const RUNTIME_RESULTS := "res://.gdctl_runtime/results/"
+const RUNTIME_SCREENSHOT_TIMEOUT_MS := 8000
+
 var jobs: Dictionary = {}
 var pending_jobs: Array[String] = []
 
@@ -151,6 +156,19 @@ func _run_viewport_screenshot_job(job_id: String, context: Dictionary) -> void:
 func _run_run_screenshot_job(job_id: String, context: Dictionary) -> void:
 	var job: Dictionary = jobs[job_id]
 	var detail: Dictionary = job.get("detail", {})
+	var source: String = String(detail.get("source", "game"))
+	if source == "screen":
+		_run_screen_screenshot_job(job_id, context)
+		return
+	if source != "game":
+		_finish_error(job_id, "RUN_SCREENSHOT_SOURCE_INVALID", "Run screenshot source must be game or screen", {"source": source}, context)
+		return
+	_run_game_screenshot_job(job_id, context)
+
+
+func _run_screen_screenshot_job(job_id: String, context: Dictionary) -> void:
+	var job: Dictionary = jobs[job_id]
+	var detail: Dictionary = job.get("detail", {})
 	var frames_remaining: int = int(detail.get("frames_remaining", 0))
 	if frames_remaining > 0:
 		detail["frames_remaining"] = frames_remaining - 1
@@ -178,11 +196,88 @@ func _run_run_screenshot_job(job_id: String, context: Dictionary) -> void:
 		return
 	_finish_ok(job_id, {
 		"format": "png",
+		"source": "screen",
 		"screen": screen,
 		"width": image.get_width(),
 		"height": image.get_height(),
 		"content_base64": Marshalls.raw_to_base64(png),
 	}, context)
+
+
+func _run_game_screenshot_job(job_id: String, context: Dictionary) -> void:
+	var job: Dictionary = jobs[job_id]
+	var detail: Dictionary = job.get("detail", {})
+	if not bool(detail.get("requested", false)):
+		var dir_err := _ensure_runtime_dirs()
+		if dir_err != OK:
+			_finish_error(job_id, "RUN_SCREENSHOT_REQUEST_FAILED", "Could not create runtime screenshot exchange directory", {"error": error_string(dir_err)}, context)
+			return
+		var request_path := RUNTIME_REQUESTS + job_id + ".json"
+		var request := {
+			"id": job_id,
+			"kind": "screenshot",
+			"frames": int(detail.get("frames_remaining", 2)),
+			"created_at": Time.get_datetime_string_from_system(true),
+		}
+		var file := FileAccess.open(request_path, FileAccess.WRITE)
+		if file == null:
+			_finish_error(job_id, "RUN_SCREENSHOT_REQUEST_FAILED", "Could not write runtime screenshot request", {"path": request_path}, context)
+			return
+		file.store_string(JSON.stringify(request))
+		file.close()
+		detail["requested"] = true
+		detail["started_ticks"] = Time.get_ticks_msec()
+		job["detail"] = detail
+		job["status"] = "running"
+		job["updated_at"] = Time.get_datetime_string_from_system(true)
+		jobs[job_id] = job
+		pending_jobs.append(job_id)
+		return
+
+	var result_path := RUNTIME_RESULTS + job_id + ".json"
+	if FileAccess.file_exists(result_path):
+		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(result_path))
+		_remove_runtime_file(result_path)
+		_remove_runtime_file(RUNTIME_REQUESTS + job_id + ".json")
+		if typeof(parsed) != TYPE_DICTIONARY:
+			_finish_error(job_id, "RUN_SCREENSHOT_RESULT_INVALID", "Runtime screenshot result is invalid JSON", {"path": result_path}, context)
+			return
+		var result: Dictionary = parsed
+		if not bool(result.get("ok", false)):
+			_finish_error(job_id, "RUN_SCREENSHOT_FAILED", String(result.get("error", "Runtime helper failed to capture screenshot")), {"path": result_path}, context)
+			return
+		_finish_ok(job_id, {
+			"format": String(result.get("format", "png")),
+			"source": "game",
+			"width": int(result.get("width", 0)),
+			"height": int(result.get("height", 0)),
+			"content_base64": String(result.get("content_base64", "")),
+			"request_id": job_id,
+		}, context)
+		return
+
+	var started_ticks: int = int(detail.get("started_ticks", Time.get_ticks_msec()))
+	if Time.get_ticks_msec() - started_ticks > RUNTIME_SCREENSHOT_TIMEOUT_MS:
+		_remove_runtime_file(RUNTIME_REQUESTS + job_id + ".json")
+		_finish_error(job_id, "RUN_SCREENSHOT_HELPER_TIMEOUT", "Runtime helper did not return a game viewport screenshot. Restart the scene with gdctl run start, or use run screenshot --source screen.", {"request_id": job_id}, context)
+		return
+	job["status"] = "running"
+	job["updated_at"] = Time.get_datetime_string_from_system(true)
+	jobs[job_id] = job
+	pending_jobs.append(job_id)
+
+
+func _ensure_runtime_dirs() -> Error:
+	for path in [RUNTIME_ROOT, RUNTIME_REQUESTS, RUNTIME_RESULTS]:
+		var err := DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(path))
+		if err != OK:
+			return err
+	return OK
+
+
+func _remove_runtime_file(path: String) -> void:
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 
 func _finish_ok(job_id: String, result: Dictionary, context: Dictionary) -> void:

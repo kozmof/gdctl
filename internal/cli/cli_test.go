@@ -25,7 +25,7 @@ func TestRunPing(t *testing.T) {
 			OK:            true,
 			Engine:        "Godot",
 			EngineVersion: "4.4.1",
-			PluginVersion: "0.1.4",
+			PluginVersion: "0.1.5",
 			ProjectName:   "my-game",
 		})
 	}))
@@ -36,7 +36,7 @@ func TestRunPing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Godot bridge: ok", "Engine: Godot 4.4.1", "Project: my-game", "Plugin: 0.1.4"} {
+	for _, want := range []string{"Godot bridge: ok", "Engine: Godot 4.4.1", "Project: my-game", "Plugin: 0.1.5"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
 		}
@@ -1109,6 +1109,7 @@ func TestRunScreenshot(t *testing.T) {
 				Result: map[string]any{
 					"queued": true,
 					"job_id": "run-shot-1",
+					"source": "game",
 					"screen": 1,
 				},
 			})
@@ -1121,6 +1122,7 @@ func TestRunScreenshot(t *testing.T) {
 					Status: "succeeded",
 					Result: map[string]any{
 						"format":         "png",
+						"source":         "game",
 						"screen":         1,
 						"width":          1280,
 						"height":         720,
@@ -1135,14 +1137,14 @@ func TestRunScreenshot(t *testing.T) {
 	defer server.Close()
 
 	var stdout, stderr bytes.Buffer
-	err := Run(context.Background(), append(serverArgs(server), "run", "screenshot", "--out", outPath, "--screen", "1"), &stdout, &stderr)
+	err := Run(context.Background(), append(serverArgs(server), "run", "screenshot", "--out", outPath), &stdout, &stderr)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if gotEnvelope.Op != "run.screenshot" {
 		t.Fatalf("op = %q", gotEnvelope.Op)
 	}
-	if gotEnvelope.Params["screen"] != float64(1) {
+	if gotEnvelope.Params["source"] != "game" {
 		t.Fatalf("params = %#v", gotEnvelope.Params)
 	}
 	gotData, err := os.ReadFile(outPath)
@@ -1152,11 +1154,77 @@ func TestRunScreenshot(t *testing.T) {
 	if string(gotData) != string(pngData) {
 		t.Fatalf("png data = %q", gotData)
 	}
-	if !strings.Contains(stdout.String(), "Run screenshot written:") || !strings.Contains(stdout.String(), "1280x720") {
+	if !strings.Contains(stdout.String(), "Run screenshot written:") || !strings.Contains(stdout.String(), "1280x720") || !strings.Contains(stdout.String(), "game viewport") {
 		t.Fatalf("stdout:\n%s", stdout.String())
 	}
 	if requests != 2 {
 		t.Fatalf("requests = %d", requests)
+	}
+}
+
+func TestRunScreenshotScreenSource(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	outPath := filepath.Join(t.TempDir(), "screen.png")
+	pngData := []byte("fake-screen-png")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/run/screenshot":
+			if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK: true,
+				Result: map[string]any{
+					"queued": true,
+					"job_id": "run-shot-screen",
+					"source": "screen",
+					"screen": 1,
+				},
+			})
+		case "/jobs/run-shot-screen":
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{
+				OK: true,
+				Job: bridge.Job{
+					ID:     "run-shot-screen",
+					Kind:   "run.screenshot",
+					Status: "succeeded",
+					Result: map[string]any{
+						"format":         "png",
+						"source":         "screen",
+						"screen":         1,
+						"width":          1920,
+						"height":         1080,
+						"content_base64": base64.StdEncoding.EncodeToString(pngData),
+					},
+				},
+			})
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), append(serverArgs(server), "run", "screenshot", "--source", "screen", "--screen", "1", "--out", outPath), &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Params["source"] != "screen" || gotEnvelope.Params["screen"] != float64(1) {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "host screen") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRunScreenshotRejectsInvalidSourceBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"run", "screenshot", "--source", "window"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--source") {
+		t.Fatalf("err = %v", err)
 	}
 }
 
@@ -1454,7 +1522,7 @@ func TestBridgeInfoProjectless(t *testing.T) {
 			Service:         "godot-bridge",
 			Engine:          "Godot",
 			EngineVersion:   "4.6",
-			PluginVersion:   "0.1.4",
+			PluginVersion:   "0.1.5",
 			ProjectName:     "demo",
 			ProjectPath:     "C:/demo/",
 			AuthEnabled:     true,
@@ -1482,7 +1550,7 @@ func TestAddonStatusWithoutProjectUsesRuntime(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(bridge.PingResponse{
 			OK:              true,
-			PluginVersion:   "0.1.4",
+			PluginVersion:   "0.1.5",
 			ProtocolVersion: "gdctl.v1",
 			ProjectPath:     "C:/demo/",
 			Capabilities:    []string{"addon.update"},
@@ -1507,7 +1575,7 @@ func TestAddonDoctorWithoutProjectUsesRuntime(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(bridge.PingResponse{
 			OK:            true,
-			PluginVersion: "0.1.4",
+			PluginVersion: "0.1.5",
 		})
 	}))
 	defer server.Close()
@@ -1597,7 +1665,7 @@ func TestAddonStatusJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(bridge.PingResponse{
 			OK:              true,
-			PluginVersion:   "0.1.4",
+			PluginVersion:   "0.1.5",
 			ProtocolVersion: "gdctl.v1",
 			Capabilities:    []string{"scene.tree"},
 		})

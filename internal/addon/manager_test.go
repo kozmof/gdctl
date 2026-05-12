@@ -38,7 +38,7 @@ func TestInstallEnableStatusAndRemove(t *testing.T) {
 	manager.NewClient = func(bridge.Config) bridgePinger {
 		return fakePinger{ping: bridge.PingResponse{
 			OK:              true,
-			PluginVersion:   "0.1.4",
+			PluginVersion:   "0.1.5",
 			ProtocolVersion: "gdctl.v1",
 			Capabilities:    []string{"scene.tree"},
 		}}
