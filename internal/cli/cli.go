@@ -70,6 +70,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return runSceneTree(ctx, client, stdout)
 			case "save":
 				return runSceneSave(ctx, client, rest[2:], stdout)
+			case "apply":
+				return runSceneApply(ctx, client, rest[2:], stdout)
 			case "list":
 				return runSceneList(ctx, client, rest[2:], stdout)
 			case "run":
@@ -876,6 +878,55 @@ func runSceneSave(ctx context.Context, client *bridge.Client, args []string, std
 	return nil
 }
 
+func runSceneApply(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("scene apply", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "scene path to open and mutate")
+	filePath := fs.String("file", "", "JSON scene tree file")
+	dryRun := fs.Bool("dry-run", false, "validate without mutating or saving")
+	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for open/save jobs")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *filePath == "" {
+		return fmt.Errorf("scene apply requires --path and --file")
+	}
+	data, err := os.ReadFile(*filePath)
+	if err != nil {
+		return err
+	}
+	var tree any
+	if err := json.Unmarshal(data, &tree); err != nil {
+		return fmt.Errorf("scene apply --file must be JSON: %w", err)
+	}
+	openedPath, root, err := openSceneAndWait(ctx, client, *path, *timeout)
+	if err != nil {
+		return err
+	}
+	result, err := client.ApplyScene(ctx, requestID(), tree, *dryRun)
+	if err != nil {
+		return err
+	}
+	if *dryRun {
+		fmt.Fprintf(stdout, "Dry run ok: %s (created: %d, properties: %d)\n", openedPath, result.Created, result.Updated)
+		return nil
+	}
+	savedPath, err := saveSceneAndWait(ctx, client, *timeout)
+	if err != nil {
+		return err
+	}
+	if root == "" {
+		root = result.Root
+	}
+	fmt.Fprintf(stdout, "Scene applied: %s\n", savedPath)
+	if root != "" {
+		fmt.Fprintf(stdout, "Root: %s\n", root)
+	}
+	fmt.Fprintf(stdout, "Created: %d\n", result.Created)
+	fmt.Fprintf(stdout, "Properties: %d\n", result.Updated)
+	return nil
+}
+
 func openSceneAndWait(ctx context.Context, client *bridge.Client, path string, timeout time.Duration) (string, string, error) {
 	result, err := client.OpenScene(ctx, requestID(), path)
 	if err != nil {
@@ -945,13 +996,19 @@ func runNodeAdd(ctx context.Context, client *bridge.Client, args []string, stdou
 	nodeType := fs.String("type", "", "Godot node type")
 	name := fs.String("name", "", "new node name")
 	dryRun := fs.Bool("dry-run", false, "validate without mutating")
+	propFlags := stringListFlag{}
+	fs.Var(&propFlags, "prop", "initial property in name=TYPED_JSON form")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *parent == "" || *nodeType == "" || *name == "" {
 		return fmt.Errorf("node add requires --parent, --type, and --name")
 	}
-	result, err := client.AddNode(ctx, requestID(), *parent, *nodeType, *name, *dryRun)
+	props, err := parseNameJSONPairs(propFlags)
+	if err != nil {
+		return err
+	}
+	result, err := client.AddNode(ctx, requestID(), *parent, *nodeType, *name, props, *dryRun)
 	if err != nil {
 		return err
 	}
@@ -1064,16 +1121,16 @@ func runNodeSet(ctx context.Context, client *bridge.Client, args []string, stdou
 	fs.SetOutput(io.Discard)
 	path := fs.String("path", "", "node path")
 	property := fs.String("property", "", "property name")
-	valueText := fs.String("value", "", "typed JSON value, for example {\"kind\":\"Vector2\",\"value\":[200,400]}")
+	valueFlags := newTypedValueFlags(fs, "node set")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *path == "" || *property == "" || *valueText == "" {
-		return fmt.Errorf("node set requires --path, --property, and --value")
+	if *path == "" || *property == "" {
+		return fmt.Errorf("node set requires --path and --property")
 	}
-	var value any
-	if err := json.Unmarshal([]byte(*valueText), &value); err != nil {
-		return fmt.Errorf("node set --value must be typed JSON: %w", err)
+	value, err := valueFlags.Value()
+	if err != nil {
+		return err
 	}
 	result, err := client.SetNodeProperty(ctx, requestID(), *path, *property, value)
 	if err != nil {
@@ -1303,16 +1360,16 @@ func runProjectSettingSet(ctx context.Context, client *bridge.Client, args []str
 	fs := flag.NewFlagSet("project setting set", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	key := fs.String("key", "", "project setting key")
-	valueText := fs.String("value", "", "typed JSON value, for example {\"kind\":\"int\",\"value\":1920}")
+	valueFlags := newTypedValueFlags(fs, "project setting set")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *key == "" || *valueText == "" {
-		return fmt.Errorf("project setting set requires --key and --value")
+	if *key == "" {
+		return fmt.Errorf("project setting set requires --key")
 	}
-	var value any
-	if err := json.Unmarshal([]byte(*valueText), &value); err != nil {
-		return fmt.Errorf("project setting set --value must be typed JSON: %w", err)
+	value, err := valueFlags.Value()
+	if err != nil {
+		return err
 	}
 	result, err := client.ProjectSettingSet(ctx, requestID(), *key, value)
 	if err != nil {
@@ -1495,6 +1552,135 @@ func (s *stringListFlag) String() string {
 func (s *stringListFlag) Set(value string) error {
 	*s = append(*s, value)
 	return nil
+}
+
+type typedValueFlags struct {
+	label       string
+	valueText   *string
+	stringValue *string
+	intValue    *string
+	floatValue  *string
+	boolValue   *string
+	vector2     *string
+	vector3     *string
+	color       *string
+	resource    *string
+}
+
+func newTypedValueFlags(fs *flag.FlagSet, label string) *typedValueFlags {
+	flags := &typedValueFlags{label: label}
+	flags.valueText = fs.String("value", "", `typed JSON value, for example {"kind":"Vector2","value":[200,400]}`)
+	flags.stringValue = fs.String("string", "", "string value shorthand")
+	flags.intValue = fs.String("int", "", "integer value shorthand")
+	flags.floatValue = fs.String("float", "", "float value shorthand")
+	flags.boolValue = fs.String("bool", "", "boolean value shorthand")
+	flags.vector2 = fs.String("vector2", "", "Vector2 shorthand as x,y")
+	flags.vector3 = fs.String("vector3", "", "Vector3 shorthand as x,y,z")
+	flags.color = fs.String("color", "", "Color shorthand as r,g,b[,a]")
+	flags.resource = fs.String("resource", "", "Resource shorthand as res://path")
+	return flags
+}
+
+func (f *typedValueFlags) Value() (any, error) {
+	values := []struct {
+		name  string
+		value string
+	}{
+		{"value", *f.valueText},
+		{"string", *f.stringValue},
+		{"int", *f.intValue},
+		{"float", *f.floatValue},
+		{"bool", *f.boolValue},
+		{"vector2", *f.vector2},
+		{"vector3", *f.vector3},
+		{"color", *f.color},
+		{"resource", *f.resource},
+	}
+	count := 0
+	for _, item := range values {
+		if item.value != "" {
+			count++
+		}
+	}
+	if count == 0 {
+		return nil, fmt.Errorf("%s requires a value flag: --value, --string, --int, --float, --bool, --vector2, --vector3, --color, or --resource", f.label)
+	}
+	if count > 1 {
+		return nil, fmt.Errorf("%s requires exactly one value flag", f.label)
+	}
+	if *f.valueText != "" {
+		var value any
+		if err := json.Unmarshal([]byte(*f.valueText), &value); err != nil {
+			return nil, fmt.Errorf("%s --value must be typed JSON: %w", f.label, err)
+		}
+		return value, nil
+	}
+	if *f.stringValue != "" {
+		return map[string]any{"kind": "String", "value": *f.stringValue}, nil
+	}
+	if *f.intValue != "" {
+		v, err := strconv.Atoi(*f.intValue)
+		if err != nil {
+			return nil, fmt.Errorf("%s --int must be an integer: %w", f.label, err)
+		}
+		return map[string]any{"kind": "int", "value": v}, nil
+	}
+	if *f.floatValue != "" {
+		v, err := strconv.ParseFloat(*f.floatValue, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%s --float must be a number: %w", f.label, err)
+		}
+		return map[string]any{"kind": "float", "value": v}, nil
+	}
+	if *f.boolValue != "" {
+		v, err := strconv.ParseBool(*f.boolValue)
+		if err != nil {
+			return nil, fmt.Errorf("%s --bool must be true or false: %w", f.label, err)
+		}
+		return map[string]any{"kind": "bool", "value": v}, nil
+	}
+	if *f.vector2 != "" {
+		values, err := parseFloatList(*f.vector2, 2, "vector2")
+		if err != nil {
+			return nil, fmt.Errorf("%s --vector2 %w", f.label, err)
+		}
+		return map[string]any{"kind": "Vector2", "value": values}, nil
+	}
+	if *f.vector3 != "" {
+		values, err := parseFloatList(*f.vector3, 3, "vector3")
+		if err != nil {
+			return nil, fmt.Errorf("%s --vector3 %w", f.label, err)
+		}
+		return map[string]any{"kind": "Vector3", "value": values}, nil
+	}
+	if *f.color != "" {
+		parts := strings.Split(*f.color, ",")
+		if len(parts) != 3 && len(parts) != 4 {
+			return nil, fmt.Errorf("%s --color must be r,g,b or r,g,b,a", f.label)
+		}
+		values, err := parseFloatList(*f.color, len(parts), "color")
+		if err != nil {
+			return nil, fmt.Errorf("%s --color %w", f.label, err)
+		}
+		return map[string]any{"kind": "Color", "value": values}, nil
+	}
+	return map[string]any{"kind": "Resource", "value": *f.resource}, nil
+}
+
+func parseFloatList(value string, want int, label string) ([]float64, error) {
+	parts := strings.Split(value, ",")
+	if len(parts) != want {
+		return nil, fmt.Errorf("must be %d comma-separated numbers", want)
+	}
+	out := make([]float64, 0, want)
+	for _, part := range parts {
+		v, err := strconv.ParseFloat(strings.TrimSpace(part), 64)
+		if err != nil {
+			return nil, fmt.Errorf("%s component %q must be a number: %w", label, part, err)
+		}
+		out = append(out, v)
+	}
+	return out, nil
 }
 
 func parseNameJSONPairs(values []string) (map[string]any, error) {
@@ -2295,6 +2481,21 @@ var helpGroups = []helpGroup{
 			},
 		},
 		{
+			sub:  "apply",
+			line: "  gdctl [--host host] [--port port] [--token token] scene apply --path SCENE --file TREE.json [--dry-run]",
+			desc: "apply a JSON node tree to a scene and save it",
+			flags: []helpFlag{
+				{name: "path", meta: "SCENE", usage: "scene to open and mutate (res://main.tscn)"},
+				{name: "file", meta: "FILE", usage: "JSON scene tree file"},
+				{name: "dry-run", usage: "validate without mutating or saving"},
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for open/save jobs (default 5s)"},
+			},
+			notes: []string{
+				"Tree nodes use name, type, properties, and children fields.",
+				"Properties use the same typed JSON values as node set, including inline Resource values.",
+			},
+		},
+		{
 			sub:  "list",
 			line: "  gdctl [--host host] [--port port] [--token token] scene list [--dir res://] [--recursive]",
 			desc: "list .tscn files in the project",
@@ -2318,12 +2519,13 @@ var helpGroups = []helpGroup{
 	{name: "node", cmds: []helpCmd{
 		{
 			sub:  "add",
-			line: "  gdctl [--host host] [--port port] [--token token] node add --parent PATH --type TYPE --name NAME [--dry-run]",
+			line: "  gdctl [--host host] [--port port] [--token token] node add --parent PATH --type TYPE --name NAME [--prop NAME=TYPED_JSON] [--dry-run]",
 			desc: "add a node to the scene",
 			flags: []helpFlag{
 				{name: "parent", meta: "PATH", usage: "parent node path"},
 				{name: "type", meta: "TYPE", usage: "Godot node type (e.g. Node2D, CharacterBody3D)"},
 				{name: "name", meta: "NAME", usage: "new node name"},
+				{name: "prop", meta: "NAME=TYPED_JSON", usage: "initial property value (repeatable)"},
 				{name: "dry-run", usage: "validate without mutating"},
 			},
 		},
@@ -2368,12 +2570,20 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "set",
-			line: "  gdctl [--host host] [--port port] [--token token] node set --path PATH --property PROPERTY --value TYPED_JSON",
+			line: "  gdctl [--host host] [--port port] [--token token] node set --path PATH --property PROPERTY (--value TYPED_JSON | --string S | --int N | --float N | --bool BOOL | --vector2 X,Y | --vector3 X,Y,Z | --color R,G,B[,A] | --resource PATH)",
 			desc: "set a node property value",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "node path"},
 				{name: "property", meta: "NAME", usage: "property name"},
 				{name: "value", meta: "TYPED_JSON", usage: `typed JSON value (e.g. {"kind":"Vector2","value":[200,400]})`},
+				{name: "string", meta: "S", usage: "string shorthand"},
+				{name: "int", meta: "N", usage: "integer shorthand"},
+				{name: "float", meta: "N", usage: "float shorthand"},
+				{name: "bool", meta: "BOOL", usage: "boolean shorthand"},
+				{name: "vector2", meta: "X,Y", usage: "Vector2 shorthand"},
+				{name: "vector3", meta: "X,Y,Z", usage: "Vector3 shorthand"},
+				{name: "color", meta: "R,G,B[,A]", usage: "Color shorthand"},
+				{name: "resource", meta: "PATH", usage: "Resource shorthand (res:// path)"},
 			},
 		},
 		{
@@ -2636,11 +2846,19 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "setting set",
-			line: "  gdctl [--host host] [--port port] [--token token] project setting set --key KEY --value TYPED_JSON",
+			line: "  gdctl [--host host] [--port port] [--token token] project setting set --key KEY (--value TYPED_JSON | --string S | --int N | --float N | --bool BOOL | --vector2 X,Y | --vector3 X,Y,Z | --color R,G,B[,A] | --resource PATH)",
 			desc: "set a project setting value",
 			flags: []helpFlag{
 				{name: "key", meta: "KEY", usage: "project setting key"},
 				{name: "value", meta: "TYPED_JSON", usage: `typed JSON value (e.g. {"kind":"int","value":1920})`},
+				{name: "string", meta: "S", usage: "string shorthand"},
+				{name: "int", meta: "N", usage: "integer shorthand"},
+				{name: "float", meta: "N", usage: "float shorthand"},
+				{name: "bool", meta: "BOOL", usage: "boolean shorthand"},
+				{name: "vector2", meta: "X,Y", usage: "Vector2 shorthand"},
+				{name: "vector3", meta: "X,Y,Z", usage: "Vector3 shorthand"},
+				{name: "color", meta: "R,G,B[,A]", usage: "Color shorthand"},
+				{name: "resource", meta: "PATH", usage: "Resource shorthand (res:// path)"},
 			},
 		},
 		{

@@ -31,7 +31,8 @@ func TestClientAddNodeRequest(t *testing.T) {
 
 	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http", Token: "secret"}
 	client := NewClient(cfg)
-	result, err := client.AddNode(context.Background(), "cli-test", "/root/Main", "Node2D", "Marker", true)
+	props := map[string]any{"position": map[string]any{"kind": "Vector2", "value": []any{1, 2}}}
+	result, err := client.AddNode(context.Background(), "cli-test", "/root/Main", "Node2D", "Marker", props, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,6 +45,9 @@ func TestClientAddNodeRequest(t *testing.T) {
 	}
 	if gotEnvelope.Params["dry_run"] != true {
 		t.Fatalf("dry_run = %#v", gotEnvelope.Params["dry_run"])
+	}
+	if _, ok := gotEnvelope.Params["props"].(map[string]any); !ok {
+		t.Fatalf("props = %#v", gotEnvelope.Params["props"])
 	}
 	if result["path"] != "/root/Main/Marker" {
 		t.Fatalf("result path = %#v", result["path"])
@@ -626,6 +630,52 @@ func TestClientScreenshotViewportRequest(t *testing.T) {
 		t.Fatalf("params = %#v", gotEnvelope.Params)
 	}
 	if result.JobID != "shot-1" || !result.Queued || result.Kind != "3d" || result.Index != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestClientApplySceneRequest(t *testing.T) {
+	var gotAuth string
+	var gotEnvelope RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/scene/apply" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"root":    "/root/Main",
+				"created": 2,
+				"updated": 3,
+			},
+		})
+	}))
+	defer server.Close()
+
+	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http", Token: "secret"}
+	client := NewClient(cfg)
+	tree := map[string]any{"root": map[string]any{"children": []any{map[string]any{"name": "Platform", "type": "StaticBody3D"}}}}
+	result, err := client.ApplyScene(context.Background(), "cli-test", tree, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if gotEnvelope.Op != "scene.apply" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["dry_run"] != false {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if _, ok := gotEnvelope.Params["tree"].(map[string]any); !ok {
+		t.Fatalf("tree missing: %#v", gotEnvelope.Params)
+	}
+	if result.Root != "/root/Main" || result.Created != 2 || result.Updated != 3 {
 		t.Fatalf("result = %#v", result)
 	}
 }

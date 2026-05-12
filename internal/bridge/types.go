@@ -175,6 +175,13 @@ type SceneInstanceResult struct {
 	Instanced bool   `json:"instanced"`
 }
 
+type SceneApplyResult struct {
+	Root    string `json:"root"`
+	Created int    `json:"created"`
+	Updated int    `json:"updated"`
+	DryRun  bool   `json:"dry_run,omitempty"`
+}
+
 type NodePropertyResult struct {
 	Path     string `json:"path"`
 	Property string `json:"property"`

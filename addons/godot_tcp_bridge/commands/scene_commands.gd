@@ -154,6 +154,43 @@ func handle_save(request: Dictionary, context: Dictionary) -> Dictionary:
 	})
 
 
+func handle_apply(request: Dictionary, context: Dictionary) -> Dictionary:
+	var checked: Dictionary = context["request"].require_body(request, context, "scene.apply", "Scene apply requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
+	var dry_run: bool = bool(params.get("dry_run", false))
+	if not params.has("tree") or typeof(params.get("tree")) != TYPE_DICTIONARY:
+		return context["bridge_error"].call(400, request_id, "SCENE_APPLY_TREE_INVALID", "scene apply requires a tree object", {})
+	var root: Node = context["edited_scene_root"].call()
+	if root == null:
+		return context["bridge_error"].call(409, request_id, "NO_SCENE_OPEN", "No edited scene is open", {})
+
+	var tree: Dictionary = params["tree"]
+	var root_spec: Dictionary = tree
+	if tree.has("root"):
+		if typeof(tree.get("root")) != TYPE_DICTIONARY:
+			return context["bridge_error"].call(400, request_id, "SCENE_APPLY_ROOT_INVALID", "root must be an object", {})
+		root_spec = tree["root"]
+	var root_path := String(root_spec.get("path", ""))
+	if root_path != "" and root_path != context["logical_path"].call(root):
+		return context["bridge_error"].call(400, request_id, "SCENE_APPLY_ROOT_MISMATCH", "Tree root path does not match the edited scene root", {"path": root_path, "root": context["logical_path"].call(root)})
+
+	var counts := {"created": 0, "updated": 0}
+	var applied := _apply_existing_node(root, root_spec, context, dry_run, counts)
+	if not bool(applied.get("ok", false)):
+		return context["bridge_error"].call(400, request_id, String(applied.get("code", "SCENE_APPLY_FAILED")), String(applied.get("message", "Could not apply scene tree")), applied.get("detail", {}))
+	if not dry_run:
+		context["mark_scene_dirty"].call()
+	return context["bridge_ok"].call(request_id, {
+		"root": context["logical_path"].call(root),
+		"created": int(counts["created"]),
+		"updated": int(counts["updated"]),
+		"dry_run": dry_run,
+	})
+
+
 func handle_list(request: Dictionary, context: Dictionary) -> Dictionary:
 	var checked: Dictionary = context["request"].require_body(request, context, "scene.list", "Scene list requires bearer token")
 	if not bool(checked.get("ok", false)):
@@ -192,3 +229,79 @@ func _ensure_resource_dir(resource_path: String) -> Error:
 	if dir_path == "" or dir_path == "res://":
 		return OK
 	return DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir_path))
+
+
+func _apply_existing_node(node: Node, spec: Dictionary, context: Dictionary, dry_run: bool, counts: Dictionary) -> Dictionary:
+	var props_result := _apply_properties(node, spec.get("properties", {}), context, dry_run)
+	if not bool(props_result.get("ok", false)):
+		return props_result
+	if int(props_result.get("updated", 0)) > 0:
+		counts["updated"] = int(counts["updated"]) + int(props_result["updated"])
+	var children_value: Variant = spec.get("children", [])
+	if typeof(children_value) != TYPE_ARRAY:
+		return _apply_error("SCENE_APPLY_CHILDREN_INVALID", "children must be an array", {"node": context["logical_path"].call(node)})
+	var children: Array = children_value
+	for child_value in children:
+		if typeof(child_value) != TYPE_DICTIONARY:
+			return _apply_error("SCENE_APPLY_CHILD_INVALID", "Each child must be an object", {"node": context["logical_path"].call(node)})
+		var child_spec: Dictionary = child_value
+		var child_result := _apply_child(node, child_spec, context, dry_run, counts)
+		if not bool(child_result.get("ok", false)):
+			return child_result
+	return {"ok": true}
+
+
+func _apply_child(parent: Node, spec: Dictionary, context: Dictionary, dry_run: bool, counts: Dictionary) -> Dictionary:
+	var node_name := String(spec.get("name", ""))
+	var type_name := String(spec.get("type", ""))
+	if node_name == "" or not node_name.is_valid_identifier():
+		return _apply_error("NODE_NAME_INVALID", "Node name must be a valid identifier", {"name": node_name})
+	if type_name == "" or not ClassDB.can_instantiate(type_name):
+		return _apply_error("NODE_TYPE_INVALID", "Node type cannot be instantiated", {"type": type_name, "name": node_name})
+	if not ClassDB.is_parent_class(type_name, "Node") and type_name != "Node":
+		return _apply_error("NODE_TYPE_INVALID", "Node type must inherit Node", {"type": type_name, "name": node_name})
+
+	var node: Node = null
+	var created := false
+	if parent.has_node(NodePath(node_name)):
+		node = parent.get_node(NodePath(node_name))
+		if node.get_class() != type_name and not ClassDB.is_parent_class(node.get_class(), type_name):
+			return _apply_error("NODE_TYPE_MISMATCH", "Existing node type does not match tree spec", {"name": node_name, "existing": node.get_class(), "type": type_name})
+	else:
+		node = ClassDB.instantiate(type_name) as Node
+		if node == null:
+			return _apply_error("NODE_INSTANTIATE_FAILED", "Could not instantiate node", {"type": type_name, "name": node_name})
+		node.name = node_name
+		created = true
+		if not dry_run:
+			parent.add_child(node)
+			node.owner = context["edited_scene_root"].call()
+
+	var result := _apply_existing_node(node, spec, context, dry_run, counts)
+	if created and dry_run:
+		node.free()
+	if not bool(result.get("ok", false)):
+		return result
+	if created:
+		counts["created"] = int(counts["created"]) + 1
+	return {"ok": true}
+
+
+func _apply_properties(target: Object, properties_value: Variant, context: Dictionary, dry_run: bool) -> Dictionary:
+	if typeof(properties_value) != TYPE_DICTIONARY:
+		return _apply_error("SCENE_APPLY_PROPERTIES_INVALID", "properties must be an object", {})
+	var typed_values: RefCounted = context["typed_values"]
+	var properties: Dictionary = properties_value
+	var updated := 0
+	for property in properties.keys():
+		var decoded: Dictionary = typed_values.decode(properties[property])
+		if not bool(decoded.get("ok", false)):
+			return _apply_error("VALUE_INVALID", String(decoded.get("error", "Invalid typed value")), {"property": String(property)})
+		if not dry_run:
+			target.set(String(property), decoded.get("value"))
+		updated += 1
+	return {"ok": true, "updated": updated}
+
+
+func _apply_error(code: String, message: String, detail: Dictionary) -> Dictionary:
+	return {"ok": false, "code": code, "message": message, "detail": detail}

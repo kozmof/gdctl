@@ -279,7 +279,31 @@ func (c *Client) InstanceScene(ctx context.Context, requestID, parent, scenePath
 	return out, nil
 }
 
-func (c *Client) AddNode(ctx context.Context, requestID, parent, nodeType, name string, dryRun bool) (map[string]any, error) {
+func (c *Client) ApplyScene(ctx context.Context, requestID string, tree any, dryRun bool) (SceneApplyResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "scene.apply",
+		Params: map[string]any{
+			"tree":    tree,
+			"dry_run": dryRun,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/scene/apply", env)
+	if err != nil {
+		return SceneApplyResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return SceneApplyResult{}, err
+	}
+	var out SceneApplyResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return SceneApplyResult{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) AddNode(ctx context.Context, requestID, parent, nodeType, name string, props map[string]any, dryRun bool) (map[string]any, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,
 		Op:        "node.add",
@@ -287,6 +311,7 @@ func (c *Client) AddNode(ctx context.Context, requestID, parent, nodeType, name 
 			"parent":  parent,
 			"type":    nodeType,
 			"name":    name,
+			"props":   props,
 			"dry_run": dryRun,
 		},
 	}

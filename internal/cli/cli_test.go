@@ -25,7 +25,7 @@ func TestRunPing(t *testing.T) {
 			OK:            true,
 			Engine:        "Godot",
 			EngineVersion: "4.4.1",
-			PluginVersion: "0.1.5",
+			PluginVersion: "0.1.7",
 			ProjectName:   "my-game",
 		})
 	}))
@@ -36,7 +36,7 @@ func TestRunPing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Godot bridge: ok", "Engine: Godot 4.4.1", "Project: my-game", "Plugin: 0.1.5"} {
+	for _, want := range []string{"Godot bridge: ok", "Engine: Godot 4.4.1", "Project: my-game", "Plugin: 0.1.7"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
 		}
@@ -292,6 +292,132 @@ func TestRunSceneOpenRequiresPathBeforeNetwork(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--path") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunSceneApply(t *testing.T) {
+	requests := 0
+	var applyEnvelope bridge.RequestEnvelope
+	treePath := filepath.Join(t.TempDir(), "tree.json")
+	treeJSON := `{"root":{"path":"/root/Main","children":[{"name":"Platform","type":"StaticBody3D","properties":{"position":{"kind":"Vector3","value":[1,2,3]}}}]}}`
+	if err := os.WriteFile(treePath, []byte(treeJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		switch r.URL.Path {
+		case "/scene/open":
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK: true,
+				Result: map[string]any{
+					"queued": true,
+					"job_id": "open-1",
+					"path":   "res://scenes/Main.tscn",
+				},
+			})
+		case "/jobs/open-1":
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{
+				OK: true,
+				Job: bridge.Job{
+					ID:     "open-1",
+					Kind:   "scene.open",
+					Status: "succeeded",
+					Result: map[string]any{"path": "res://scenes/Main.tscn", "root": "/root/Main"},
+				},
+			})
+		case "/scene/apply":
+			if err := json.NewDecoder(r.Body).Decode(&applyEnvelope); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK: true,
+				Result: map[string]any{
+					"root":    "/root/Main",
+					"created": 1,
+					"updated": 1,
+				},
+			})
+		case "/scene/save":
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK: true,
+				Result: map[string]any{
+					"queued": true,
+					"job_id": "save-1",
+					"path":   "res://scenes/Main.tscn",
+				},
+			})
+		case "/jobs/save-1":
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{
+				OK: true,
+				Job: bridge.Job{
+					ID:     "save-1",
+					Kind:   "scene.save",
+					Status: "succeeded",
+					Result: map[string]any{"path": "res://scenes/Main.tscn"},
+				},
+			})
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), append(serverArgs(server), "scene", "apply", "--path", "res://scenes/Main.tscn", "--file", treePath), &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applyEnvelope.Op != "scene.apply" {
+		t.Fatalf("op = %q", applyEnvelope.Op)
+	}
+	if applyEnvelope.Params["dry_run"] != false {
+		t.Fatalf("params = %#v", applyEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Scene applied: res://scenes/Main.tscn") || !strings.Contains(stdout.String(), "Created: 1") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+	if requests != 5 {
+		t.Fatalf("requests = %d", requests)
+	}
+}
+
+func TestRunSceneApplyDryRunDoesNotSave(t *testing.T) {
+	requests := 0
+	treePath := filepath.Join(t.TempDir(), "tree.json")
+	if err := os.WriteFile(treePath, []byte(`{"children":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		switch r.URL.Path {
+		case "/scene/open":
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"queued": true, "job_id": "open-1", "path": "res://scenes/Main.tscn"},
+			})
+		case "/jobs/open-1":
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{OK: true, Job: bridge.Job{ID: "open-1", Kind: "scene.open", Status: "succeeded", Result: map[string]any{"path": "res://scenes/Main.tscn"}}})
+		case "/scene/apply":
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"root": "/root/Main", "created": 0, "updated": 0, "dry_run": true},
+			})
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), append(serverArgs(server), "scene", "apply", "--path", "res://scenes/Main.tscn", "--file", treePath, "--dry-run"), &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "Dry run ok") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+	if requests != 3 {
+		t.Fatalf("requests = %d", requests)
 	}
 }
 
@@ -1373,6 +1499,66 @@ func TestRunNodeSet(t *testing.T) {
 	}
 }
 
+func TestRunNodeSetVector3Shorthand(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/node/set" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "/root/Main/Player", "property": "position"},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "node", "set", "--path", "/root/Main/Player", "--property", "position", "--vector3", "1,2.5,3")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	value, ok := gotEnvelope.Params["value"].(map[string]any)
+	if !ok || value["kind"] != "Vector3" {
+		t.Fatalf("value = %#v", gotEnvelope.Params["value"])
+	}
+}
+
+func TestRunNodeAddWithProp(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/node/add" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "/root/Main/Marker", "properties": 1},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "node", "add", "--parent", "/root/Main", "--type", "Node2D", "--name", "Marker", "--prop", `position={"kind":"Vector2","value":[1,2]}`)
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	props, ok := gotEnvelope.Params["props"].(map[string]any)
+	if !ok {
+		t.Fatalf("props = %#v", gotEnvelope.Params["props"])
+	}
+	if _, ok := props["position"]; !ok {
+		t.Fatalf("props = %#v", props)
+	}
+	if !strings.Contains(stdout.String(), "Added node: /root/Main/Marker") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
 func TestProjectTokenIsUsedForMutationRequests(t *testing.T) {
 	project := newCLIProject(t)
 	if err := os.WriteFile(filepath.Join(project, bridge.ProjectTokenFile), []byte("project-token\n"), 0o600); err != nil {
@@ -1522,7 +1708,7 @@ func TestBridgeInfoProjectless(t *testing.T) {
 			Service:         "godot-bridge",
 			Engine:          "Godot",
 			EngineVersion:   "4.6",
-			PluginVersion:   "0.1.5",
+			PluginVersion:   "0.1.7",
 			ProjectName:     "demo",
 			ProjectPath:     "C:/demo/",
 			AuthEnabled:     true,
@@ -1550,7 +1736,7 @@ func TestAddonStatusWithoutProjectUsesRuntime(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(bridge.PingResponse{
 			OK:              true,
-			PluginVersion:   "0.1.5",
+			PluginVersion:   "0.1.7",
 			ProtocolVersion: "gdctl.v1",
 			ProjectPath:     "C:/demo/",
 			Capabilities:    []string{"addon.update"},
@@ -1575,7 +1761,7 @@ func TestAddonDoctorWithoutProjectUsesRuntime(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(bridge.PingResponse{
 			OK:            true,
-			PluginVersion: "0.1.5",
+			PluginVersion: "0.1.7",
 		})
 	}))
 	defer server.Close()
@@ -1665,7 +1851,7 @@ func TestAddonStatusJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(bridge.PingResponse{
 			OK:              true,
-			PluginVersion:   "0.1.5",
+			PluginVersion:   "0.1.7",
 			ProtocolVersion: "gdctl.v1",
 			Capabilities:    []string{"scene.tree"},
 		})
@@ -1990,13 +2176,40 @@ func TestRunProjectSettingSet(t *testing.T) {
 	}
 }
 
+func TestRunProjectSettingSetIntShorthand(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/project/setting-set" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"key": "display/window/size/viewport_width", "set": true},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "project", "setting", "set", "--key", "display/window/size/viewport_width", "--int", "1280")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	value, ok := gotEnvelope.Params["value"].(map[string]any)
+	if !ok || value["kind"] != "int" || value["value"] != float64(1280) {
+		t.Fatalf("value = %#v", gotEnvelope.Params["value"])
+	}
+}
+
 func TestProjectSettingSetRequiresFlagsBeforeNetwork(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := Run(context.Background(), []string{"project", "setting", "set", "--value", `{"kind":"int","value":1}`}, &stdout, &stderr)
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
-	if !strings.Contains(err.Error(), "--key and --value") {
+	if !strings.Contains(err.Error(), "--key") {
 		t.Fatalf("err = %v", err)
 	}
 }

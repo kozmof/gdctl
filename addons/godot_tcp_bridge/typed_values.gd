@@ -48,15 +48,7 @@ func decode(encoded: Variant) -> Dictionary:
 				string_array.append(String(item))
 			return {"ok": true, "value": string_array}
 		"resource":
-			var resource_path: String = String(raw)
-			if resource_path == "" or not resource_path.begins_with("res://"):
-				return {"ok": false, "error": "Resource value must be a res:// path"}
-			if not FileAccess.file_exists(resource_path):
-				return {"ok": false, "error": "Resource file does not exist: " + resource_path}
-			var res: Resource = ResourceLoader.load(resource_path, "", ResourceLoader.CACHE_MODE_REPLACE)
-			if res == null:
-				return {"ok": false, "error": "Could not load resource: " + resource_path}
-			return {"ok": true, "value": res}
+			return _decode_resource(raw)
 	return {"ok": false, "error": "Unsupported value kind: " + kind}
 
 
@@ -137,3 +129,37 @@ func _array_to_packed_vector2_array(raw: Variant) -> Variant:
 		var point_vector: Vector2 = point
 		points.append(point_vector)
 	return points
+
+
+func _decode_resource(raw: Variant) -> Dictionary:
+	if typeof(raw) == TYPE_STRING:
+		var resource_path: String = String(raw)
+		if resource_path == "" or not resource_path.begins_with("res://"):
+			return {"ok": false, "error": "Resource value must be a res:// path"}
+		if not FileAccess.file_exists(resource_path):
+			return {"ok": false, "error": "Resource file does not exist: " + resource_path}
+		var res: Resource = ResourceLoader.load(resource_path, "", ResourceLoader.CACHE_MODE_REPLACE)
+		if res == null:
+			return {"ok": false, "error": "Could not load resource: " + resource_path}
+		return {"ok": true, "value": res}
+	if typeof(raw) != TYPE_DICTIONARY:
+		return {"ok": false, "error": "Resource value must be a res:// path or inline resource object"}
+	var spec: Dictionary = raw
+	var type_name := String(spec.get("type", ""))
+	if type_name == "" or not ClassDB.can_instantiate(type_name):
+		return {"ok": false, "error": "Inline resource type cannot be instantiated: " + type_name}
+	if not ClassDB.is_parent_class(type_name, "Resource") and type_name != "Resource":
+		return {"ok": false, "error": "Inline resource type must inherit Resource: " + type_name}
+	var resource: Resource = ClassDB.instantiate(type_name) as Resource
+	if resource == null:
+		return {"ok": false, "error": "Could not instantiate inline resource: " + type_name}
+	var props_value: Variant = spec.get("properties", {})
+	if typeof(props_value) != TYPE_DICTIONARY:
+		return {"ok": false, "error": "Inline resource properties must be an object"}
+	var props: Dictionary = props_value
+	for property in props.keys():
+		var decoded := decode(props[property])
+		if not bool(decoded.get("ok", false)):
+			return {"ok": false, "error": "%s.%s: %s" % [type_name, String(property), String(decoded.get("error", "Invalid typed value"))]}
+		resource.set(String(property), decoded.get("value"))
+	return {"ok": true, "value": resource}

@@ -34,6 +34,7 @@ func handle_add(request: Dictionary, context: Dictionary) -> Dictionary:
 	var type_name: String = String(params.get("type", ""))
 	var node_name: String = String(params.get("name", ""))
 	var dry_run: bool = bool(params.get("dry_run", false))
+	var props_value: Variant = params.get("props", {})
 	var parent: Node = context["node_by_path"].call(parent_path)
 	if parent == null:
 		return context["bridge_error"].call(404, request_id, "NODE_PARENT_NOT_FOUND", "Parent node does not exist", {"parent": parent_path})
@@ -50,10 +51,14 @@ func handle_add(request: Dictionary, context: Dictionary) -> Dictionary:
 
 	var node: Node = ClassDB.instantiate(type_name) as Node
 	node.name = node_name
+	var props_result := _apply_props(node, props_value, context)
+	if not bool(props_result.get("ok", false)):
+		node.free()
+		return context["bridge_error"].call(400, request_id, String(props_result.get("code", "VALUE_INVALID")), String(props_result.get("message", "Invalid property value")), props_result.get("detail", {}))
 	parent.add_child(node)
 	node.owner = context["edited_scene_root"].call()
 	context["mark_scene_dirty"].call()
-	return context["bridge_ok"].call(request_id, {"path": context["logical_path"].call(node)})
+	return context["bridge_ok"].call(request_id, {"path": context["logical_path"].call(node), "properties": int(props_result.get("updated", 0))})
 
 
 func handle_remove(request: Dictionary, context: Dictionary) -> Dictionary:
@@ -402,6 +407,26 @@ func _renamed_path(path: String, new_name: String) -> String:
 	if index == -1:
 		return new_name
 	return path.substr(0, index + 1) + new_name
+
+
+func _apply_props(node: Node, props_value: Variant, context: Dictionary) -> Dictionary:
+	if typeof(props_value) != TYPE_DICTIONARY:
+		return {"ok": false, "code": "PROPS_INVALID", "message": "props must be an object", "detail": {}}
+	var props: Dictionary = props_value
+	var typed_values: RefCounted = context["typed_values"]
+	var updated := 0
+	for property in props.keys():
+		var decoded: Dictionary = typed_values.decode(props[property])
+		if not bool(decoded.get("ok", false)):
+			return {
+				"ok": false,
+				"code": "VALUE_INVALID",
+				"message": String(decoded.get("error", "Invalid typed value")),
+				"detail": {"property": String(property)},
+			}
+		node.set(String(property), decoded.get("value"))
+		updated += 1
+	return {"ok": true, "updated": updated}
 
 
 func _script_syntax_error(script_path: String, source: String, request_id: String, context: Dictionary) -> Dictionary:

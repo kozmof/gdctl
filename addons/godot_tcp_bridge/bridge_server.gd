@@ -1,7 +1,7 @@
 @tool
 extends RefCounted
 
-const PLUGIN_VERSION := "0.1.5"
+const PLUGIN_VERSION := "0.1.7"
 const PROTOCOL_VERSION := "gdctl.v1"
 const DEFAULT_HOST := "127.0.0.1"
 const DEFAULT_PORT := 7777
@@ -218,6 +218,8 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return scene_commands.handle_tree(request, _command_context())
 	if method == "POST" and path == "/scene/save":
 		return scene_commands.handle_save(request, _command_context())
+	if method == "POST" and path == "/scene/apply":
+		return scene_commands.handle_apply(request, _command_context())
 	if method == "POST" and path == "/node/add":
 		return node_commands.handle_add(request, _command_context())
 	if method == "POST" and path == "/node/remove":
@@ -496,6 +498,7 @@ func _capabilities() -> Array:
 		"scene.instance",
 		"scene.tree",
 		"scene.save",
+		"scene.apply",
 		"jobs.get",
 		"node.add",
 		"node.remove",
