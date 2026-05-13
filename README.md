@@ -1,6 +1,6 @@
 # gdctl Godot TCP Bridge
 
-`gdctl` is a prototype CLI for talking to a Godot 4 editor plugin over local HTTP from a Linux devcontainer.
+`gdctl` is a CLI for talking to a Godot 4 editor plugin over local HTTP from a Linux devcontainer.
 
 ## Build
 
@@ -45,54 +45,107 @@ gdctl addon update
 
 ```bash
 gdctl ping
-gdctl doctor [--project ./my-game] [--fix]
-gdctl addon install --project ./my-game
-gdctl addon enable --project ./my-game
-gdctl addon status [--project ./my-game] [--json]
-gdctl addon update [--project ./my-game]
-gdctl addon rollback --project ./my-game [--backup PATH]
-gdctl addon disable --project ./my-game
-gdctl addon remove --project ./my-game
-gdctl addon doctor [--project ./my-game] [--fix]
+gdctl doctor [--project PATH] [--fix]
+gdctl help [topic]
+
+gdctl addon install --project PATH [--force]
+gdctl addon enable --project PATH
+gdctl addon disable --project PATH
+gdctl addon status [--project PATH] [--json]
+gdctl addon update [--project PATH]
+gdctl addon rollback --project PATH [--backup PATH]
+gdctl addon remove --project PATH
+gdctl addon doctor [--project PATH] [--fix]
+
 gdctl bridge info
-gdctl bridge logs
-gdctl bridge logs --json
-gdctl bridge logs --clear
-gdctl run start --scene res://scenes/Main.tscn
-gdctl run start --main
+gdctl bridge logs [--json] [--clear]
+gdctl bridge addon-update
+
+gdctl run start [--scene SCENE | --main] [--clear-logs=false]
 gdctl run status
-gdctl run logs
-gdctl run logs --json
-gdctl run logs --clear
-gdctl run screenshot --out ./run.png
-gdctl run screenshot --source screen --out ./host-screen.png
-gdctl run input --file ./input.json
 gdctl run stop
-gdctl scene create --path res://scenes/Main.tscn --root Node2D --name Main
-gdctl scene open --path res://scenes/Main.tscn
-gdctl scene apply --path res://scenes/Main.tscn --file ./tree.json
-gdctl scene instance --parent /root/Main --scene res://scenes/PlayerCar.tscn --name PlayerCar
+gdctl run logs [--json] [--clear] [--source SOURCE] [--latest] [--since-start]
+gdctl run screenshot [--out FILE] [--source game|screen] [--screen N]
+gdctl run input --file input.json [--timeout DURATION] [--summary-probe SOURCE]
+gdctl run wait-probe --source SOURCE --assert KEY OP VALUE [--timeout DURATION] [--json]
+gdctl run probe raycast [--json] [--timeout DURATION]
+gdctl run smoke [--scene SCENE | --main] [--input FILE] [--assert SOURCE:KEY>=VALUE] [--screenshot OUT] [--timeout DURATION] [--keep-running]
+
+gdctl scene create --path PATH --root TYPE --name NAME [--force]
+gdctl scene open --path PATH
+gdctl scene instance --parent PATH --scene SCENE --name NAME
 gdctl scene tree
 gdctl scene save
-gdctl node add --parent /root/Main --type Node2D --name EnemySpawner
-gdctl node rename --path /root/Main/EnemySpawner --name SpawnPoint
-gdctl node move --path /root/Main/SpawnPoint --parent /root/Main/Track
-gdctl node set --path /root/Main/Track/SpawnPoint --property position --value '{"kind":"Vector2","value":[200,400]}'
-gdctl node get --path /root/Main/Track/SpawnPoint --property position
-gdctl node remove --path /root/Main/Track/SpawnPoint
-gdctl script create --path res://scripts/player_car.gd --extends CharacterBody2D
-gdctl script write --path res://scripts/player_car.gd --body-file ./player_car.gd
-gdctl script check --path res://scripts/player_car.gd
-gdctl node attach-script --path /root/PlayerCar --script res://scripts/player_car.gd
-gdctl node attach-script --scene res://scenes/PlayerCar.tscn --path /root/PlayerCar --script res://scripts/player_car.gd
-gdctl shader write --path res://shaders/edge_mix_3d.gdshader --body-file ./edge_mix_3d.gdshader
-gdctl shader check --path res://shaders/edge_mix_3d.gdshader
-gdctl material write --path res://materials/edge_mix.tres --shader res://shaders/edge_mix_3d.gdshader
-gdctl material write --path res://materials/edge_mix.tres --shader res://shaders/edge_mix_3d.gdshader --texture-param edge_lut=res://textures/edge_lut.png
-gdctl node set-resource --path /root/Main/Body --property material --resource res://materials/edge_mix.tres
-gdctl file write-bytes --path res://textures/raw.bin --in ./raw.bin
-gdctl lut write --path res://textures/edge_lut.png --profiles ./edge_profiles.json
-gdctl viewport screenshot --out ./status.png
+gdctl scene apply --path SCENE --file TREE.json [--dry-run]
+gdctl scene apply-blueprint --path SCENE --blueprint NAME [--dry-run] [--timeout DURATION]
+gdctl scene list [--dir res://] [--recursive]
+gdctl scene run --path SCENE [--timeout DURATION]
+
+gdctl node add --parent PATH --type TYPE --name NAME [--prop NAME=TYPED_JSON] [--dry-run] [--scene SCENE] [--timeout DURATION]
+gdctl node remove --path PATH [--dry-run] [--scene SCENE] [--timeout DURATION]
+gdctl node rename --path PATH --name NAME [--dry-run] [--scene SCENE] [--timeout DURATION]
+gdctl node move --path PATH --parent PARENT [--index N] [--dry-run] [--scene SCENE] [--timeout DURATION]
+gdctl node get --path PATH --property PROPERTY
+gdctl node set --path PATH (--property PROPERTY VALUE | --position X,Y,Z | --rotation-degrees X,Y,Z | --scale X,Y,Z) [--scene SCENE] [--timeout DURATION]
+gdctl node set-resource --path PATH --property PROPERTY --resource RESOURCE
+gdctl node attach-script --path PATH --script SCRIPT [--scene SCENE] [--timeout DURATION]
+gdctl node group add --path PATH --group GROUP
+gdctl node group remove --path PATH --group GROUP
+gdctl node group list --path PATH
+gdctl node duplicate --path PATH --name NAME [--parent PARENT] [--dry-run]
+gdctl node list-properties --path PATH
+
+gdctl script create --path PATH --extends CLASS [--force]
+gdctl script write --path PATH (--body TEXT | --body-file FILE) [--allow-missing-preloads]
+gdctl script check --path PATH
+
+gdctl shader write --path PATH (--body TEXT | --body-file FILE)
+gdctl shader check --path PATH
+
+gdctl resource create --path PATH --type TYPE [--prop NAME=TYPED_JSON] [--shader-param NAME=RESOURCE]
+gdctl resource list [--dir res://] [--recursive] [--ext EXT]
+
+gdctl import set --path PATH [--param NAME=VALUE]
+
+gdctl file write-bytes --path PATH --in FILE
+gdctl file lut-write --path PATH --profiles FILE
+gdctl file list --path PATH [--recursive]
+gdctl file mkdir --path PATH
+gdctl file delete --path PATH
+gdctl file exists --path PATH
+
+gdctl navigation bake --path PATH
+
+gdctl signal connect --from PATH --signal NAME --to PATH --method METHOD
+gdctl signal disconnect --from PATH --signal NAME --to PATH --method METHOD
+
+gdctl project setting get --key KEY
+gdctl project setting set --key KEY (--value TYPED_JSON | --string S | --int N | --float N | --bool BOOL | --vector2 X,Y | --vector3 X,Y,Z | --color R,G,B[,A] | --resource PATH | --array-vector3 A;B)
+gdctl project run [--scene SCENE] [--timeout DURATION]
+
+gdctl viewport screenshot --out FILE [--kind 2d|3d] [--index N]
+gdctl viewport set-size --width W --height H [--path NODE_PATH]
+gdctl viewport add --width W --height H [--parent PATH] [--add-camera]
+
+gdctl theme create --path PATH [--force]
+gdctl theme set-color --path PATH --node-type TYPE --name NAME --value COLOR
+gdctl theme set-font-size --path PATH --node-type TYPE --name NAME --value N
+gdctl theme set-constant --path PATH --node-type TYPE --name NAME --value N
+
+gdctl animation create --path LIBRARY --name NAME [--length N] [--loop]
+gdctl animation track-add --path LIBRARY --animation NAME --node-path NODE --property PROP
+gdctl animation keyframe-add --path LIBRARY --animation NAME --track-idx N --time T --value TYPED_JSON
+gdctl animation length-set --path LIBRARY --animation NAME --length N
+gdctl animation player-play --node-path PATH [--animation NAME]
+
+gdctl tilemap tileset-create --path PATH [--tile-width W] [--tile-height H] [--force]
+gdctl tilemap source-add --path TILESET --texture TEX [--tile-width W] [--tile-height H]
+gdctl tilemap cell-set --node PATH --layer N --x X --y Y --source-id ID [--atlas-x AX] [--atlas-y AY]
+gdctl tilemap cell-clear --node PATH --layer N --x X --y Y
+
+gdctl audio bus-add --name NAME
+gdctl audio bus-volume-set --name NAME --volume-db DB
+gdctl audio bus-effect-add --name NAME --effect-type TYPE
 ```
 
 Multi-word commands can also be written with a dotted alias for quick interactive use:
@@ -102,9 +155,9 @@ gdctl file.mkdir --path res://scenes
 gdctl project.setting.get --key application/run/main_scene
 ```
 
-## Current Run/Debug Workflow
+## Run/Debug Workflow
 
-`gdctl` can ask the already-open Godot editor to run a scene through the bridge. This is useful in devcontainers where no container-visible headless Godot binary is configured:
+`gdctl` asks the already-open Godot editor to run a scene through the bridge. This is useful in devcontainers where no container-visible headless Godot binary is configured:
 
 ```bash
 gdctl run start --scene res://signal_harbor/scenes/SignalHarborMain.tscn
@@ -115,7 +168,7 @@ gdctl run screenshot --out ./signal-harbor.png
 gdctl run stop
 ```
 
-`run start` clears run logs by default. Use `--clear-logs=false` to preserve prior entries. `run logs` returns bridge-captured run/error messages plus game-side helper logs. Use `run logs --clear` to read and then clear the run log buffer.
+`run start` clears run logs by default. Use `--clear-logs=false` to preserve prior entries. `run logs` returns bridge-captured run/error messages plus game-side helper logs. Use `run logs --clear` to read and then clear the run log buffer. Filter logs with `--source SOURCE`, `--latest` (most-recent entry per source), or `--since-start` (exclude entries before the current run start).
 
 Game scripts can write standardized CLI-readable probes through the helper autoload that `run start` installs. Use `probe`, `info`, `warn`, `error`, or the generic `log_event(level, source, message, detail)`:
 
@@ -144,15 +197,28 @@ The helper prefixes custom sources with `runtime.`, so the example appears in `g
 }
 ```
 
-`run screenshot` captures the running game viewport by default. It uses a small gdctl runtime helper autoload that `run start` registers before launching the scene. Use `--source screen` for the legacy whole-host-screen capture.
+`run screenshot` captures the running game viewport by default. Use `--source screen` for whole-host-screen capture, and `--screen N` to select the display index.
 
-Scene node paths are logical paths rooted at the edited scene root:
+`run wait-probe` polls run logs until a probe field satisfies a predicate or timeout fires:
 
-```text
-/root/Main
-/root/Main/Player
-/root/Main/Camera
+```bash
+gdctl run wait-probe --source runtime.game --assert targets_disabled>=1 --timeout 30s
 ```
+
+`run probe raycast` fires a center-screen ray in the running 3D game and reports the hit collider, position, and normal. Requires `GdctlRuntimeBridge` autoload and an active `Camera3D`.
+
+`run smoke` is a one-shot automated test: start, optionally inject input, wait for a probe assertion, capture a screenshot, then stop:
+
+```bash
+gdctl run smoke \
+  --scene res://scenes/Main.tscn \
+  --input ./smoke-input.json \
+  --assert runtime.game:targets_disabled>=1 \
+  --screenshot ./smoke.png \
+  --timeout 30s
+```
+
+Exits with code 0 on pass, 1 on failure. Prints `Smoke: PASS` or `Smoke: FAIL — <reason>`.
 
 ## JSON Scene Trees
 
@@ -216,55 +282,29 @@ Repeated 3D grids can be expressed with a narrow `grid` child spec. The bridge e
 }
 ```
 
-Mutation endpoints require the bearer token generated by the Godot addon at `res://.godot-bridge-token`, unless `godot_tcp_bridge/auth_enabled` is disabled in project settings.
-Bridge logs are token-protected too because they may include request paths and diagnostics.
-
-If a bad addon update prevents the bridge from starting, use the filesystem rollback path from a project checkout:
+`scene apply-blueprint` applies a named pre-built node tree to a scene:
 
 ```bash
-gdctl addon rollback --project ./my-game
-gdctl addon rollback --project ./my-game --backup ./my-game/addons/.godot_tcp_bridge_backup/20260510T214304Z
+gdctl scene apply-blueprint --path res://scenes/Main.tscn --blueprint player3d
 ```
 
-Property values use typed JSON at the CLI boundary for complex values:
+Available blueprints: `player3d`, `spotlight`, `trigger_area`, `hud_label`.
 
-```json
-{"kind":"String","value":"Player"}
-{"kind":"bool","value":true}
-{"kind":"int","value":3}
-{"kind":"float","value":1.5}
-{"kind":"Vector2","value":[200,400]}
-{"kind":"Vector3","value":[0,1,0]}
-{"kind":"Color","value":[1,0,0,1]}
-{"kind":"Array[Vector3]","value":[[0,1,2],[3,4,5]]}
-{"kind":"PackedVector2Array","value":[[0,0],[1200,0],[1200,800],[0,800]]}
-```
-
-For common scalar/vector/resource values, `node set` and `project setting set` also accept shorthand flags:
+`scene list` lists `.tscn` files in the project:
 
 ```bash
-gdctl node set --path /root/Main/Player --property position --vector3 0,1,0
-gdctl node set --path /root/Main/Label --property text --string "Ready"
-gdctl node set --path /root/Main/Drone --property route --array-vector3 "0,1,2;3,4,5"
-gdctl node set --path /root/Main/Switches --property active_flags --array-bool "true;false"
-gdctl project setting set --key display/window/size/viewport_width --int 1280
-gdctl project setting set --key application/run/main_scene --string res://scenes/Main.tscn
+gdctl scene list [--dir res://scenes] [--recursive]
 ```
 
-Array shorthand always uses `;` between elements. Vector arrays use commas only inside each vector element, for example `--array-vector3 "0,1,2;3,4,5"`.
-
-For GDScript typed arrays, prefer typed locals before passing array literals, or use plain `Array` storage with explicit element casts at use sites. `script check` and `script write` include a hint when Godot reports a typed-array mismatch.
-
-`node add` can set initial properties while creating the node:
+`scene run` runs a scene with headless Godot (requires `GDCTL_GODOT_PATH` or `--godot`):
 
 ```bash
-gdctl node add --parent /root/Main --type Node3D --name SpawnPoint \
-  --prop 'position={"kind":"Vector3","value":[0,1,0]}'
+gdctl scene run --path res://scenes/Main.tscn --timeout 30s
 ```
 
-## Current Scene Workflow
+## Scene Workflow
 
-`gdctl` can now create, open, mutate, inspect, and save `.tscn` scenes over the running bridge:
+`gdctl` can create, open, mutate, inspect, and save `.tscn` scenes over the running bridge:
 
 ```bash
 gdctl scene create \
@@ -280,12 +320,6 @@ gdctl node add \
   --parent /root/SmokeScene \
   --type Node2D \
   --name OpenSmokeChild
-
-gdctl scene create \
-  --path res://gdctl_tmp/Child.tscn \
-  --root Node2D \
-  --name Child \
-  --force
 
 gdctl scene instance \
   --parent /root/SmokeScene \
@@ -308,15 +342,88 @@ SmokeScene Node2D
 `scene instance` loads a saved `.tscn`, instantiates it under the active scene, and marks the active scene dirty.
 `scene open` and `scene save` run as deferred bridge jobs and the CLI polls `/jobs/<id>` until the editor-side operation finishes.
 
-Save-as is still intentionally unsupported:
+Save-as is intentionally unsupported:
 
 ```bash
-gdctl scene save --path res://other.tscn
+gdctl scene save --path res://other.tscn  # not supported
 ```
 
 Use `scene create --force` when you explicitly want to replace an existing scene file.
 
-## Current Script Workflow
+Scene node paths are logical paths rooted at the edited scene root:
+
+```text
+/root/Main
+/root/Main/Player
+/root/Main/Camera
+```
+
+## Node Operations
+
+`node add` can set initial properties while creating the node:
+
+```bash
+gdctl node add --parent /root/Main --type Node3D --name SpawnPoint \
+  --prop 'position={"kind":"Vector3","value":[0,1,0]}'
+```
+
+`node move` accepts `--index N` to place the node at a specific child position under the new parent (-1 = append).
+
+`node group` manages Godot groups on a node:
+
+```bash
+gdctl node group add --path /root/Main/Player --group enemies
+gdctl node group list --path /root/Main/Player
+gdctl node group remove --path /root/Main/Player --group enemies
+```
+
+`node duplicate` copies a node with a new name, optionally under a different parent:
+
+```bash
+gdctl node duplicate --path /root/Main/Player --name Player2 --parent /root/Main
+```
+
+`node list-properties` lists all exported properties on a node:
+
+```bash
+gdctl node list-properties --path /root/Main/Player
+```
+
+## Property Values
+
+Property values use typed JSON at the CLI boundary for complex values:
+
+```json
+{"kind":"String","value":"Player"}
+{"kind":"bool","value":true}
+{"kind":"int","value":3}
+{"kind":"float","value":1.5}
+{"kind":"Vector2","value":[200,400]}
+{"kind":"Vector3","value":[0,1,0]}
+{"kind":"Color","value":[1,0,0,1]}
+{"kind":"Array[Vector3]","value":[[0,1,2],[3,4,5]]}
+{"kind":"PackedVector2Array","value":[[0,0],[1200,0],[1200,800],[0,800]]}
+```
+
+For common scalar/vector/resource values, `node set` and `project setting set` also accept shorthand flags:
+
+```bash
+gdctl node set --path /root/Main/Player --property position --vector3 0,1,0
+gdctl node set --path /root/Main/Label --property text --string "Ready"
+gdctl node set --path /root/Main/Drone --property route --array-vector3 "0,1,2;3,4,5"
+gdctl node set --path /root/Main/Switches --property active_flags --array-bool "true;false"
+gdctl node set --path /root/Main/Player --position 0,1,0
+gdctl node set --path /root/Main/Player --rotation-degrees 0,45,0
+gdctl node set --path /root/Main/Player --scale 1,1,1
+gdctl project setting set --key display/window/size/viewport_width --int 1280
+gdctl project setting set --key application/run/main_scene --string res://scenes/Main.tscn
+```
+
+Array shorthand always uses `;` between elements. Vector arrays use commas only inside each vector element, for example `--array-vector3 "0,1,2;3,4,5"`.
+
+`--position`, `--rotation-degrees`, and `--scale` are transform shorthands that cannot be combined with `--property`.
+
+## Script Workflow
 
 `gdctl` can create, write, and syntax-check GDScript files over the running bridge:
 
@@ -342,18 +449,11 @@ gdctl node attach-script \
   --script res://gdctl_tmp/smoke_script.gd
 ```
 
-`script create` writes a minimal script like:
-
-```gdscript
-extends Node2D
-```
-
 `script write` syntax-checks the provided body with Godot before writing it. If Godot rejects the script, the command fails with `SCRIPT_SYNTAX_INVALID` and includes Godot's diagnostic, line number, and nearby source context when the running engine exposes those details.
-`node attach-script` syntax-checks the target script again before loading and attaching it to the node, and reports the same diagnostics on failure. By default it mutates the currently open editor scene; with `--scene`, it opens that scene, attaches the script, and saves it.
 
-## Current Shader Workflow
+Use `--allow-missing-preloads` during iterative authoring when preloaded scenes will be created shortly after. `node attach-script` syntax-checks the target script again before attaching it.
 
-`gdctl` can write and check whole `.gdshader` files over the running bridge:
+## Shader Workflow
 
 ```bash
 gdctl shader write \
@@ -363,15 +463,13 @@ gdctl shader write \
 gdctl shader check --path res://shaders/edge_mix_3d.gdshader
 ```
 
-Shader updates are whole-file rewrites. This keeps shader authoring deterministic and avoids partial resource mutation while the shader/material pipeline is still young.
-
-Shader materials can also be generated as whole resources:
+Shader updates are whole-file rewrites. Shader materials can also be generated as whole resources:
 
 ```bash
-gdctl material write \
+gdctl resource create \
   --path res://materials/edge_mix.tres \
-  --shader res://shaders/edge_mix_3d.gdshader \
-  --texture-param edge_lut=res://textures/edge_lut.png
+  --type ShaderMaterial \
+  --shader-param edge_lut=res://textures/edge_lut.png
 
 gdctl node set-resource \
   --path /root/Main3D/Player/Body \
@@ -379,12 +477,10 @@ gdctl node set-resource \
   --resource res://materials/edge_mix.tres
 ```
 
-`node set-resource` loads a `res://` resource and assigns it to a node property, which is enough to connect a generated `ShaderMaterial` to visible 3D geometry.
-
 Edge ID LUTs are generated from JSON profile data as 256x1 PNG files:
 
 ```bash
-gdctl lut write \
+gdctl file lut-write \
   --path res://textures/edge_lut.png \
   --profiles ./edge_profiles.json
 ```
@@ -398,23 +494,128 @@ B = width
 A = mode
 ```
 
-`file write-bytes` is the lower-level binary upload primitive used by `lut write`.
+`file write-bytes` is the lower-level binary upload primitive used by `file lut-write`.
 
-## Current Visual Check Workflow
+## Resource and File Operations
 
-`gdctl` can capture the Godot editor viewport and write the PNG in the CLI environment:
+`resource create` creates a Godot resource file:
+
+```bash
+gdctl resource create --path res://materials/floor.tres --type StandardMaterial3D \
+  --prop 'albedo_color={"kind":"Color","value":[0.8,0.8,0.8,1]}'
+gdctl resource list [--dir res://materials] [--recursive] [--ext .tres]
+```
+
+`file` commands manage the res:// filesystem:
+
+```bash
+gdctl file list --path res://scenes [--recursive]
+gdctl file mkdir --path res://levels/world1
+gdctl file delete --path res://temp/scratch.gd
+gdctl file exists --path res://scenes/Main.tscn
+gdctl file write-bytes --path res://textures/raw.bin --in ./raw.bin
+```
+
+`import set` configures import parameters for an asset:
+
+```bash
+gdctl import set --path res://textures/player.png --param compress/mode=0
+```
+
+## Signals and Project Settings
+
+Connect and disconnect signals between nodes:
+
+```bash
+gdctl signal connect --from /root/Main/Player --signal hit --to /root/Main/HUD --method on_player_hit
+gdctl signal disconnect --from /root/Main/Player --signal hit --to /root/Main/HUD --method on_player_hit
+```
+
+Read and write project settings:
+
+```bash
+gdctl project setting get --key display/window/size/viewport_width
+gdctl project setting set --key display/window/size/viewport_width --int 1920
+gdctl project setting set --key application/run/main_scene --string res://scenes/Main.tscn
+```
+
+## Navigation
+
+Bake a navigation mesh on a `NavigationRegion` node:
+
+```bash
+gdctl navigation bake --path /root/Main/NavigationRegion3D
+```
+
+## Visual Check Workflow
+
+Capture the Godot editor viewport:
 
 ```bash
 gdctl viewport screenshot --out ./status.png
-```
-
-By default this captures the 2D editor viewport. For a 3D viewport:
-
-```bash
 gdctl viewport screenshot --kind 3d --index 0 --out ./status-3d.png
 ```
 
-The bridge captures PNG bytes from the editor viewport and returns them as base64 in a deferred job result. The CLI decodes those bytes and writes the local `--out` file. This keeps screenshots projectless and avoids writing temporary files into `res://`.
+Resize the main window or a SubViewport node:
+
+```bash
+gdctl viewport set-size --width 1920 --height 1080
+gdctl viewport set-size --width 320 --height 240 --path /root/Main/SubViewport
+```
+
+Add a SubViewport node to the current scene:
+
+```bash
+gdctl viewport add --width 320 --height 240 --parent /root/Main --add-camera
+```
+
+## Theme
+
+Create and configure UI theme resources:
+
+```bash
+gdctl theme create --path res://themes/main.tres
+gdctl theme set-color --path res://themes/main.tres --node-type Label --name font_color --value 1,1,1,1
+gdctl theme set-font-size --path res://themes/main.tres --node-type Label --name font_size --value 24
+gdctl theme set-constant --path res://themes/main.tres --node-type Button --name margin_top --value 8
+```
+
+## Animation
+
+Create and populate `AnimationLibrary` resources:
+
+```bash
+gdctl animation create --path res://animations/player.tres --name walk --length 1.0 --loop
+gdctl animation track-add --path res://animations/player.tres --animation walk \
+  --node-path Player --property position
+gdctl animation keyframe-add --path res://animations/player.tres --animation walk \
+  --track-idx 0 --time 0.0 --value '{"kind":"Vector3","value":[0,0,0]}'
+gdctl animation keyframe-add --path res://animations/player.tres --animation walk \
+  --track-idx 0 --time 1.0 --value '{"kind":"Vector3","value":[1,0,0]}'
+gdctl animation length-set --path res://animations/player.tres --animation walk --length 2.0
+gdctl animation player-play --node-path /root/Main/AnimationPlayer --animation walk
+```
+
+## TileMap
+
+Create TileSets and paint cells:
+
+```bash
+gdctl tilemap tileset-create --path res://tilesets/world.tres --tile-width 16 --tile-height 16
+gdctl tilemap source-add --path res://tilesets/world.tres --texture res://textures/tiles.png
+gdctl tilemap cell-set --node /root/Main/TileMap --layer 0 --x 3 --y 5 --source-id 0 --atlas-x 1 --atlas-y 0
+gdctl tilemap cell-clear --node /root/Main/TileMap --layer 0 --x 3 --y 5
+```
+
+## Audio
+
+Manage audio buses:
+
+```bash
+gdctl audio bus-add --name Music
+gdctl audio bus-volume-set --name Music --volume-db -6.0
+gdctl audio bus-effect-add --name Music --effect-type AudioEffectReverb
+```
 
 ## Godot Addon
 
@@ -444,13 +645,20 @@ gdctl addon update
 
 Reload the plugin in Godot after a bridge addon update.
 
+If a bad addon update prevents the bridge from starting, use the filesystem rollback path from a project checkout:
+
+```bash
+gdctl addon rollback --project ./my-game
+gdctl addon rollback --project ./my-game --backup ./my-game/addons/.godot_tcp_bridge_backup/20260510T214304Z
+```
+
 Addon command handlers live under:
 
 ```text
 addons/godot_tcp_bridge/commands/
 ```
 
-`commands/request.gd` centralizes JSON body parsing, token authorization, operation-name checks, and params extraction for command handlers. Keep new endpoint bodies on that helper path so command scripts stay small and return consistent bridge errors.
+`commands/request.gd` centralizes JSON body parsing, token authorization, operation-name checks, and params extraction for command handlers.
 
 ## Current Bridge Capabilities
 
@@ -464,6 +672,8 @@ scene.instance
 scene.tree
 scene.save
 scene.apply
+scene.list
+scene.apply.blueprint
 jobs.get
 node.add
 node.remove
@@ -476,16 +686,17 @@ node.attach_script
 node.group_add
 node.group_remove
 node.group_list
+node.duplicate
+node.list_properties
 signal.connect
 signal.disconnect
 project.setting_get
 project.setting_set
-node.duplicate
-node.list_properties
 file.list
 file.mkdir
 file.delete
 file.exists
+file.write_bytes
 navigation.bake
 script.check
 script.create
@@ -493,13 +704,13 @@ script.write
 shader.check
 shader.write
 resource.create
-file.write_bytes
+resource.list
 viewport.screenshot
+viewport.set-size
+viewport.add
 addon.update
 bridge.logs
 import.set
-scene.list
-resource.list
 run.start
 run.status
 run.stop
@@ -507,6 +718,23 @@ run.logs
 run.logs.clear
 run.screenshot
 run.input
+run.probe.raycast
+theme.create
+theme.set-color
+theme.set-font-size
+theme.set-constant
+animation.create
+animation.track-add
+animation.keyframe-add
+animation.length-set
+animation.player-play
+tilemap.tileset-create
+tilemap.source-add
+tilemap.cell-set
+tilemap.cell-clear
+audio.bus-add
+audio.bus-volume-set
+audio.bus-effect-add
 ```
 
 Most commands are projectless once the addon is running: the CLI talks over TCP and does not need the Godot project mounted in the devcontainer. Filesystem addon install/enable/remove still need `--project` because they edit a local project directory directly.
