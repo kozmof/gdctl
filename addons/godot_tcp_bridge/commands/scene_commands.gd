@@ -521,8 +521,38 @@ func _get_blueprint(name: String) -> Dictionary:
 					}],
 				}],
 			}
+		"world_environment":
+			return {
+				"nodes": [{
+					"type": "WorldEnvironment",
+					"name": "WorldEnvironment",
+					"parent": "",
+					"properties": {},
+					"children": [],
+				}],
+			}
+		"directional_light":
+			return {
+				"nodes": [{
+					"type": "DirectionalLight3D",
+					"name": "DirectionalLight3D",
+					"parent": "",
+					"properties": {"light_energy": 2.0, "rotation_degrees": Vector3(-45, 30, 0)},
+					"children": [],
+				}],
+			}
+		"gpu_particles":
+			return {
+				"nodes": [{
+					"type": "GPUParticles3D",
+					"name": "GPUParticles3D",
+					"parent": "",
+					"properties": {"amount": 64, "lifetime": 2.0, "emitting": true},
+					"children": [],
+				}],
+			}
 	return {}
 
 
 func _available_blueprints() -> Array:
-	return ["player3d", "spotlight", "trigger_area", "hud_label"]
+	return ["player3d", "spotlight", "trigger_area", "hud_label", "world_environment", "directional_light", "gpu_particles"]

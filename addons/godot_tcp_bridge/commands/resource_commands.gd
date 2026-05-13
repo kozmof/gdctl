@@ -10,18 +10,39 @@ func handle_create(request: Dictionary, context: Dictionary) -> Dictionary:
 	var request_id: String = String(checked["request_id"])
 	var resource_path: String = String(params.get("path", ""))
 	var type_name: String = String(params.get("type", ""))
+	var script_path: String = String(params.get("script", ""))
 	if resource_path == "" or not resource_path.begins_with("res://") or not resource_path.ends_with(".tres"):
 		return context["bridge_error"].call(400, request_id, "RESOURCE_PATH_INVALID", "Resource path must be a res:// .tres path", {"path": resource_path})
-	if type_name == "":
-		return context["bridge_error"].call(400, request_id, "RESOURCE_TYPE_REQUIRED", "Resource type is required", {})
-	if not ClassDB.class_exists(type_name):
-		return context["bridge_error"].call(400, request_id, "RESOURCE_TYPE_UNKNOWN", "Unknown Godot class", {"type": type_name})
-	if not ClassDB.is_parent_class(type_name, "Resource"):
-		return context["bridge_error"].call(400, request_id, "RESOURCE_TYPE_INVALID", "Type must be a Resource subclass", {"type": type_name})
+	if type_name == "" and script_path == "":
+		return context["bridge_error"].call(400, request_id, "RESOURCE_TYPE_REQUIRED", "Resource type or script is required", {})
 
-	var resource: Resource = ClassDB.instantiate(type_name) as Resource
-	if resource == null:
-		return context["bridge_error"].call(500, request_id, "RESOURCE_INSTANTIATE_FAILED", "Could not instantiate resource", {"type": type_name})
+	var resource: Resource = null
+	if script_path != "":
+		if not script_path.begins_with("res://") or not script_path.ends_with(".gd"):
+			return context["bridge_error"].call(400, request_id, "RESOURCE_SCRIPT_PATH_INVALID", "Resource script must be a res:// .gd path", {"script": script_path})
+		if not ResourceLoader.exists(script_path):
+			return context["bridge_error"].call(404, request_id, "RESOURCE_SCRIPT_NOT_FOUND", "Resource script does not exist", {"script": script_path})
+		var script_resource: Resource = ResourceLoader.load(script_path, "", ResourceLoader.CACHE_MODE_REPLACE)
+		if script_resource == null or not (script_resource is Script):
+			return context["bridge_error"].call(400, request_id, "RESOURCE_SCRIPT_INVALID", "Resource script could not be loaded as a Script", {"script": script_path})
+		var script: Script = script_resource as Script
+		var instance: Variant = script.new()
+		resource = instance as Resource
+		if resource == null:
+			return context["bridge_error"].call(400, request_id, "RESOURCE_SCRIPT_INVALID", "Resource script must extend Resource", {"script": script_path})
+		if type_name == "":
+			type_name = resource.get_class()
+	else:
+		if not ClassDB.class_exists(type_name):
+			return context["bridge_error"].call(400, request_id, "RESOURCE_TYPE_UNKNOWN", "Unknown Godot class", {
+				"type": type_name,
+				"hint": "For custom Resource scripts, use resource create --script res://path/to/resource.gd"
+			})
+		if not ClassDB.is_parent_class(type_name, "Resource"):
+			return context["bridge_error"].call(400, request_id, "RESOURCE_TYPE_INVALID", "Type must be a Resource subclass", {"type": type_name})
+		resource = ClassDB.instantiate(type_name) as Resource
+		if resource == null:
+			return context["bridge_error"].call(500, request_id, "RESOURCE_INSTANTIATE_FAILED", "Could not instantiate resource", {"type": type_name})
 
 	var props_value: Variant = params.get("props", {})
 	if typeof(props_value) == TYPE_DICTIONARY:
@@ -62,6 +83,7 @@ func handle_create(request: Dictionary, context: Dictionary) -> Dictionary:
 	return context["bridge_ok"].call(request_id, {
 		"path": resource_path,
 		"type": type_name,
+		"script": script_path,
 		"created": true,
 	})
 

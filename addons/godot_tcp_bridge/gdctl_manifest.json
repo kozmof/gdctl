@@ -17,6 +17,7 @@
     "commands/viewport_commands.gd",
     "commands/signal_commands.gd",
     "commands/project_commands.gd",
+    "commands/input_commands.gd",
     "commands/navigation_commands.gd",
     "commands/import_commands.gd",
     "commands/theme_commands.gd",

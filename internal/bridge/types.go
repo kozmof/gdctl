@@ -264,7 +264,44 @@ type ShaderWriteResult struct {
 type ResourceCreateResult struct {
 	Path    string `json:"path"`
 	Type    string `json:"type"`
+	Script  string `json:"script,omitempty"`
 	Created bool   `json:"created"`
+}
+
+type AutoloadResult struct {
+	Name    string `json:"name"`
+	Path    string `json:"path,omitempty"`
+	Key     string `json:"key,omitempty"`
+	Added   bool   `json:"added,omitempty"`
+	Removed bool   `json:"removed,omitempty"`
+}
+
+type AutoloadListResult struct {
+	Autoloads []AutoloadResult `json:"autoloads"`
+}
+
+type InputEventInfo struct {
+	Type     string `json:"type"`
+	Keycode  int    `json:"keycode,omitempty"`
+	Key      string `json:"key,omitempty"`
+	Physical bool   `json:"physical,omitempty"`
+	Text     string `json:"text,omitempty"`
+}
+
+type InputActionResult struct {
+	Action     string           `json:"action"`
+	Deadzone   float64          `json:"deadzone,omitempty"`
+	Events     []InputEventInfo `json:"events,omitempty"`
+	Project    bool             `json:"project,omitempty"`
+	Added      bool             `json:"added,omitempty"`
+	Removed    bool             `json:"removed,omitempty"`
+	EventAdded bool             `json:"event_added,omitempty"`
+	Key        string           `json:"key,omitempty"`
+	Physical   bool             `json:"physical,omitempty"`
+}
+
+type InputActionListResult struct {
+	Actions []InputActionResult `json:"actions"`
 }
 
 type FileWriteBytesResult struct {
@@ -493,17 +530,17 @@ type ThemeCreateResult struct {
 }
 
 type ThemeSetResult struct {
-	Path      string `json:"path,omitempty"`
-	NodeType  string `json:"node_type,omitempty"`
-	DataType  string `json:"data_type,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Set       bool   `json:"set,omitempty"`
+	Path     string `json:"path,omitempty"`
+	NodeType string `json:"node_type,omitempty"`
+	DataType string `json:"data_type,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Set      bool   `json:"set,omitempty"`
 }
 
 type AnimationCreateResult struct {
-	Path      string `json:"path,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Created   bool   `json:"created,omitempty"`
+	Path    string `json:"path,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Created bool   `json:"created,omitempty"`
 }
 
 type AnimationTrackResult struct {

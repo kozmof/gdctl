@@ -34,6 +34,7 @@ const ThemeCommands = preload("res://addons/godot_tcp_bridge/commands/theme_comm
 const AnimationCommands = preload("res://addons/godot_tcp_bridge/commands/animation_commands.gd")
 const TilemapCommands = preload("res://addons/godot_tcp_bridge/commands/tilemap_commands.gd")
 const AudioCommands = preload("res://addons/godot_tcp_bridge/commands/audio_commands.gd")
+const InputCommands = preload("res://addons/godot_tcp_bridge/commands/input_commands.gd")
 
 class RuntimeLogCapture extends Logger:
 	var log_buffer
@@ -84,6 +85,7 @@ var theme_commands = ThemeCommands.new()
 var animation_commands = AnimationCommands.new()
 var tilemap_commands = TilemapCommands.new()
 var audio_commands = AudioCommands.new()
+var input_commands = InputCommands.new()
 var jobs = Jobs.new()
 var tcp_server := TCPServer.new()
 var clients: Array[Dictionary] = []
@@ -290,6 +292,20 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return project_commands.handle_setting_get(request, _command_context())
 	if method == "POST" and path == "/project/setting-set":
 		return project_commands.handle_setting_set(request, _command_context())
+	if method == "POST" and path == "/autoload/add":
+		return project_commands.handle_autoload_add(request, _command_context())
+	if method == "POST" and path == "/autoload/remove":
+		return project_commands.handle_autoload_remove(request, _command_context())
+	if method == "POST" and path == "/autoload/list":
+		return project_commands.handle_autoload_list(request, _command_context())
+	if method == "POST" and path == "/input/action-add":
+		return input_commands.handle_action_add(request, _command_context())
+	if method == "POST" and path == "/input/action-remove":
+		return input_commands.handle_action_remove(request, _command_context())
+	if method == "POST" and path == "/input/action-list":
+		return input_commands.handle_action_list(request, _command_context())
+	if method == "POST" and path == "/input/event-add-key":
+		return input_commands.handle_event_add_key(request, _command_context())
 	if method == "POST" and path == "/node/duplicate":
 		return node_commands.handle_duplicate(request, _command_context())
 	if method == "POST" and path == "/node/list-properties":
@@ -702,6 +718,13 @@ func _capabilities() -> Array:
 		"signal.disconnect",
 		"project.setting_get",
 		"project.setting_set",
+		"autoload.add",
+		"autoload.remove",
+		"autoload.list",
+		"input.action_add",
+		"input.action_remove",
+		"input.action_list",
+		"input.event_add_key",
 		"node.duplicate",
 		"node.list_properties",
 		"file.list",

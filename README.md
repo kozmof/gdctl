@@ -61,15 +61,24 @@ gdctl bridge info
 gdctl bridge logs [--json] [--clear]
 gdctl bridge addon-update
 
+gdctl autoload add --name NAME --path PATH
+gdctl autoload remove --name NAME
+gdctl autoload list [--json]
+
+gdctl input action add --name NAME [--deadzone N]
+gdctl input action remove --name NAME
+gdctl input action list [--json] [--all]
+gdctl input event add-key --action ACTION --key KEY [--physical=false]
+
 gdctl run start [--scene SCENE | --main] [--clear-logs=false]
 gdctl run status
 gdctl run stop
 gdctl run logs [--json] [--clear] [--source SOURCE] [--latest] [--since-start]
 gdctl run screenshot [--out FILE] [--source game|screen] [--screen N]
 gdctl run input --file input.json [--timeout DURATION] [--summary-probe SOURCE]
-gdctl run wait-probe --source SOURCE --assert KEY OP VALUE [--timeout DURATION] [--json]
+gdctl run wait-probe --source SOURCE (--assert KEY>=VALUE | --assert-key KEY --assert-op OP --assert-value VALUE) [--timeout DURATION] [--json]
 gdctl run probe raycast [--json] [--timeout DURATION]
-gdctl run smoke [--scene SCENE | --main] [--input FILE] [--assert SOURCE:KEY>=VALUE] [--screenshot OUT] [--timeout DURATION] [--keep-running]
+gdctl run smoke [--scene SCENE | --main] [--input FILE] [--assert SOURCE:KEY>=VALUE | --assert-source SOURCE --assert-key KEY --assert-op OP --assert-value VALUE] [--screenshot OUT] [--timeout DURATION] [--keep-running]
 
 gdctl scene create --path PATH --root TYPE --name NAME [--force]
 gdctl scene open --path PATH
@@ -77,6 +86,7 @@ gdctl scene instance --parent PATH --scene SCENE --name NAME
 gdctl scene tree
 gdctl scene save
 gdctl scene apply --path SCENE --file TREE.json [--dry-run]
+gdctl scene batch --path SCENE --file OPS.json [--timeout DURATION]
 gdctl scene apply-blueprint --path SCENE --blueprint NAME [--dry-run] [--timeout DURATION]
 gdctl scene list [--dir res://] [--recursive]
 gdctl scene run --path SCENE [--timeout DURATION]
@@ -102,7 +112,7 @@ gdctl script check --path PATH
 gdctl shader write --path PATH (--body TEXT | --body-file FILE)
 gdctl shader check --path PATH
 
-gdctl resource create --path PATH --type TYPE [--prop NAME=TYPED_JSON] [--shader-param NAME=RESOURCE]
+gdctl resource create --path PATH (--type TYPE | --script SCRIPT) [--prop NAME=TYPED_JSON] [--shader-param NAME=RESOURCE]
 gdctl resource list [--dir res://] [--recursive] [--ext EXT]
 
 gdctl import set --path PATH [--param NAME=VALUE]
@@ -288,7 +298,7 @@ Repeated 3D grids can be expressed with a narrow `grid` child spec. The bridge e
 gdctl scene apply-blueprint --path res://scenes/Main.tscn --blueprint player3d
 ```
 
-Available blueprints: `player3d`, `spotlight`, `trigger_area`, `hud_label`.
+Available blueprints: `player3d`, `spotlight`, `trigger_area`, `hud_label`, `world_environment`, `directional_light`, `gpu_particles`.
 
 `scene list` lists `.tscn` files in the project:
 

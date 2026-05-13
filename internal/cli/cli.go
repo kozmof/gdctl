@@ -60,6 +60,10 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return runAddon(ctx, cfg, client, addonManager, rest[1:], stdout)
 	case "bridge":
 		return runBridge(ctx, client, addonManager, rest[1:], stdout)
+	case "autoload":
+		return runAutoload(ctx, client, rest[1:], stdout)
+	case "input":
+		return runInputMap(ctx, client, rest[1:], stdout)
 	case "run":
 		return runRun(ctx, client, rest[1:], stdout, stderr)
 	case "scene":
@@ -77,6 +81,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return runSceneSave(ctx, client, rest[2:], stdout)
 			case "apply":
 				return runSceneApply(ctx, client, rest[2:], stdout)
+			case "batch":
+				return runSceneBatch(ctx, client, rest[2:], stdout)
 			case "apply-blueprint":
 				return runSceneApplyBlueprint(ctx, client, rest[2:], stdout)
 			case "list":
@@ -491,6 +497,9 @@ func runRunWaitProbe(ctx context.Context, client *bridge.Client, args []string, 
 	fs.SetOutput(io.Discard)
 	source := fs.String("source", "", "log source to watch (e.g. runtime.echo_unit)")
 	assertExpr := fs.String("assert", "", "predicate in KEY>=VALUE form")
+	assertKey := fs.String("assert-key", "", "predicate key")
+	assertOp := fs.String("assert-op", "", "predicate operator: >= <= == != > <")
+	assertValue := fs.String("assert-value", "", "predicate value")
 	timeout := fs.Duration("timeout", 30*time.Second, "maximum time to wait")
 	jsonOut := fs.Bool("json", false, "print matching entry as JSON")
 	if err := fs.Parse(args); err != nil {
@@ -499,10 +508,14 @@ func runRunWaitProbe(ctx context.Context, client *bridge.Client, args []string, 
 	if *source == "" {
 		return fmt.Errorf("run wait-probe requires --source")
 	}
-	if *assertExpr == "" {
-		return fmt.Errorf("run wait-probe requires --assert KEY>=VALUE")
+	predicate, err := resolveAssertPredicate(*assertExpr, *assertKey, *assertOp, *assertValue)
+	if err != nil {
+		return err
 	}
-	key, op, rawVal, err := parseAssertExpr(*assertExpr)
+	if predicate == "" {
+		return fmt.Errorf("run wait-probe requires --assert KEY>=VALUE or --assert-key/--assert-op/--assert-value")
+	}
+	key, op, rawVal, err := parseAssertExpr(predicate)
 	if err != nil {
 		return err
 	}
@@ -525,7 +538,7 @@ func runRunWaitProbe(ctx context.Context, client *bridge.Client, args []string, 
 					return enc.Encode(e)
 				}
 				encoded, _ := json.Marshal(e.Detail)
-				fmt.Fprintf(stdout, "Probe [%s] matched %s: %s\n", *source, *assertExpr, encoded)
+				fmt.Fprintf(stdout, "Probe [%s] matched %s: %s\n", *source, predicate, encoded)
 				return nil
 			}
 		}
@@ -547,6 +560,30 @@ func parseAssertExpr(expr string) (key, op, val string, err error) {
 		}
 	}
 	return "", "", "", fmt.Errorf("--assert must be in KEY>=VALUE form (operators: >= <= == != > <): %q", expr)
+}
+
+func resolveAssertPredicate(assertExpr, key, op, value string) (string, error) {
+	splitCount := 0
+	for _, item := range []string{key, op, value} {
+		if item != "" {
+			splitCount++
+		}
+	}
+	if assertExpr != "" && splitCount > 0 {
+		return "", fmt.Errorf("--assert cannot be combined with --assert-key/--assert-op/--assert-value")
+	}
+	if splitCount == 0 {
+		return assertExpr, nil
+	}
+	if splitCount != 3 {
+		return "", fmt.Errorf("--assert-key, --assert-op, and --assert-value must be provided together")
+	}
+	switch op {
+	case ">=", "<=", "==", "!=", ">", "<":
+		return key + op + value, nil
+	default:
+		return "", fmt.Errorf("--assert-op must be one of >= <= == != > <")
+	}
 }
 
 func evalPredicate(detail map[string]any, key, op, rawVal string) bool {
@@ -605,6 +642,10 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 	main := fs.Bool("main", false, "run the project main scene")
 	inputFile := fs.String("input", "", "input JSON file for automated steps")
 	assertExpr := fs.String("assert", "", "probe predicate in SOURCE:KEY>=VALUE form")
+	assertSource := fs.String("assert-source", "", "probe source for split assertion form")
+	assertKey := fs.String("assert-key", "", "probe detail key for split assertion form")
+	assertOp := fs.String("assert-op", "", "predicate operator for split assertion form: >= <= == != > <")
+	assertValue := fs.String("assert-value", "", "predicate value for split assertion form")
 	screenshotOut := fs.String("screenshot", "", "save game viewport screenshot to this path")
 	timeout := fs.Duration("timeout", 30*time.Second, "overall smoke timeout")
 	keepRunning := fs.Bool("keep-running", false, "do not stop the run after smoke completes")
@@ -663,9 +704,26 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 	}
 
 	// assert
-	if *assertExpr != "" {
+	resolvedAssert := *assertExpr
+	if *assertSource != "" || *assertKey != "" || *assertOp != "" || *assertValue != "" {
+		if *assertExpr != "" {
+			stop()
+			return fmt.Errorf("--assert cannot be combined with --assert-source/--assert-key/--assert-op/--assert-value")
+		}
+		predicate, err := resolveAssertPredicate("", *assertKey, *assertOp, *assertValue)
+		if err != nil {
+			stop()
+			return err
+		}
+		if *assertSource == "" {
+			stop()
+			return fmt.Errorf("--assert-source is required with split smoke assertions")
+		}
+		resolvedAssert = *assertSource + ":" + predicate
+	}
+	if resolvedAssert != "" {
 		// parse SOURCE:KEY>=VALUE
-		probeSource, predicate, found := strings.Cut(*assertExpr, ":")
+		probeSource, predicate, found := strings.Cut(resolvedAssert, ":")
 		if !found {
 			stop()
 			return fmt.Errorf("smoke --assert must be SOURCE:KEY>=VALUE")
@@ -695,12 +753,12 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 				if time.Now().After(deadline) {
 					stop()
 					encoded, _ := json.Marshal(lastDetail)
-					return fmt.Errorf("Smoke: FAIL — assert %s timed out; last probe: %s", *assertExpr, encoded)
+					return fmt.Errorf("Smoke: FAIL — assert %s timed out; last probe: %s", resolvedAssert, encoded)
 				}
 				time.Sleep(500 * time.Millisecond)
 			}
 		}
-		fmt.Fprintf(stdout, "Smoke assert: %s ok\n", *assertExpr)
+		fmt.Fprintf(stdout, "Smoke assert: %s ok\n", resolvedAssert)
 	}
 
 	// screenshot
@@ -1493,6 +1551,113 @@ func runSceneApply(ctx context.Context, client *bridge.Client, args []string, st
 	return nil
 }
 
+func runSceneBatch(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("scene batch", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "scene path to open, mutate, and save")
+	filePath := fs.String("file", "", "JSON file containing batch operations")
+	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for scene open/save jobs")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *filePath == "" {
+		return fmt.Errorf("scene batch requires --path and --file")
+	}
+	data, err := os.ReadFile(*filePath)
+	if err != nil {
+		return err
+	}
+	var payload struct {
+		Operations []map[string]any `json:"operations"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("scene batch --file must be JSON: %w", err)
+	}
+	if len(payload.Operations) == 0 {
+		return fmt.Errorf("scene batch requires at least one operation")
+	}
+
+	sceneMu.Lock()
+	defer sceneMu.Unlock()
+	openedPath, _, err := openSceneAndWait(ctx, client, *path, *timeout)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Scene opened: %s\n", openedPath)
+	for idx, op := range payload.Operations {
+		if err := runSceneBatchOperation(ctx, client, idx, op, stdout); err != nil {
+			return err
+		}
+	}
+	savedPath, err := saveSceneAndWait(ctx, client, *timeout)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Scene batch saved: %s (%d operations)\n", savedPath, len(payload.Operations))
+	return nil
+}
+
+func runSceneBatchOperation(ctx context.Context, client *bridge.Client, idx int, op map[string]any, stdout io.Writer) error {
+	kind, _ := op["op"].(string)
+	if kind == "" {
+		return fmt.Errorf("scene batch operation %d requires op", idx)
+	}
+	switch kind {
+	case "node.add":
+		parent, _ := op["parent"].(string)
+		nodeType, _ := op["type"].(string)
+		name, _ := op["name"].(string)
+		if parent == "" || nodeType == "" || name == "" {
+			return fmt.Errorf("scene batch operation %d node.add requires parent, type, and name", idx)
+		}
+		props := map[string]any{}
+		if rawProps, ok := op["props"].(map[string]any); ok {
+			props = rawProps
+		}
+		result, err := client.AddNode(ctx, requestID(), parent, nodeType, name, props, false)
+		if err != nil {
+			return err
+		}
+		path, _ := result["path"].(string)
+		fmt.Fprintf(stdout, "Batch node.add: %s\n", valueOrDash(path))
+	case "node.set":
+		path, _ := op["path"].(string)
+		property, _ := op["property"].(string)
+		value, ok := op["value"]
+		if path == "" || property == "" || !ok {
+			return fmt.Errorf("scene batch operation %d node.set requires path, property, and value", idx)
+		}
+		if _, err := client.SetNodeProperty(ctx, requestID(), path, property, value); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Batch node.set: %s.%s\n", path, property)
+	case "node.attach-script":
+		path, _ := op["path"].(string)
+		script, _ := op["script"].(string)
+		if path == "" || script == "" {
+			return fmt.Errorf("scene batch operation %d node.attach-script requires path and script", idx)
+		}
+		if _, err := client.AttachScript(ctx, requestID(), path, script); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Batch node.attach-script: %s -> %s\n", path, script)
+	case "node.set-resource":
+		path, _ := op["path"].(string)
+		property, _ := op["property"].(string)
+		resource, _ := op["resource"].(string)
+		if path == "" || property == "" || resource == "" {
+			return fmt.Errorf("scene batch operation %d node.set-resource requires path, property, and resource", idx)
+		}
+		if _, err := client.SetNodeResource(ctx, requestID(), path, property, resource); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Batch node.set-resource: %s.%s -> %s\n", path, property, resource)
+	default:
+		return fmt.Errorf("scene batch operation %d has unsupported op %q", idx, kind)
+	}
+	return nil
+}
+
 func openSceneAndWait(ctx context.Context, client *bridge.Client, path string, timeout time.Duration) (string, string, error) {
 	result, err := client.OpenScene(ctx, requestID(), path)
 	if err != nil {
@@ -2211,6 +2376,7 @@ func runResourceCreate(ctx context.Context, client *bridge.Client, args []string
 	fs.SetOutput(io.Discard)
 	path := fs.String("path", "", "resource file path (res:// .tres)")
 	resourceType := fs.String("type", "", "Godot resource class name (e.g. StandardMaterial3D)")
+	scriptPath := fs.String("script", "", "GDScript resource script to instantiate")
 	propFlags := stringListFlag{}
 	fs.Var(&propFlags, "prop", "property in name=TYPED_JSON form, e.g. --prop albedo_color='{\"kind\":\"Color\",\"value\":[1,0,0,1]}'")
 	shaderParamFlags := stringListFlag{}
@@ -2218,8 +2384,11 @@ func runResourceCreate(ctx context.Context, client *bridge.Client, args []string
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *path == "" || *resourceType == "" {
-		return fmt.Errorf("resource create requires --path and --type")
+	if *path == "" {
+		return fmt.Errorf("resource create requires --path")
+	}
+	if *resourceType == "" && *scriptPath == "" {
+		return fmt.Errorf("resource create requires --type or --script")
 	}
 	props, err := parseNameJSONPairs(propFlags)
 	if err != nil {
@@ -2229,11 +2398,230 @@ func runResourceCreate(ctx context.Context, client *bridge.Client, args []string
 	if err != nil {
 		return err
 	}
-	result, err := client.CreateResource(ctx, requestID(), *path, *resourceType, props, shaderParams)
+	result, err := client.CreateResource(ctx, requestID(), *path, *resourceType, *scriptPath, props, shaderParams)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "Resource created: %s (%s)\n", result.Path, result.Type)
+	if result.Script != "" {
+		fmt.Fprintf(stdout, "Resource created: %s (%s via %s)\n", result.Path, result.Type, result.Script)
+	} else {
+		fmt.Fprintf(stdout, "Resource created: %s (%s)\n", result.Path, result.Type)
+	}
+	return nil
+}
+
+func runAutoload(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("autoload requires a subcommand (add, remove, list)")
+	}
+	switch args[0] {
+	case "add":
+		return runAutoloadAdd(ctx, client, args[1:], stdout)
+	case "remove":
+		return runAutoloadRemove(ctx, client, args[1:], stdout)
+	case "list":
+		return runAutoloadList(ctx, client, args[1:], stdout)
+	default:
+		return fmt.Errorf("unknown autoload subcommand: %s", args[0])
+	}
+}
+
+func runAutoloadAdd(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("autoload add", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	name := fs.String("name", "", "autoload singleton name")
+	path := fs.String("path", "", "script or scene path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *name == "" || *path == "" {
+		return fmt.Errorf("autoload add requires --name and --path")
+	}
+	result, err := client.AutoloadAdd(ctx, requestID(), *name, *path)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Autoload added: %s -> %s\n", result.Name, result.Path)
+	return nil
+}
+
+func runAutoloadRemove(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("autoload remove", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	name := fs.String("name", "", "autoload singleton name")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *name == "" {
+		return fmt.Errorf("autoload remove requires --name")
+	}
+	result, err := client.AutoloadRemove(ctx, requestID(), *name)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Autoload removed: %s\n", result.Name)
+	return nil
+}
+
+func runAutoloadList(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("autoload list", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	jsonOut := fs.Bool("json", false, "print JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	result, err := client.AutoloadList(ctx, requestID())
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(result)
+	}
+	if len(result.Autoloads) == 0 {
+		fmt.Fprintln(stdout, "No autoloads")
+		return nil
+	}
+	for _, item := range result.Autoloads {
+		fmt.Fprintf(stdout, "%s -> %s\n", item.Name, item.Path)
+	}
+	return nil
+}
+
+func runInputMap(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("input requires a subcommand (action, event)")
+	}
+	switch args[0] {
+	case "action":
+		if len(args) < 2 {
+			return fmt.Errorf("input action requires a subcommand (add, remove, list)")
+		}
+		switch args[1] {
+		case "add":
+			return runInputActionAdd(ctx, client, args[2:], stdout)
+		case "remove":
+			return runInputActionRemove(ctx, client, args[2:], stdout)
+		case "list":
+			return runInputActionList(ctx, client, args[2:], stdout)
+		default:
+			return fmt.Errorf("unknown input action subcommand: %s", args[1])
+		}
+	case "event":
+		if len(args) < 2 {
+			return fmt.Errorf("input event requires a subcommand (add-key)")
+		}
+		switch args[1] {
+		case "add-key":
+			return runInputEventAddKey(ctx, client, args[2:], stdout)
+		default:
+			return fmt.Errorf("unknown input event subcommand: %s", args[1])
+		}
+	default:
+		return fmt.Errorf("unknown input subcommand: %s", args[0])
+	}
+}
+
+func runInputActionAdd(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("input action add", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	action := fs.String("name", "", "input action name")
+	deadzone := fs.Float64("deadzone", 0.5, "input action deadzone")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *action == "" {
+		return fmt.Errorf("input action add requires --name")
+	}
+	result, err := client.InputActionAdd(ctx, requestID(), *action, *deadzone)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Input action added: %s (deadzone %.2f)\n", result.Action, result.Deadzone)
+	return nil
+}
+
+func runInputActionRemove(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("input action remove", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	action := fs.String("name", "", "input action name")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *action == "" {
+		return fmt.Errorf("input action remove requires --name")
+	}
+	result, err := client.InputActionRemove(ctx, requestID(), *action)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Input action removed: %s\n", result.Action)
+	return nil
+}
+
+func runInputActionList(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("input action list", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	jsonOut := fs.Bool("json", false, "print JSON")
+	all := fs.Bool("all", false, "include built-in engine actions")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	result, err := client.InputActionList(ctx, requestID(), *all)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(result)
+	}
+	if len(result.Actions) == 0 {
+		fmt.Fprintln(stdout, "No input actions")
+		return nil
+	}
+	for _, action := range result.Actions {
+		fmt.Fprintf(stdout, "%s", action.Action)
+		if len(action.Events) > 0 {
+			var eventLabels []string
+			for _, event := range action.Events {
+				if event.Key != "" {
+					eventLabels = append(eventLabels, event.Key)
+				} else if event.Text != "" {
+					eventLabels = append(eventLabels, event.Text)
+				} else {
+					eventLabels = append(eventLabels, event.Type)
+				}
+			}
+			fmt.Fprintf(stdout, " [%s]", strings.Join(eventLabels, ", "))
+		}
+		fmt.Fprintln(stdout)
+	}
+	return nil
+}
+
+func runInputEventAddKey(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("input event add-key", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	action := fs.String("action", "", "input action name")
+	key := fs.String("key", "", "key name, e.g. W, Space, Up")
+	physical := fs.Bool("physical", true, "use physical keycode instead of layout keycode")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *action == "" || *key == "" {
+		return fmt.Errorf("input event add-key requires --action and --key")
+	}
+	result, err := client.InputEventAddKey(ctx, requestID(), *action, *key, *physical)
+	if err != nil {
+		return err
+	}
+	if result.EventAdded {
+		fmt.Fprintf(stdout, "Input key added: %s -> %s\n", result.Action, result.Key)
+	} else {
+		fmt.Fprintf(stdout, "Input key already present: %s -> %s\n", result.Action, result.Key)
+	}
 	return nil
 }
 
@@ -2841,7 +3229,7 @@ func runSceneApplyBlueprint(ctx context.Context, client *bridge.Client, args []s
 	fs := flag.NewFlagSet("scene apply-blueprint", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	path := fs.String("path", "", "scene path")
-	blueprint := fs.String("blueprint", "", "blueprint name: player3d, spotlight, trigger_area, hud_label")
+	blueprint := fs.String("blueprint", "", "blueprint name: player3d, spotlight, trigger_area, hud_label, world_environment, directional_light, gpu_particles")
 	dryRun := fs.Bool("dry-run", false, "validate without mutating")
 	propFlags := stringListFlag{}
 	fs.Var(&propFlags, "prop", "override property in name=TYPED_JSON form")
@@ -3694,6 +4082,71 @@ var helpGroups = []helpGroup{
 			desc: "update the addon over the bridge",
 		},
 	}},
+	{name: "autoload", cmds: []helpCmd{
+		{
+			sub:  "add",
+			line: "  gdctl [--host host] [--port port] [--token token] autoload add --name NAME --path PATH",
+			desc: "add an autoload singleton",
+			flags: []helpFlag{
+				{name: "name", meta: "NAME", usage: "autoload singleton name"},
+				{name: "path", meta: "PATH", usage: "script or scene path (res://)"},
+			},
+		},
+		{
+			sub:  "remove",
+			line: "  gdctl [--host host] [--port port] [--token token] autoload remove --name NAME",
+			desc: "remove an autoload singleton",
+			flags: []helpFlag{
+				{name: "name", meta: "NAME", usage: "autoload singleton name"},
+			},
+		},
+		{
+			sub:  "list",
+			line: "  gdctl [--host host] [--port port] [--token token] autoload list [--json]",
+			desc: "list autoload singletons",
+			flags: []helpFlag{
+				{name: "json", usage: "print JSON"},
+			},
+		},
+	}},
+	{name: "input", cmds: []helpCmd{
+		{
+			sub:  "action add",
+			line: "  gdctl [--host host] [--port port] [--token token] input action add --name NAME [--deadzone N]",
+			desc: "add or update an input action",
+			flags: []helpFlag{
+				{name: "name", meta: "NAME", usage: "input action name"},
+				{name: "deadzone", meta: "N", usage: "input action deadzone (default 0.5)"},
+			},
+		},
+		{
+			sub:  "action remove",
+			line: "  gdctl [--host host] [--port port] [--token token] input action remove --name NAME",
+			desc: "remove an input action",
+			flags: []helpFlag{
+				{name: "name", meta: "NAME", usage: "input action name"},
+			},
+		},
+		{
+			sub:  "action list",
+			line: "  gdctl [--host host] [--port port] [--token token] input action list [--json] [--all]",
+			desc: "list project input actions",
+			flags: []helpFlag{
+				{name: "json", usage: "print JSON"},
+				{name: "all", usage: "include built-in engine actions"},
+			},
+		},
+		{
+			sub:  "event add-key",
+			line: "  gdctl [--host host] [--port port] [--token token] input event add-key --action ACTION --key KEY [--physical=false]",
+			desc: "add a keyboard event to an input action",
+			flags: []helpFlag{
+				{name: "action", meta: "ACTION", usage: "input action name"},
+				{name: "key", meta: "KEY", usage: "key name, e.g. W, Space, Up"},
+				{name: "physical", meta: "BOOL", usage: "use physical keycode instead of layout keycode (default true)"},
+			},
+		},
+	}},
 	{name: "run", cmds: []helpCmd{
 		{
 			sub:  "start",
@@ -3758,11 +4211,14 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "wait-probe",
-			line: "  gdctl [--host host] [--port port] [--token token] run wait-probe --source SOURCE --assert KEY OP VALUE [--timeout DURATION] [--json]",
+			line: "  gdctl [--host host] [--port port] [--token token] run wait-probe --source SOURCE (--assert KEY>=VALUE | --assert-key KEY --assert-op OP --assert-value VALUE) [--timeout DURATION] [--json]",
 			desc: "poll run logs until a probe field satisfies a predicate or timeout fires",
 			flags: []helpFlag{
 				{name: "source", meta: "SOURCE", usage: "log source to watch (e.g. runtime.game)"},
 				{name: "assert", meta: "EXPR", usage: "predicate expression, e.g. targets_disabled>=1 (ops: >= <= > < == !=)"},
+				{name: "assert-key", meta: "KEY", usage: "predicate key for split assertion form"},
+				{name: "assert-op", meta: "OP", usage: "predicate operator for split assertion form"},
+				{name: "assert-value", meta: "VALUE", usage: "predicate value for split assertion form"},
 				{name: "timeout", meta: "DURATION", usage: "maximum time to wait (default 30s)"},
 				{name: "json", usage: "print matching entry as JSON"},
 			},
@@ -3781,19 +4237,24 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "smoke",
-			line: "  gdctl [--host host] [--port port] [--token token] run smoke [--scene SCENE | --main] [--input FILE] [--assert SOURCE:KEY>=VALUE] [--screenshot OUT] [--timeout DURATION] [--keep-running]",
+			line: "  gdctl [--host host] [--port port] [--token token] run smoke [--scene SCENE | --main] [--input FILE] [--assert SOURCE:KEY>=VALUE | --assert-source SOURCE --assert-key KEY --assert-op OP --assert-value VALUE] [--screenshot OUT] [--timeout DURATION] [--keep-running]",
 			desc: "one-shot automated test: start, optionally inject input, probe, screenshot, then stop",
 			flags: []helpFlag{
 				{name: "scene", meta: "SCENE", usage: "scene to run (res://)"},
 				{name: "main", usage: "run the project main scene"},
 				{name: "input", meta: "FILE", usage: "input JSON file to inject after start"},
 				{name: "assert", meta: "SOURCE:KEY>=VALUE", usage: "wait for a probe predicate before proceeding"},
+				{name: "assert-source", meta: "SOURCE", usage: "probe source for split assertion form"},
+				{name: "assert-key", meta: "KEY", usage: "probe detail key for split assertion form"},
+				{name: "assert-op", meta: "OP", usage: "predicate operator for split assertion form"},
+				{name: "assert-value", meta: "VALUE", usage: "predicate value for split assertion form"},
 				{name: "screenshot", meta: "FILE", usage: "capture game viewport to this PNG path"},
 				{name: "timeout", meta: "DURATION", usage: "total time limit for the smoke run (default 30s)"},
 				{name: "keep-running", usage: "do not stop the scene after the test"},
 			},
 			notes: []string{
 				"Exits with code 0 on pass, 1 on failure.",
+				"Quote --assert expressions containing > or < in shells, or use the split assertion flags.",
 				"Prints 'Smoke: PASS' or 'Smoke: FAIL — <reason>'.",
 			},
 		},
@@ -3844,7 +4305,7 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "apply",
-			line: "  gdctl [--host host] [--port port] [--token token] scene apply --path SCENE --file TREE.json [--dry-run]",
+			line: "  gdctl [--host host] [--port port] [--token token] scene apply --path SCENE --file TREE.json [--dry-run] [--timeout DURATION]",
 			desc: "apply a JSON node tree to a scene and save it",
 			flags: []helpFlag{
 				{name: "path", meta: "SCENE", usage: "scene to open and mutate (res://main.tscn)"},
@@ -3855,6 +4316,20 @@ var helpGroups = []helpGroup{
 			notes: []string{
 				"Tree nodes use name, type, properties, and children fields.",
 				"Properties use the same typed JSON values as node set, including inline Resource values.",
+			},
+		},
+		{
+			sub:  "batch",
+			line: "  gdctl [--host host] [--port port] [--token token] scene batch --path SCENE --file OPS.json [--timeout DURATION]",
+			desc: "open a scene once, run several mutations, and save once",
+			flags: []helpFlag{
+				{name: "path", meta: "SCENE", usage: "scene to open and mutate (res://main.tscn)"},
+				{name: "file", meta: "OPS.json", usage: "JSON operations file"},
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for open/save jobs (default 5s)"},
+			},
+			notes: []string{
+				"Supported ops: node.add, node.set, node.attach-script, node.set-resource.",
+				"Use this when several small edits should share one open/save cycle.",
 			},
 		},
 		{
@@ -3872,7 +4347,7 @@ var helpGroups = []helpGroup{
 			desc: "apply a named node-tree blueprint to the current scene",
 			flags: []helpFlag{
 				{name: "path", meta: "SCENE", usage: "scene to open and mutate (res://main.tscn)"},
-				{name: "blueprint", meta: "NAME", usage: "blueprint name: player3d, spotlight, trigger_area, hud_label"},
+				{name: "blueprint", meta: "NAME", usage: "blueprint name: player3d, spotlight, trigger_area, hud_label, world_environment, directional_light, gpu_particles"},
 				{name: "dry-run", usage: "validate without mutating or saving"},
 				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for open/save jobs (default 5s)"},
 			},
@@ -4114,13 +4589,17 @@ var helpGroups = []helpGroup{
 	{name: "resource", cmds: []helpCmd{
 		{
 			sub:  "create",
-			line: "  gdctl [--host host] [--port port] [--token token] resource create --path PATH --type TYPE [--prop NAME=TYPED_JSON] [--shader-param NAME=RESOURCE]",
+			line: "  gdctl [--host host] [--port port] [--token token] resource create --path PATH (--type TYPE | --script SCRIPT) [--prop NAME=TYPED_JSON] [--shader-param NAME=RESOURCE]",
 			desc: "create a Godot resource file",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "resource file path (res://, .tres)"},
 				{name: "type", meta: "TYPE", usage: "Godot resource class name (e.g. StandardMaterial3D)"},
+				{name: "script", meta: "SCRIPT", usage: "GDScript Resource subclass to instantiate"},
 				{name: "prop", meta: "NAME=TYPED_JSON", usage: "property value in name=TYPED_JSON form (repeatable)"},
 				{name: "shader-param", meta: "NAME=PATH", usage: "ShaderMaterial param in name=res://path form (repeatable)"},
+			},
+			notes: []string{
+				"Use --script for custom Resource scripts that are not yet registered with ClassDB.",
 			},
 		},
 		{

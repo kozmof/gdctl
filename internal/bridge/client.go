@@ -611,16 +611,20 @@ func (c *Client) WriteShader(ctx context.Context, requestID, path, body string) 
 	return out, nil
 }
 
-func (c *Client) CreateResource(ctx context.Context, requestID, path, resourceType string, props map[string]any, shaderParams map[string]string) (ResourceCreateResult, error) {
+func (c *Client) CreateResource(ctx context.Context, requestID, path, resourceType, scriptPath string, props map[string]any, shaderParams map[string]string) (ResourceCreateResult, error) {
+	params := map[string]any{
+		"path":          path,
+		"type":          resourceType,
+		"props":         props,
+		"shader_params": shaderParams,
+	}
+	if scriptPath != "" {
+		params["script"] = scriptPath
+	}
 	env := RequestEnvelope{
 		RequestID: requestID,
 		Op:        "resource.create",
-		Params: map[string]any{
-			"path":          path,
-			"type":          resourceType,
-			"props":         props,
-			"shader_params": shaderParams,
-		},
+		Params:    params,
 	}
 	result, err := c.postEnvelope(ctx, "/resource/create", env)
 	if err != nil {
@@ -631,6 +635,132 @@ func (c *Client) CreateResource(ctx context.Context, requestID, path, resourceTy
 		return ResourceCreateResult{}, err
 	}
 	var out ResourceCreateResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) AutoloadAdd(ctx context.Context, requestID, name, path string) (AutoloadResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "autoload.add",
+		Params:    map[string]any{"name": name, "path": path},
+	}
+	result, err := c.postEnvelope(ctx, "/autoload/add", env)
+	if err != nil {
+		return AutoloadResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return AutoloadResult{}, err
+	}
+	var out AutoloadResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) AutoloadRemove(ctx context.Context, requestID, name string) (AutoloadResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "autoload.remove",
+		Params:    map[string]any{"name": name},
+	}
+	result, err := c.postEnvelope(ctx, "/autoload/remove", env)
+	if err != nil {
+		return AutoloadResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return AutoloadResult{}, err
+	}
+	var out AutoloadResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) AutoloadList(ctx context.Context, requestID string) (AutoloadListResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "autoload.list",
+		Params:    map[string]any{},
+	}
+	result, err := c.postEnvelope(ctx, "/autoload/list", env)
+	if err != nil {
+		return AutoloadListResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return AutoloadListResult{}, err
+	}
+	var out AutoloadListResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) InputActionAdd(ctx context.Context, requestID, action string, deadzone float64) (InputActionResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "input.action_add",
+		Params:    map[string]any{"action": action, "deadzone": deadzone},
+	}
+	result, err := c.postEnvelope(ctx, "/input/action-add", env)
+	if err != nil {
+		return InputActionResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return InputActionResult{}, err
+	}
+	var out InputActionResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) InputActionRemove(ctx context.Context, requestID, action string) (InputActionResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "input.action_remove",
+		Params:    map[string]any{"action": action},
+	}
+	result, err := c.postEnvelope(ctx, "/input/action-remove", env)
+	if err != nil {
+		return InputActionResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return InputActionResult{}, err
+	}
+	var out InputActionResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) InputActionList(ctx context.Context, requestID string, includeBuiltin bool) (InputActionListResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "input.action_list",
+		Params:    map[string]any{"include_builtin": includeBuiltin},
+	}
+	result, err := c.postEnvelope(ctx, "/input/action-list", env)
+	if err != nil {
+		return InputActionListResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return InputActionListResult{}, err
+	}
+	var out InputActionListResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) InputEventAddKey(ctx context.Context, requestID, action, key string, physical bool) (InputActionResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "input.event_add_key",
+		Params:    map[string]any{"action": action, "key": key, "physical": physical},
+	}
+	result, err := c.postEnvelope(ctx, "/input/event-add-key", env)
+	if err != nil {
+		return InputActionResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return InputActionResult{}, err
+	}
+	var out InputActionResult
 	return out, json.Unmarshal(encoded, &out)
 }
 

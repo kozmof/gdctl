@@ -422,6 +422,65 @@ func TestRunSceneApplyDryRunDoesNotSave(t *testing.T) {
 	}
 }
 
+func TestRunSceneBatchOpensAndSavesOnce(t *testing.T) {
+	requests := map[string]int{}
+	batchPath := filepath.Join(t.TempDir(), "ops.json")
+	batchJSON := `{"operations":[{"op":"node.add","parent":"/root/Main","type":"Node3D","name":"Anchor"},{"op":"node.set","path":"/root/Main/Anchor","property":"position","value":{"kind":"Vector3","value":[1,2,3]}}]}`
+	if err := os.WriteFile(batchPath, []byte(batchJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests[r.URL.Path]++
+		switch r.URL.Path {
+		case "/scene/open":
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"queued": true, "job_id": "open-batch"},
+			})
+		case "/jobs/open-batch":
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{
+				OK:  true,
+				Job: bridge.Job{ID: "open-batch", Kind: "scene.open", Status: "succeeded", Result: map[string]any{"path": "res://main.tscn"}},
+			})
+		case "/node/add":
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"path": "/root/Main/Anchor"},
+			})
+		case "/node/set":
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"path": "/root/Main/Anchor", "property": "position"},
+			})
+		case "/scene/save":
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"queued": true, "job_id": "save-batch"},
+			})
+		case "/jobs/save-batch":
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{
+				OK:  true,
+				Job: bridge.Job{ID: "save-batch", Kind: "scene.save", Status: "succeeded", Result: map[string]any{"path": "res://main.tscn"}},
+			})
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "scene", "batch", "--path", "res://main.tscn", "--file", batchPath)
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if requests["/scene/open"] != 1 || requests["/scene/save"] != 1 {
+		t.Fatalf("requests = %#v", requests)
+	}
+	if !strings.Contains(stdout.String(), "Scene batch saved: res://main.tscn (2 operations)") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
 func TestRunSceneInstance(t *testing.T) {
 	var gotAuth string
 	var gotEnvelope bridge.RequestEnvelope
@@ -2860,13 +2919,47 @@ func TestRunResourceCreateWithProp(t *testing.T) {
 	}
 }
 
+func TestRunResourceCreateWithScript(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"path":    "res://data/room_a.tres",
+				"type":    "Resource",
+				"script":  "res://scripts/room_data.gd",
+				"created": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "resource", "create",
+		"--path", "res://data/room_a.tres",
+		"--script", "res://scripts/room_data.gd",
+	)
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Params["script"] != "res://scripts/room_data.gd" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "via res://scripts/room_data.gd") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
 func TestResourceCreateRequiresFlagsBeforeNetwork(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := Run(context.Background(), []string{"resource", "create", "--path", "res://materials/ground.tres"}, &stdout, &stderr)
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
-	if !strings.Contains(err.Error(), "--path and --type") {
+	if !strings.Contains(err.Error(), "--type or --script") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -2877,8 +2970,145 @@ func TestResourceCreateRequiresPathAndType(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
-	if !strings.Contains(err.Error(), "--path and --type") {
+	if !strings.Contains(err.Error(), "--path") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunAutoloadAdd(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/autoload/add" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"name":  "GameState",
+				"path":  "res://scripts/game_state.gd",
+				"added": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "autoload", "add",
+		"--name", "GameState",
+		"--path", "res://scripts/game_state.gd",
+	)
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "autoload.add" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["name"] != "GameState" || gotEnvelope.Params["path"] != "res://scripts/game_state.gd" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Autoload added: GameState -> res://scripts/game_state.gd") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRunAutoloadList(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/autoload/list" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"autoloads": []map[string]any{
+					{"name": "GameState", "path": "res://scripts/game_state.gd"},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "autoload", "list")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "GameState -> res://scripts/game_state.gd") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRunInputActionAdd(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/input/action-add" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"action":   "grav_down",
+				"deadzone": 0.5,
+				"added":    true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "input", "action", "add", "--name", "grav_down")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "input.action_add" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["action"] != "grav_down" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Input action added: grav_down") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRunInputEventAddKey(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/input/event-add-key" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"action":      "grav_down",
+				"key":         "W",
+				"event_added": true,
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "input", "event", "add-key", "--action", "grav_down", "--key", "W")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "input.event_add_key" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["action"] != "grav_down" || gotEnvelope.Params["key"] != "W" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Input key added: grav_down -> W") {
+		t.Fatalf("stdout:\n%s", stdout.String())
 	}
 }
 
