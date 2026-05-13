@@ -469,6 +469,7 @@ Shader updates are whole-file rewrites. Shader materials can also be generated a
 gdctl resource create \
   --path res://materials/edge_mix.tres \
   --type ShaderMaterial \
+  --prop 'shader={"kind":"Resource","value":"res://shaders/edge_mix_3d.gdshader"}' \
   --shader-param edge_lut=res://textures/edge_lut.png
 
 gdctl node set-resource \
