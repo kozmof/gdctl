@@ -258,6 +258,8 @@ func runRun(ctx context.Context, client *bridge.Client, args []string, stdout io
 		return runRunLogs(ctx, client, args[1:], stdout)
 	case "screenshot":
 		return runRunScreenshot(ctx, client, args[1:], stdout)
+	case "input":
+		return runRunInput(ctx, client, args[1:], stdout)
 	default:
 		return fmt.Errorf("unknown run command: %s", strings.Join(args, " "))
 	}
@@ -295,6 +297,20 @@ func runRunStatus(ctx context.Context, client *bridge.Client, stdout io.Writer) 
 		return err
 	}
 	if result.Running {
+		if result.Debugger.Paused {
+			location := result.Debugger.File
+			if result.Debugger.Line > 0 {
+				location = fmt.Sprintf("%s:%d", location, result.Debugger.Line)
+			}
+			if location != "" && result.Debugger.Message != "" {
+				fmt.Fprintf(stdout, "Run status: paused (%s) %s %s\n", result.PlayingScene, location, result.Debugger.Message)
+			} else if result.Debugger.Message != "" {
+				fmt.Fprintf(stdout, "Run status: paused (%s) %s\n", result.PlayingScene, result.Debugger.Message)
+			} else {
+				fmt.Fprintf(stdout, "Run status: paused (%s)\n", result.PlayingScene)
+			}
+			return nil
+		}
 		if result.PlayingScene != "" {
 			fmt.Fprintf(stdout, "Run status: running (%s)\n", result.PlayingScene)
 		} else {
@@ -303,6 +319,51 @@ func runRunStatus(ctx context.Context, client *bridge.Client, stdout io.Writer) 
 		return nil
 	}
 	fmt.Fprintln(stdout, "Run status: stopped")
+	return nil
+}
+
+func runRunInput(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("run input", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	filePath := fs.String("file", "", "input JSON file path")
+	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for input job")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *filePath == "" {
+		return fmt.Errorf("run input requires --file")
+	}
+	content, err := os.ReadFile(*filePath)
+	if err != nil {
+		return fmt.Errorf("read input file: %w", err)
+	}
+	var payload struct {
+		Steps []any `json:"steps"`
+	}
+	if err := json.Unmarshal(content, &payload); err != nil {
+		return fmt.Errorf("run input --file must be JSON: %w", err)
+	}
+	if len(payload.Steps) == 0 {
+		return fmt.Errorf("run input file requires at least one step")
+	}
+	result, err := client.RunInput(ctx, requestID(), payload.Steps)
+	if err != nil {
+		return err
+	}
+	if result.JobID == "" {
+		return fmt.Errorf("run input did not return a job id")
+	}
+	job, err := waitForJob(ctx, client, result.JobID, *timeout, "run input")
+	if err != nil {
+		return err
+	}
+	steps := intFromJobResult(job.Result["steps"])
+	duration := intFromJobResult(job.Result["duration_ms"])
+	if duration > 0 {
+		fmt.Fprintf(stdout, "Run input completed: %d steps (%dms)\n", steps, duration)
+	} else {
+		fmt.Fprintf(stdout, "Run input completed: %d steps\n", steps)
+	}
 	return nil
 }
 
@@ -1560,16 +1621,22 @@ func (s *stringListFlag) Set(value string) error {
 }
 
 type typedValueFlags struct {
-	label       string
-	valueText   *string
-	stringValue *string
-	intValue    *string
-	floatValue  *string
-	boolValue   *string
-	vector2     *string
-	vector3     *string
-	color       *string
-	resource    *string
+	label        string
+	valueText    *string
+	stringValue  *string
+	intValue     *string
+	floatValue   *string
+	boolValue    *string
+	vector2      *string
+	vector3      *string
+	color        *string
+	resource     *string
+	arrayVector2 *string
+	arrayVector3 *string
+	arrayString  *string
+	arrayInt     *string
+	arrayFloat   *string
+	arrayBool    *string
 }
 
 func newTypedValueFlags(fs *flag.FlagSet, label string) *typedValueFlags {
@@ -1583,6 +1650,12 @@ func newTypedValueFlags(fs *flag.FlagSet, label string) *typedValueFlags {
 	flags.vector3 = fs.String("vector3", "", "Vector3 shorthand as x,y,z")
 	flags.color = fs.String("color", "", "Color shorthand as r,g,b[,a]")
 	flags.resource = fs.String("resource", "", "Resource shorthand as res://path")
+	flags.arrayVector2 = fs.String("array-vector2", "", "Array[Vector2] shorthand as x,y;x,y")
+	flags.arrayVector3 = fs.String("array-vector3", "", "Array[Vector3] shorthand as x,y,z;x,y,z")
+	flags.arrayString = fs.String("array-string", "", "Array[String] shorthand as a;b;c")
+	flags.arrayInt = fs.String("array-int", "", "Array[int] shorthand as 1;2;3")
+	flags.arrayFloat = fs.String("array-float", "", "Array[float] shorthand as 1.2;3.4")
+	flags.arrayBool = fs.String("array-bool", "", "Array[bool] shorthand as true;false")
 	return flags
 }
 
@@ -1600,6 +1673,12 @@ func (f *typedValueFlags) Value() (any, error) {
 		{"vector3", *f.vector3},
 		{"color", *f.color},
 		{"resource", *f.resource},
+		{"array-vector2", *f.arrayVector2},
+		{"array-vector3", *f.arrayVector3},
+		{"array-string", *f.arrayString},
+		{"array-int", *f.arrayInt},
+		{"array-float", *f.arrayFloat},
+		{"array-bool", *f.arrayBool},
 	}
 	count := 0
 	for _, item := range values {
@@ -1608,7 +1687,7 @@ func (f *typedValueFlags) Value() (any, error) {
 		}
 	}
 	if count == 0 {
-		return nil, fmt.Errorf("%s requires a value flag: --value, --string, --int, --float, --bool, --vector2, --vector3, --color, or --resource", f.label)
+		return nil, fmt.Errorf("%s requires a value flag: --value, --string, --int, --float, --bool, --vector2, --vector3, --color, --resource, or --array-*", f.label)
 	}
 	if count > 1 {
 		return nil, fmt.Errorf("%s requires exactly one value flag", f.label)
@@ -1669,7 +1748,116 @@ func (f *typedValueFlags) Value() (any, error) {
 		}
 		return map[string]any{"kind": "Color", "value": values}, nil
 	}
+	if *f.arrayVector2 != "" {
+		values, err := parseVectorArray(*f.arrayVector2, 2, "array-vector2")
+		if err != nil {
+			return nil, fmt.Errorf("%s --array-vector2 %w", f.label, err)
+		}
+		return map[string]any{"kind": "Array[Vector2]", "value": values}, nil
+	}
+	if *f.arrayVector3 != "" {
+		values, err := parseVectorArray(*f.arrayVector3, 3, "array-vector3")
+		if err != nil {
+			return nil, fmt.Errorf("%s --array-vector3 %w", f.label, err)
+		}
+		return map[string]any{"kind": "Array[Vector3]", "value": values}, nil
+	}
+	if *f.arrayString != "" {
+		return map[string]any{"kind": "Array[String]", "value": parseStringArray(*f.arrayString)}, nil
+	}
+	if *f.arrayInt != "" {
+		values, err := parseIntArray(*f.arrayInt)
+		if err != nil {
+			return nil, fmt.Errorf("%s --array-int %w", f.label, err)
+		}
+		return map[string]any{"kind": "Array[int]", "value": values}, nil
+	}
+	if *f.arrayFloat != "" {
+		values, err := parseFloatArray(*f.arrayFloat)
+		if err != nil {
+			return nil, fmt.Errorf("%s --array-float %w", f.label, err)
+		}
+		return map[string]any{"kind": "Array[float]", "value": values}, nil
+	}
+	if *f.arrayBool != "" {
+		values, err := parseBoolArray(*f.arrayBool)
+		if err != nil {
+			return nil, fmt.Errorf("%s --array-bool %w", f.label, err)
+		}
+		return map[string]any{"kind": "Array[bool]", "value": values}, nil
+	}
 	return map[string]any{"kind": "Resource", "value": *f.resource}, nil
+}
+
+func parseVectorArray(value string, want int, label string) ([][]float64, error) {
+	groups := strings.Split(value, ";")
+	out := make([][]float64, 0, len(groups))
+	for _, group := range groups {
+		group = strings.TrimSpace(group)
+		if group == "" {
+			continue
+		}
+		parsed, err := parseFloatList(group, want, label)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, parsed)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("must contain at least one vector")
+	}
+	return out, nil
+}
+
+func parseStringArray(value string) []string {
+	if value == "" {
+		return nil
+	}
+	parts := strings.Split(value, ";")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		out = append(out, strings.TrimSpace(part))
+	}
+	return out
+}
+
+func parseIntArray(value string) ([]int, error) {
+	parts := strings.Split(value, ";")
+	out := make([]int, 0, len(parts))
+	for _, part := range parts {
+		v, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil {
+			return nil, fmt.Errorf("component %q must be an integer: %w", part, err)
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
+func parseFloatArray(value string) ([]float64, error) {
+	parts := strings.Split(value, ";")
+	out := make([]float64, 0, len(parts))
+	for _, part := range parts {
+		v, err := strconv.ParseFloat(strings.TrimSpace(part), 64)
+		if err != nil {
+			return nil, fmt.Errorf("component %q must be a number: %w", part, err)
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
+func parseBoolArray(value string) ([]bool, error) {
+	parts := strings.Split(value, ";")
+	out := make([]bool, 0, len(parts))
+	for _, part := range parts {
+		v, err := strconv.ParseBool(strings.TrimSpace(part))
+		if err != nil {
+			return nil, fmt.Errorf("component %q must be true or false: %w", part, err)
+		}
+		out = append(out, v)
+	}
+	return out, nil
 }
 
 func parseFloatList(value string, want int, label string) ([]float64, error) {
@@ -2441,6 +2629,15 @@ var helpGroups = []helpGroup{
 				"Use --source screen for the legacy whole-host-screen capture.",
 			},
 		},
+		{
+			sub:  "input",
+			line: "  gdctl [--host host] [--port port] [--token token] run input --file input.json [--timeout DURATION]",
+			desc: "play a short input sequence into the running game",
+			flags: []helpFlag{
+				{name: "file", meta: "FILE", usage: "input JSON file containing steps"},
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for input job (default 5s)"},
+			},
+		},
 	}},
 	{name: "scene", cmds: []helpCmd{
 		{
@@ -2576,7 +2773,7 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "set",
-			line: "  gdctl [--host host] [--port port] [--token token] node set --path PATH --property PROPERTY (--value TYPED_JSON | --string S | --int N | --float N | --bool BOOL | --vector2 X,Y | --vector3 X,Y,Z | --color R,G,B[,A] | --resource PATH)",
+			line: "  gdctl [--host host] [--port port] [--token token] node set --path PATH --property PROPERTY (--value TYPED_JSON | --string S | --int N | --float N | --bool BOOL | --vector2 X,Y | --vector3 X,Y,Z | --color R,G,B[,A] | --resource PATH | --array-vector3 A;B)",
 			desc: "set a node property value",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "node path"},
@@ -2590,6 +2787,12 @@ var helpGroups = []helpGroup{
 				{name: "vector3", meta: "X,Y,Z", usage: "Vector3 shorthand"},
 				{name: "color", meta: "R,G,B[,A]", usage: "Color shorthand"},
 				{name: "resource", meta: "PATH", usage: "Resource shorthand (res:// path)"},
+				{name: "array-vector2", meta: "X,Y;X,Y", usage: "Array[Vector2] shorthand"},
+				{name: "array-vector3", meta: "X,Y,Z;X,Y,Z", usage: "Array[Vector3] shorthand"},
+				{name: "array-string", meta: "A;B", usage: "Array[String] shorthand"},
+				{name: "array-int", meta: "N;N", usage: "Array[int] shorthand"},
+				{name: "array-float", meta: "N;N", usage: "Array[float] shorthand"},
+				{name: "array-bool", meta: "BOOL;BOOL", usage: "Array[bool] shorthand"},
 			},
 		},
 		{
@@ -2852,7 +3055,7 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "setting set",
-			line: "  gdctl [--host host] [--port port] [--token token] project setting set --key KEY (--value TYPED_JSON | --string S | --int N | --float N | --bool BOOL | --vector2 X,Y | --vector3 X,Y,Z | --color R,G,B[,A] | --resource PATH)",
+			line: "  gdctl [--host host] [--port port] [--token token] project setting set --key KEY (--value TYPED_JSON | --string S | --int N | --float N | --bool BOOL | --vector2 X,Y | --vector3 X,Y,Z | --color R,G,B[,A] | --resource PATH | --array-vector3 A;B)",
 			desc: "set a project setting value",
 			flags: []helpFlag{
 				{name: "key", meta: "KEY", usage: "project setting key"},
@@ -2865,6 +3068,12 @@ var helpGroups = []helpGroup{
 				{name: "vector3", meta: "X,Y,Z", usage: "Vector3 shorthand"},
 				{name: "color", meta: "R,G,B[,A]", usage: "Color shorthand"},
 				{name: "resource", meta: "PATH", usage: "Resource shorthand (res:// path)"},
+				{name: "array-vector2", meta: "X,Y;X,Y", usage: "Array[Vector2] shorthand"},
+				{name: "array-vector3", meta: "X,Y,Z;X,Y,Z", usage: "Array[Vector3] shorthand"},
+				{name: "array-string", meta: "A;B", usage: "Array[String] shorthand"},
+				{name: "array-int", meta: "N;N", usage: "Array[int] shorthand"},
+				{name: "array-float", meta: "N;N", usage: "Array[float] shorthand"},
+				{name: "array-bool", meta: "BOOL;BOOL", usage: "Array[bool] shorthand"},
 			},
 		},
 		{

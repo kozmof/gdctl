@@ -1,7 +1,7 @@
 @tool
 extends RefCounted
 
-const PLUGIN_VERSION := "0.1.8"
+const PLUGIN_VERSION := "0.1.9"
 const PROTOCOL_VERSION := "gdctl.v1"
 const DEFAULT_HOST := "127.0.0.1"
 const DEFAULT_PORT := 7777
@@ -33,12 +33,13 @@ const Jobs = preload("res://addons/godot_tcp_bridge/jobs.gd")
 
 class RuntimeLogCapture extends Logger:
 	var log_buffer
+	var server
 
 	func _log_error(function: String, file: String, line: int, code: String, rationale: String, editor_notify: bool, error_type: int, script_backtraces: Array[ScriptBacktrace]) -> void:
 		var message := rationale
 		if message == "":
 			message = code
-		log_buffer.add("error", "runtime.error", message, {
+		var detail := {
 			"function": function,
 			"file": file,
 			"line": line,
@@ -46,7 +47,11 @@ class RuntimeLogCapture extends Logger:
 			"rationale": rationale,
 			"editor_notify": editor_notify,
 			"error_type": error_type,
-		})
+		}
+		log_buffer.add("error", "runtime.error", message, detail)
+		log_buffer.add("error", "runtime.debugger", message, detail)
+		if server != null:
+			server.record_debugger_state(message, detail)
 
 	func _log_message(message: String, error: bool) -> void:
 		if error:
@@ -80,6 +85,7 @@ var auth_enabled := true
 var token := ""
 var running := false
 var runtime_logger
+var debugger_state: Dictionary = {}
 
 
 func start() -> void:
@@ -100,6 +106,7 @@ func start() -> void:
 	if runtime_logger == null:
 		runtime_logger = RuntimeLogCapture.new()
 		runtime_logger.log_buffer = log_buffer
+		runtime_logger.server = self
 		OS.add_logger(runtime_logger)
 	print("Godot TCP Bridge listening on %s:%d" % [host, port])
 	log_buffer.add("info", "bridge.start", "Listening", {"host": host, "port": port, "auth_enabled": auth_enabled})
@@ -134,6 +141,19 @@ func reset_token() -> String:
 	_save_token(token)
 	log_buffer.add("info", "bridge.token", "Token reset", {})
 	return token
+
+
+func record_debugger_state(message: String, detail: Dictionary) -> void:
+	debugger_state = {
+		"paused": true,
+		"reason": "runtime.error",
+		"message": message,
+		"file": String(detail.get("file", "")),
+		"line": int(detail.get("line", 0)),
+		"function": String(detail.get("function", "")),
+		"raw_data": detail.duplicate(true),
+		"updated_at": Time.get_datetime_string_from_system(true),
+	}
 
 
 func poll() -> void:
@@ -301,6 +321,8 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return _handle_run_logs_clear(request)
 	if method == "POST" and path == "/run/screenshot":
 		return _handle_run_screenshot(request)
+	if method == "POST" and path == "/run/input":
+		return _handle_run_input(request)
 	return protocol.bridge_error(404, "", "UNKNOWN_ENDPOINT", "Unknown bridge endpoint", {"method": method, "path": path})
 
 
@@ -319,6 +341,7 @@ func _handle_run_start(request: Dictionary) -> Dictionary:
 	if clear_logs:
 		log_buffer.clear()
 		_clear_runtime_logs()
+		debugger_state = {}
 		log_buffer.add("info", "run.logs", "Runtime logs cleared", {})
 	if editor_interface.is_playing_scene():
 		return protocol.bridge_error(409, request_id, "RUN_ALREADY_PLAYING", "A scene is already running", {"playing_scene": editor_interface.get_playing_scene()})
@@ -351,6 +374,7 @@ func _handle_run_status(request: Dictionary) -> Dictionary:
 	return protocol.bridge_ok(String(checked["request_id"]), {
 		"running": editor_interface.is_playing_scene(),
 		"playing_scene": editor_interface.get_playing_scene(),
+		"debugger": _debugger_state_for_response(),
 	})
 
 
@@ -426,6 +450,30 @@ func _handle_run_screenshot(request: Dictionary) -> Dictionary:
 	})
 
 
+func _handle_run_input(request: Dictionary) -> Dictionary:
+	var checked: Dictionary = command_request.require_body(request, _command_context(), "run.input", "Run input requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	if not _editor_plugin_available():
+		return protocol.bridge_error(503, String(checked["request_id"]), "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {})
+	var editor_interface := editor_plugin.get_editor_interface()
+	if not editor_interface.is_playing_scene():
+		return protocol.bridge_error(409, String(checked["request_id"]), "RUN_NOT_PLAYING", "No scene is currently running", {})
+	var params: Dictionary = checked["params"]
+	var steps_value: Variant = params.get("steps", [])
+	if typeof(steps_value) != TYPE_ARRAY:
+		return protocol.bridge_error(400, String(checked["request_id"]), "RUN_INPUT_STEPS_INVALID", "Run input requires a steps array", {})
+	var job_id: String = String(_queue_job("run.input", {
+		"steps": steps_value,
+		"request_id": String(checked["request_id"]),
+	}))
+	return protocol.bridge_ok(String(checked["request_id"]), {
+		"queued": true,
+		"job_id": job_id,
+		"steps": (steps_value as Array).size(),
+	})
+
+
 func _read_runtime_logs() -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
 	if not FileAccess.file_exists(RUNTIME_LOG_PATH):
@@ -452,6 +500,12 @@ func _read_runtime_logs() -> Array[Dictionary]:
 	while entries.size() > 200:
 		entries.pop_front()
 	return entries
+
+
+func _debugger_state_for_response() -> Dictionary:
+	if debugger_state.is_empty():
+		return {"paused": false}
+	return debugger_state.duplicate(true)
 
 
 func _clear_runtime_logs() -> void:
@@ -515,6 +569,7 @@ func _job_context() -> Dictionary:
 		"edited_scene_root": Callable(self, "_edited_scene_root"),
 		"logical_path": Callable(self, "_logical_path"),
 		"log": Callable(log_buffer, "add"),
+		"debugger_state": Callable(self, "_debugger_state_for_response"),
 	}
 
 
@@ -596,6 +651,7 @@ func _capabilities() -> Array:
 		"run.logs",
 		"run.logs.clear",
 		"run.screenshot",
+		"run.input",
 	]
 
 

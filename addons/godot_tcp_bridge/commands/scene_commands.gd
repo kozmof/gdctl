@@ -245,10 +245,56 @@ func _apply_existing_node(node: Node, spec: Dictionary, context: Dictionary, dry
 		if typeof(child_value) != TYPE_DICTIONARY:
 			return _apply_error("SCENE_APPLY_CHILD_INVALID", "Each child must be an object", {"node": context["logical_path"].call(node)})
 		var child_spec: Dictionary = child_value
-		var child_result := _apply_child(node, child_spec, context, dry_run, counts)
-		if not bool(child_result.get("ok", false)):
-			return child_result
+		var expanded_result := _expand_grid_child(child_spec)
+		if not bool(expanded_result.get("ok", false)):
+			return expanded_result
+		var expanded_children: Array = expanded_result.get("children", [])
+		for expanded_spec in expanded_children:
+			var child_result := _apply_child(node, expanded_spec, context, dry_run, counts)
+			if not bool(child_result.get("ok", false)):
+				return child_result
 	return {"ok": true}
+
+
+func _expand_grid_child(spec: Dictionary) -> Dictionary:
+	if not spec.has("grid"):
+		return {"ok": true, "children": [spec]}
+	var grid_value: Variant = spec.get("grid")
+	if typeof(grid_value) != TYPE_DICTIONARY:
+		return _apply_error("SCENE_APPLY_GRID_INVALID", "grid must be an object", {})
+	var grid: Dictionary = grid_value
+	var name_prefix := String(grid.get("name_prefix", "GridNode"))
+	var type_name := String(grid.get("type", spec.get("type", "")))
+	var count_x := int(grid.get("count_x", 0))
+	var count_z := int(grid.get("count_z", 0))
+	if name_prefix == "" or type_name == "" or count_x <= 0 or count_z <= 0:
+		return _apply_error("SCENE_APPLY_GRID_INVALID", "grid requires name_prefix, type, count_x, and count_z", {})
+	var origin_value: Variant = _array_to_vector3(grid.get("origin", [0, 0, 0]))
+	var step_x_value: Variant = _array_to_vector3(grid.get("step_x", [1, 0, 0]))
+	var step_z_value: Variant = _array_to_vector3(grid.get("step_z", [0, 0, 1]))
+	if typeof(origin_value) != TYPE_VECTOR3 or typeof(step_x_value) != TYPE_VECTOR3 or typeof(step_z_value) != TYPE_VECTOR3:
+		return _apply_error("SCENE_APPLY_GRID_INVALID", "grid origin, step_x, and step_z must be [x, y, z]", {})
+	var origin: Vector3 = origin_value
+	var step_x: Vector3 = step_x_value
+	var step_z: Vector3 = step_z_value
+	var name_format := String(grid.get("name_format", "%s_%03d"))
+	var out: Array = []
+	var index := 0
+	for z in range(count_z):
+		for x in range(count_x):
+			var child: Dictionary = spec.duplicate(true)
+			child.erase("grid")
+			child["name"] = name_format % [name_prefix, index]
+			child["type"] = type_name
+			var props: Dictionary = {}
+			if typeof(child.get("properties", {})) == TYPE_DICTIONARY:
+				props = child.get("properties", {}).duplicate(true)
+			var position := origin + step_x * float(x) + step_z * float(z)
+			props["position"] = {"kind": "Vector3", "value": [position.x, position.y, position.z]}
+			child["properties"] = props
+			out.append(child)
+			index += 1
+	return {"ok": true, "children": out}
 
 
 func _apply_child(parent: Node, spec: Dictionary, context: Dictionary, dry_run: bool, counts: Dictionary) -> Dictionary:
@@ -301,6 +347,15 @@ func _apply_properties(target: Object, properties_value: Variant, context: Dicti
 			target.set(String(property), decoded.get("value"))
 		updated += 1
 	return {"ok": true, "updated": updated}
+
+
+func _array_to_vector3(raw: Variant) -> Variant:
+	if typeof(raw) != TYPE_ARRAY:
+		return null
+	var items: Array = raw
+	if items.size() != 3:
+		return null
+	return Vector3(float(items[0]), float(items[1]), float(items[2]))
 
 
 func _apply_error(code: String, message: String, detail: Dictionary) -> Dictionary:

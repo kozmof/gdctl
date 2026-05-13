@@ -179,6 +179,29 @@ func (c *Client) RunScreenshot(ctx context.Context, requestID, source string, sc
 	return out, nil
 }
 
+func (c *Client) RunInput(ctx context.Context, requestID string, steps []any) (RunInputResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "run.input",
+		Params: map[string]any{
+			"steps": steps,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/run/input", env)
+	if err != nil {
+		return RunInputResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return RunInputResult{}, err
+	}
+	var out RunInputResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return RunInputResult{}, err
+	}
+	return out, nil
+}
+
 func (c *Client) Job(ctx context.Context, jobID string) (Job, error) {
 	var out JobResponse
 	if err := c.getJSON(ctx, "/jobs/"+jobID, &out); err != nil {

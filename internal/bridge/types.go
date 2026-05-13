@@ -55,8 +55,14 @@ func (e *BridgeError) Error() string {
 	} else if errText, _ := e.Detail["error"].(string); errText != "" {
 		suffix = append(suffix, errText)
 	}
+	if hint, _ := e.Detail["hint"].(string); hint != "" {
+		suffix = append(suffix, "hint: "+hint)
+	}
 	if len(suffix) > 0 {
 		base += " (" + strings.Join(suffix, ": ") + ")"
+	}
+	if debugger := formatDebuggerContext(e.Detail["debugger"]); debugger != "" {
+		base += " (" + debugger + ")"
 	}
 	if source := formatSourceContext(e.Detail["source"]); source != "" {
 		base += "\n" + source
@@ -104,6 +110,31 @@ func formatSourceContext(value any) string {
 		lines = append(lines, fmt.Sprintf("%s %4d | %s", marker, line, text))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func formatDebuggerContext(value any) string {
+	detail, ok := value.(map[string]any)
+	if !ok || len(detail) == 0 {
+		return ""
+	}
+	if paused, _ := detail["paused"].(bool); !paused {
+		return ""
+	}
+	file, _ := detail["file"].(string)
+	message, _ := detail["message"].(string)
+	line := detailInt(detail["line"])
+	var parts []string
+	if file != "" && line > 0 {
+		parts = append(parts, fmt.Sprintf("debugger paused at %s:%d", file, line))
+	} else if file != "" {
+		parts = append(parts, "debugger paused at "+file)
+	} else {
+		parts = append(parts, "debugger paused")
+	}
+	if message != "" {
+		parts = append(parts, message)
+	}
+	return strings.Join(parts, ": ")
 }
 
 type BridgeResponse[T any] struct {
@@ -369,8 +400,9 @@ type RunStartResult struct {
 }
 
 type RunStatusResult struct {
-	Running      bool   `json:"running"`
-	PlayingScene string `json:"playing_scene,omitempty"`
+	Running      bool          `json:"running"`
+	PlayingScene string        `json:"playing_scene,omitempty"`
+	Debugger     DebuggerState `json:"debugger,omitempty"`
 }
 
 type RunStopResult struct {
@@ -388,6 +420,25 @@ type RunScreenshotResult struct {
 	ContentBase64 string `json:"content_base64,omitempty"`
 	Queued        bool   `json:"queued,omitempty"`
 	JobID         string `json:"job_id,omitempty"`
+}
+
+type RunInputResult struct {
+	Queued     bool   `json:"queued,omitempty"`
+	JobID      string `json:"job_id,omitempty"`
+	Steps      int    `json:"steps,omitempty"`
+	DurationMS int    `json:"duration_ms,omitempty"`
+}
+
+type DebuggerState struct {
+	Paused    bool             `json:"paused"`
+	Reason    string           `json:"reason,omitempty"`
+	Message   string           `json:"message,omitempty"`
+	File      string           `json:"file,omitempty"`
+	Line      int              `json:"line,omitempty"`
+	Function  string           `json:"function,omitempty"`
+	Stack     []map[string]any `json:"stack,omitempty"`
+	RawData   map[string]any   `json:"raw_data,omitempty"`
+	UpdatedAt string           `json:"updated_at,omitempty"`
 }
 
 type Job struct {

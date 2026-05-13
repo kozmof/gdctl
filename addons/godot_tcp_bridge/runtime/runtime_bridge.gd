@@ -81,7 +81,13 @@ func _load_requests() -> void:
 			active[id] = {
 				"id": id,
 				"path": path,
+				"kind": String(request.get("kind", "screenshot")),
+				"request": request,
 				"frames": int(request.get("frames", 2)),
+				"step_index": 0,
+				"wait_remaining": 0.0,
+				"pending_release": {},
+				"started_ticks": Time.get_ticks_msec(),
 			}
 	dir.list_dir_end()
 
@@ -93,6 +99,15 @@ func _process_requests() -> void:
 		if frames > 0:
 			request["frames"] = frames - 1
 			active[id] = request
+			continue
+		var kind := String(request.get("kind", "screenshot"))
+		if kind == "input":
+			var done := _process_input(id, request)
+			if done:
+				_remove_file(String(request.get("path", "")))
+				active.erase(id)
+			else:
+				active[id] = request
 			continue
 		_capture(id)
 		_remove_file(String(request.get("path", "")))
@@ -121,6 +136,142 @@ func _capture(id: String) -> void:
 		"content_base64": Marshalls.raw_to_base64(png),
 	}
 	_write_result(id, result)
+
+
+func _process_input(id: String, active_request: Dictionary) -> bool:
+	var runtime_request: Dictionary = active_request.get("request", {})
+	var steps_value: Variant = runtime_request.get("steps", [])
+	if typeof(steps_value) != TYPE_ARRAY:
+		_write_error(id, "Input request steps must be an array")
+		return true
+	var steps: Array = steps_value
+	var wait_remaining := float(active_request.get("wait_remaining", 0.0))
+	if wait_remaining > 0.0:
+		wait_remaining -= get_process_delta_time() * 1000.0
+		active_request["wait_remaining"] = maxf(0.0, wait_remaining)
+		return false
+	var pending_release: Dictionary = active_request.get("pending_release", {})
+	if not pending_release.is_empty():
+		if String(pending_release.get("kind", "")) == "key":
+			_send_key(int(pending_release.get("keycode", 0)), false)
+		elif String(pending_release.get("kind", "")) == "mouse_button":
+			_send_mouse_button(int(pending_release.get("button", 0)), false)
+		active_request["pending_release"] = {}
+		active_request["step_index"] = int(active_request.get("step_index", 0)) + 1
+		return false
+	var index := int(active_request.get("step_index", 0))
+	if index >= steps.size():
+		_write_result(id, {
+			"ok": true,
+			"source": "game",
+			"steps": steps.size(),
+			"duration_ms": Time.get_ticks_msec() - int(active_request.get("started_ticks", Time.get_ticks_msec())),
+		})
+		return true
+	var step_value: Variant = steps[index]
+	if typeof(step_value) != TYPE_DICTIONARY:
+		_write_error(id, "Input step %d must be an object" % index)
+		return true
+	var step: Dictionary = step_value
+	var result := _execute_input_step(step)
+	if not bool(result.get("ok", false)):
+		_write_error(id, "Input step %d failed: %s" % [index, String(result.get("error", "invalid input step"))])
+		return true
+	active_request["wait_remaining"] = float(result.get("wait_ms", 0.0))
+	if result.has("pending_release"):
+		active_request["pending_release"] = result["pending_release"]
+	else:
+		active_request["step_index"] = index + 1
+	return false
+
+
+func _execute_input_step(step: Dictionary) -> Dictionary:
+	var step_type := String(step.get("type", ""))
+	if step_type == "wait":
+		return {"ok": true, "wait_ms": float(step.get("ms", 0))}
+	if step_type == "key":
+		return _execute_key_step(step)
+	if step_type == "mouse_button":
+		return _execute_mouse_button_step(step)
+	if step_type == "mouse_motion":
+		var relative := _array_to_vector2(step.get("relative", [0, 0]))
+		var event := InputEventMouseMotion.new()
+		event.relative = relative
+		Input.parse_input_event(event)
+		return {"ok": true}
+	return {"ok": false, "error": "Unsupported input step type: " + step_type}
+
+
+func _execute_key_step(step: Dictionary) -> Dictionary:
+	var key_name := String(step.get("key", ""))
+	var keycode := OS.find_keycode_from_string(key_name)
+	if keycode == KEY_NONE:
+		return {"ok": false, "error": "Unknown key: " + key_name}
+	var action := String(step.get("action", "tap"))
+	var duration := float(step.get("duration_ms", 50))
+	if action == "tap":
+		_send_key(keycode, true)
+		return {"ok": true, "wait_ms": duration, "pending_release": {"kind": "key", "keycode": keycode}}
+	if action == "press":
+		_send_key(keycode, true)
+		return {"ok": true}
+	if action == "release":
+		_send_key(keycode, false)
+		return {"ok": true}
+	return {"ok": false, "error": "Unsupported key action: " + action}
+
+
+func _execute_mouse_button_step(step: Dictionary) -> Dictionary:
+	var button := _mouse_button(String(step.get("button", "")))
+	if button == 0:
+		return {"ok": false, "error": "Unknown mouse button: " + String(step.get("button", ""))}
+	var action := String(step.get("action", "tap"))
+	var duration := float(step.get("duration_ms", 50))
+	if action == "tap":
+		_send_mouse_button(button, true)
+		return {"ok": true, "wait_ms": duration, "pending_release": {"kind": "mouse_button", "button": button}}
+	if action == "press":
+		_send_mouse_button(button, true)
+		return {"ok": true}
+	if action == "release":
+		_send_mouse_button(button, false)
+		return {"ok": true}
+	return {"ok": false, "error": "Unsupported mouse button action: " + action}
+
+
+func _send_key(keycode: int, pressed: bool) -> void:
+	var event := InputEventKey.new()
+	event.keycode = keycode
+	event.physical_keycode = keycode
+	event.pressed = pressed
+	Input.parse_input_event(event)
+
+
+func _send_mouse_button(button: int, pressed: bool) -> void:
+	var event := InputEventMouseButton.new()
+	event.button_index = button
+	event.pressed = pressed
+	Input.parse_input_event(event)
+
+
+func _mouse_button(button: String) -> int:
+	match button.to_lower():
+		"left", "1":
+			return MOUSE_BUTTON_LEFT
+		"right", "2":
+			return MOUSE_BUTTON_RIGHT
+		"middle", "3":
+			return MOUSE_BUTTON_MIDDLE
+	return 0
+
+
+func _array_to_vector2(raw: Variant) -> Vector2:
+	if typeof(raw) != TYPE_ARRAY:
+		return Vector2.ZERO
+	var items: Array = raw
+	if items.size() != 2:
+		return Vector2.ZERO
+	return Vector2(float(items[0]), float(items[1]))
 
 
 func _write_error(id: String, message: String) -> void:

@@ -287,6 +287,41 @@ func TestClientRunScreenshotRequest(t *testing.T) {
 	}
 }
 
+func TestClientRunInputRequest(t *testing.T) {
+	var gotAuth string
+	var gotEnvelope RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/run/input" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"queued": true, "job_id": "input-1", "steps": 1},
+		})
+	}))
+	defer server.Close()
+
+	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http", Token: "secret"}
+	client := NewClient(cfg)
+	result, err := client.RunInput(context.Background(), "cli-test", []any{map[string]any{"type": "wait", "ms": 10}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q", gotAuth)
+	}
+	if gotEnvelope.Op != "run.input" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if result.JobID != "input-1" || !result.Queued || result.Steps != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestClientJobRequest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/jobs/save-1" {

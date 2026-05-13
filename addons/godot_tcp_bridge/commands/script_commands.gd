@@ -121,6 +121,7 @@ func _syntax_error(script_path: String, source: String, request_id: String, cont
 		"path": detail["path"],
 		"error": detail["error"],
 		"diagnostic": detail["diagnostic"],
+		"hint": detail["hint"],
 		"line": detail["line"],
 		"source": detail["source"],
 	})
@@ -146,9 +147,17 @@ func _syntax_error_detail(script_path: String, source: String, err: Error, entri
 		"path": script_path,
 		"error": error_string(err),
 		"diagnostic": diagnostic,
+		"hint": _diagnostic_hint(diagnostic),
 		"line": line,
 		"source": _source_context(source, line),
 	}
+
+
+func _diagnostic_hint(diagnostic: String) -> String:
+	var lower := diagnostic.to_lower()
+	if lower.contains("array") and (lower.contains("typed array") or lower.contains("array[") or lower.contains("same element type")):
+		return "Typed array mismatch: use a typed local variable before passing array literals, or use plain Array storage plus explicit element casts at use sites."
+	return ""
 
 
 func _entry_message(entry: Dictionary) -> String:

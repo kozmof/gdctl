@@ -8,6 +8,8 @@ func decode(encoded: Variant) -> Dictionary:
 	var encoded_dict: Dictionary = encoded
 	var kind: String = String(encoded_dict.get("kind", "")).to_lower()
 	var raw: Variant = encoded_dict.get("value", null)
+	if kind.begins_with("array[") and kind.ends_with("]"):
+		return _decode_typed_array(kind.substr(6, kind.length() - 7), raw)
 	match kind:
 		"nil", "null":
 			return {"ok": true, "value": null}
@@ -85,7 +87,65 @@ func encode(value: Variant) -> Dictionary:
 			for item in packed_strings:
 				encoded_strings.append(String(item))
 			return {"kind": "PackedStringArray", "value": encoded_strings}
+		TYPE_ARRAY:
+			var array_value: Array = value
+			var encoded_array: Array = []
+			for item in array_value:
+				encoded_array.append(encode(item).get("value"))
+			return {"kind": "Array", "value": encoded_array}
 	return {"kind": type_string(typeof(value)), "value": str(value)}
+
+
+func _decode_typed_array(element_kind: String, raw: Variant) -> Dictionary:
+	if typeof(raw) != TYPE_ARRAY:
+		return {"ok": false, "error": "Array[%s] value must be an array" % element_kind}
+	var items: Array = raw
+	match element_kind:
+		"vector2":
+			var out_vector2: Array[Vector2] = []
+			for item in items:
+				var value: Variant = _array_to_vector2(item)
+				if typeof(value) != TYPE_VECTOR2:
+					return {"ok": false, "error": "Array[Vector2] value must be [[x, y], ...]"}
+				out_vector2.append(value)
+			return {"ok": true, "value": out_vector2}
+		"vector3":
+			var out_vector3: Array[Vector3] = []
+			for item in items:
+				var value: Variant = _array_to_vector3(item)
+				if typeof(value) != TYPE_VECTOR3:
+					return {"ok": false, "error": "Array[Vector3] value must be [[x, y, z], ...]"}
+				out_vector3.append(value)
+			return {"ok": true, "value": out_vector3}
+		"color":
+			var out_color: Array[Color] = []
+			for item in items:
+				var value: Variant = _array_to_color(item)
+				if typeof(value) != TYPE_COLOR:
+					return {"ok": false, "error": "Array[Color] value must be [[r, g, b], ...] or [[r, g, b, a], ...]"}
+				out_color.append(value)
+			return {"ok": true, "value": out_color}
+		"string":
+			var out_string: Array[String] = []
+			for item in items:
+				out_string.append(String(item))
+			return {"ok": true, "value": out_string}
+		"int", "integer":
+			var out_int: Array[int] = []
+			for item in items:
+				out_int.append(int(item))
+			return {"ok": true, "value": out_int}
+		"float", "number":
+			var out_float: Array[float] = []
+			for item in items:
+				out_float.append(float(item))
+			return {"ok": true, "value": out_float}
+		"bool", "boolean":
+			var out_bool: Array[bool] = []
+			for item in items:
+				out_bool.append(bool(item))
+			return {"ok": true, "value": out_bool}
+	return {"ok": false, "error": "Unsupported typed array kind: Array[%s]" % element_kind}
 
 
 func _array_to_vector2(raw: Variant) -> Variant:
