@@ -88,30 +88,6 @@ It combines all the stress areas of the three previous plans and adds four entir
 - `run smoke` multi-assert: spawn room → kill enemy → assert loot drop → screenshot minimap SubViewport
 - **Expected friction:** `node set` one-at-a-time unusable for 90-node graphs; no `resource procedural` command; `run smoke` single-assert only; no SubViewport screenshot; no `run probe node` for loot verification
 
----
-
-## Predicted New Improvement Items
-
-| # | Item | Session | Area |
-|---|---|---|---|
-| 1 | `environment` commands — WorldEnvironment sky/fog/tone mapping shorthands | 1 | Rendering |
-| 2 | `light` commands — energy/color/range shorthands for all light types | 1 | Rendering |
-| 3 | `run instantiate` with params — spawn PackedScene into running scene with init data | 2 | Runtime |
-| 4 | `navigation bake` incremental — rebake partial navmesh after runtime room add | 2 | Navigation |
-| 5 | `animation tree` commands — create AnimationTree, StateMachine, blend space, transitions | 3 | Animation |
-| 6 | `node set` bulk — set multiple properties on one node in a single call | 4 | Nodes |
-| 7 | `run probe node` — read a live node property value at runtime | 4 | Testing |
-| 8 | `network` commands — configure ENetMultiplayerPeer, set multiplayer authority | 5 | Networking |
-| 9 | `autoload` commands — add/remove/list backed by project.godot | 5 | Project |
-| 10 | `cinematic` / camera-cut shorthand — sequence camera transitions in AnimationPlayer | 6 | Animation |
-| 11 | `animation keyframe-add` bulk — add multiple keyframes in one call | 6 | Animation |
-| 12 | `node set` bulk | 7 | Nodes |
-| 13 | `resource procedural` — generate resource with randomised fields from a seed | 7 | Resources |
-| 14 | `run smoke` multi-assert — assert multiple source:key>=value in one pass | 7 | Testing |
-| 15 | `run screenshot --viewport NAME` — capture a named SubViewport | 7 | Testing |
-
----
-
 ## Comparison Across All Four Plans
 
 | Theme | Sessions | Primary stress | Unique new items |

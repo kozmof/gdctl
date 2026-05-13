@@ -65,24 +65,6 @@ Neither Gravwell Station nor Hollow Market tests **split-screen, multiple input 
 - Mission state probes across both players
 - **Expected friction:** `run scene-reload` not implemented; `run screenshot` only captures main viewport; no way to screenshot a named SubViewport
 
----
-
-## Predicted New Improvement Items
-
-| # | Item | Session | Area |
-|---|---|---|---|
-| 1 | `viewport camera-assign` — bind Camera3D/Camera2D to a SubViewport | 1 | Viewport |
-| 2 | `run instantiate` — spawn PackedScene into running scene at runtime | 2 | Runtime |
-| 3 | `run probe node` — read a node property value directly at runtime | 3 | Testing |
-| 4 | `material set-uniform` — set shader uniform on a live material | 3 | Rendering |
-| 5 | `audio listener` commands — set AudioListener3D position/node | 4 | Audio |
-| 6 | `input map` per-player — joypad device index binding | 4 | Project |
-| 7 | `run scene-reload` — reload a subscene without stopping the game | 5 | Runtime |
-| 8 | `run screenshot --viewport` — capture a named SubViewport | 5 | Testing |
-| 9 | `animation tree` commands | 2 | Animation |
-
----
-
 ## Comparison With Other Plans
 
 | Theme | Primary stress | Unique items |
