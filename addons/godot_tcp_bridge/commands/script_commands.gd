@@ -52,12 +52,15 @@ func handle_write(request: Dictionary, context: Dictionary) -> Dictionary:
 	var params: Dictionary = checked["params"]
 	var request_id: String = String(checked["request_id"])
 	var script_path: String = String(params.get("path", ""))
+	var allow_missing_preloads: bool = bool(params.get("allow_missing_preloads", false))
 	var path_error: Dictionary = _validate_script_path(script_path, false, context, request_id)
 	if not path_error.is_empty():
 		return path_error
 	if not params.has("body"):
 		return context["bridge_error"].call(400, request_id, "SCRIPT_BODY_MISSING", "Script body is required", {})
 	var source: String = String(params.get("body", ""))
+	if allow_missing_preloads:
+		return _write_skipping_preload_errors(script_path, source, request_id, context)
 	return _write_and_check(script_path, source, request_id, context, {"written": true})
 
 
@@ -80,6 +83,47 @@ func handle_check(request: Dictionary, context: Dictionary) -> Dictionary:
 		"path": script_path,
 		"valid": true,
 	})
+
+
+func _write_skipping_preload_errors(script_path: String, source: String, request_id: String, context: Dictionary) -> Dictionary:
+	var dir_err: Error = _ensure_resource_dir(script_path)
+	if dir_err != OK:
+		return context["bridge_error"].call(500, request_id, "SCRIPT_DIR_FAILED", "Could not create script directory", {"path": script_path, "error": error_string(dir_err)})
+	# Run a syntax check but allow preload-related errors to pass through.
+	var script := GDScript.new()
+	script.resource_path = script_path
+	script.source_code = source
+	var capture := SyntaxLogCapture.new()
+	var capture_enabled := OS.has_method("add_logger") and OS.has_method("remove_logger")
+	if capture_enabled:
+		OS.add_logger(capture)
+	var err: Error = script.reload()
+	if capture_enabled:
+		OS.remove_logger(capture)
+	if err != OK:
+		# Check if every captured error is a preload/resource-not-found class.
+		var all_preload_errors: bool = not capture.entries.is_empty()
+		for entry in capture.entries:
+			var msg: String = _entry_message(entry).to_lower()
+			if not (msg.contains("preload") or msg.contains("not found") or msg.contains("resource") or msg.contains("load")):
+				all_preload_errors = false
+				break
+		if not all_preload_errors:
+			var detail := _syntax_error_detail(script_path, source, err, capture.entries)
+			return context["bridge_error"].call(400, request_id, "SCRIPT_SYNTAX_INVALID", "Script did not pass Godot syntax check", {
+				"path": detail["path"],
+				"error": detail["error"],
+				"diagnostic": detail["diagnostic"],
+				"hint": detail["hint"],
+				"line": detail["line"],
+				"source": detail["source"],
+			})
+	var file := FileAccess.open(script_path, FileAccess.WRITE)
+	if file == null:
+		return context["bridge_error"].call(500, request_id, "SCRIPT_WRITE_FAILED", "Could not open script for writing", {"path": script_path})
+	file.store_string(source)
+	file.close()
+	return context["bridge_ok"].call(request_id, {"path": script_path, "valid": true, "written": true})
 
 
 func _write_and_check(script_path: String, source: String, request_id: String, context: Dictionary, extra: Dictionary) -> Dictionary:

@@ -170,6 +170,7 @@ type AddonUpdateFile struct {
 type AddonUpdateResult struct {
 	Updated        bool   `json:"updated"`
 	FilesWritten   int    `json:"files_written"`
+	FilesRemoved   int    `json:"files_removed,omitempty"`
 	Backup         string `json:"backup,omitempty"`
 	ReloadRequired bool   `json:"reload_required"`
 }
@@ -429,16 +430,23 @@ type RunInputResult struct {
 	DurationMS int    `json:"duration_ms,omitempty"`
 }
 
+type DebuggerFrame struct {
+	File     string `json:"file,omitempty"`
+	Line     int    `json:"line,omitempty"`
+	Function string `json:"function,omitempty"`
+}
+
 type DebuggerState struct {
-	Paused    bool             `json:"paused"`
-	Reason    string           `json:"reason,omitempty"`
-	Message   string           `json:"message,omitempty"`
-	File      string           `json:"file,omitempty"`
-	Line      int              `json:"line,omitempty"`
-	Function  string           `json:"function,omitempty"`
-	Stack     []map[string]any `json:"stack,omitempty"`
-	RawData   map[string]any   `json:"raw_data,omitempty"`
-	UpdatedAt string           `json:"updated_at,omitempty"`
+	Paused      bool             `json:"paused"`
+	Reason      string           `json:"reason,omitempty"`
+	Message     string           `json:"message,omitempty"`
+	File        string           `json:"file,omitempty"`
+	Line        int              `json:"line,omitempty"`
+	Function    string           `json:"function,omitempty"`
+	Stack       []map[string]any `json:"stack,omitempty"`
+	StackFrames []DebuggerFrame  `json:"stack_frames,omitempty"`
+	RawData     map[string]any   `json:"raw_data,omitempty"`
+	UpdatedAt   string           `json:"updated_at,omitempty"`
 }
 
 type Job struct {
@@ -455,4 +463,90 @@ type Job struct {
 type JobResponse struct {
 	OK  bool `json:"ok"`
 	Job Job  `json:"job"`
+}
+
+// Phase 4 types
+
+type RunRaycastResult struct {
+	Queued       bool      `json:"queued,omitempty"`
+	JobID        string    `json:"job_id,omitempty"`
+	CameraPath   string    `json:"camera_path,omitempty"`
+	RayOrigin    []float64 `json:"ray_origin,omitempty"`
+	RayDirection []float64 `json:"ray_direction,omitempty"`
+	HitCollider  string    `json:"hit_collider,omitempty"`
+	HitPosition  []float64 `json:"hit_position,omitempty"`
+	HitNormal    []float64 `json:"hit_normal,omitempty"`
+	HitDistance  float64   `json:"hit_distance,omitempty"`
+	Hit          bool      `json:"hit"`
+}
+
+type SceneApplyBlueprintResult struct {
+	Path      string `json:"path,omitempty"`
+	Blueprint string `json:"blueprint,omitempty"`
+	Created   int    `json:"created,omitempty"`
+	DryRun    bool   `json:"dry_run,omitempty"`
+}
+
+type ThemeCreateResult struct {
+	Path    string `json:"path,omitempty"`
+	Created bool   `json:"created,omitempty"`
+}
+
+type ThemeSetResult struct {
+	Path      string `json:"path,omitempty"`
+	NodeType  string `json:"node_type,omitempty"`
+	DataType  string `json:"data_type,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Set       bool   `json:"set,omitempty"`
+}
+
+type AnimationCreateResult struct {
+	Path      string `json:"path,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Created   bool   `json:"created,omitempty"`
+}
+
+type AnimationTrackResult struct {
+	Path      string `json:"path,omitempty"`
+	Animation string `json:"animation,omitempty"`
+	TrackIdx  int    `json:"track_idx"`
+}
+
+type AnimationKeyframeResult struct {
+	Path      string  `json:"path,omitempty"`
+	Animation string  `json:"animation,omitempty"`
+	TrackIdx  int     `json:"track_idx"`
+	Time      float64 `json:"time"`
+	Added     bool    `json:"added,omitempty"`
+}
+
+type TilesetCreateResult struct {
+	Path    string `json:"path,omitempty"`
+	Created bool   `json:"created,omitempty"`
+}
+
+type TilemapCellResult struct {
+	Node    string `json:"node,omitempty"`
+	Layer   int    `json:"layer"`
+	X       int    `json:"x"`
+	Y       int    `json:"y"`
+	Applied bool   `json:"applied,omitempty"`
+}
+
+type AudioBusResult struct {
+	Bus     string `json:"bus,omitempty"`
+	Applied bool   `json:"applied,omitempty"`
+}
+
+type ViewportSetSizeResult struct {
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+	Path   string `json:"path,omitempty"`
+}
+
+type ViewportAddResult struct {
+	Path   string `json:"path,omitempty"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+	Added  bool   `json:"added,omitempty"`
 }

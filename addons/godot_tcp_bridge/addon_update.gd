@@ -46,9 +46,27 @@ func handle_update(request: Dictionary, context: Dictionary) -> Dictionary:
 			return context["bridge_error"].call(500, request_id, "ADDON_WRITE_FAILED", "Failed to write addon file", {"path": rel_path, "error": error_string(write_err)})
 		written += 1
 
+	# Remove stale files: present in old_manifest but absent from new manifest.
+	var removed: int = 0
+	var old_manifest_value: Variant = params.get("old_manifest", null)
+	if typeof(old_manifest_value) == TYPE_DICTIONARY:
+		var old_manifest_dict: Dictionary = old_manifest_value
+		var old_files_value: Variant = old_manifest_dict.get("files", [])
+		if typeof(old_files_value) == TYPE_ARRAY:
+			var old_files: Array = old_files_value
+			var addon_root: String = String(context["addon_root"])
+			for old_item in old_files:
+				var old_rel: String = String(old_item)
+				if not allowed.has(old_rel) and _is_safe_addon_path(old_rel):
+					var stale_path: String = addon_root + old_rel
+					if FileAccess.file_exists(stale_path):
+						DirAccess.remove_absolute(ProjectSettings.globalize_path(stale_path))
+						removed += 1
+
 	return context["bridge_ok"].call(request_id, {
 		"updated": true,
 		"files_written": written,
+		"files_removed": removed,
 		"backup": backup,
 		"reload_required": true,
 	})

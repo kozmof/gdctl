@@ -109,6 +109,11 @@ func _process_requests() -> void:
 			else:
 				active[id] = request
 			continue
+		if kind == "raycast":
+			_capture_raycast(id)
+			_remove_file(String(request.get("path", "")))
+			active.erase(id)
+			continue
 		_capture(id)
 		_remove_file(String(request.get("path", "")))
 		active.erase(id)
@@ -136,6 +141,54 @@ func _capture(id: String) -> void:
 		"content_base64": Marshalls.raw_to_base64(png),
 	}
 	_write_result(id, result)
+
+
+func _capture_raycast(id: String) -> void:
+	var viewport := get_viewport()
+	if viewport == null:
+		_write_error(id, "Game viewport is unavailable")
+		return
+	var camera: Camera3D = viewport.get_camera_3d()
+	if camera == null:
+		_write_error(id, "No active Camera3D found in game viewport")
+		return
+	var center := viewport.get_visible_rect().size * 0.5
+	var ray_origin: Vector3 = camera.project_ray_origin(center)
+	var ray_direction: Vector3 = camera.project_ray_normal(center)
+	var ray_length: float = 1000.0
+	var space_state: PhysicsDirectSpaceState3D = viewport.find_world_3d().direct_space_state
+	if space_state == null:
+		_write_error(id, "Could not access PhysicsDirectSpaceState3D")
+		return
+	var query := PhysicsRayQueryParameters3D.create(ray_origin, ray_origin + ray_direction * ray_length)
+	var result: Dictionary = space_state.intersect_ray(query)
+	if result.is_empty():
+		_write_result(id, {
+			"ok": true,
+			"hit": false,
+			"camera_path": str(camera.get_path()),
+			"ray_origin": [ray_origin.x, ray_origin.y, ray_origin.z],
+			"ray_direction": [ray_direction.x, ray_direction.y, ray_direction.z],
+		})
+		return
+	var hit_pos: Vector3 = result.get("position", Vector3.ZERO)
+	var hit_normal: Vector3 = result.get("normal", Vector3.ZERO)
+	var collider: Object = result.get("collider", null)
+	var collider_path := ""
+	if collider is Node:
+		collider_path = str((collider as Node).get_path())
+	var hit_distance: float = ray_origin.distance_to(hit_pos)
+	_write_result(id, {
+		"ok": true,
+		"hit": true,
+		"camera_path": str(camera.get_path()),
+		"ray_origin": [ray_origin.x, ray_origin.y, ray_origin.z],
+		"ray_direction": [ray_direction.x, ray_direction.y, ray_direction.z],
+		"hit_collider": collider_path,
+		"hit_position": [hit_pos.x, hit_pos.y, hit_pos.z],
+		"hit_normal": [hit_normal.x, hit_normal.y, hit_normal.z],
+		"hit_distance": hit_distance,
+	})
 
 
 func _process_input(id: String, active_request: Dictionary) -> bool:

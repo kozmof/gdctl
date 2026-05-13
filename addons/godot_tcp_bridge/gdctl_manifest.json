@@ -1,6 +1,6 @@
 {
   "name": "godot_tcp_bridge",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "files": [
     "plugin.cfg",
     "bridge_plugin.gd",
@@ -19,6 +19,10 @@
     "commands/project_commands.gd",
     "commands/navigation_commands.gd",
     "commands/import_commands.gd",
+    "commands/theme_commands.gd",
+    "commands/animation_commands.gd",
+    "commands/tilemap_commands.gd",
+    "commands/audio_commands.gd",
     "runtime/runtime_bridge.gd",
     "addon_update.gd",
     "jobs.gd",

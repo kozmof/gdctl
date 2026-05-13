@@ -23,6 +23,15 @@ type Manifest struct {
 	Files   []string `json:"files"`
 }
 
+func LoadInstalledManifest(projectPath string) (Manifest, error) {
+	project, err := ResolveProject(projectPath)
+	if err != nil {
+		return Manifest{}, err
+	}
+	m := loadInstalledManifest(project)
+	return m, nil
+}
+
 func LoadEmbeddedManifest(source fs.FS) (Manifest, error) {
 	data, err := fs.ReadFile(source, EmbeddedRoot+"/"+ManifestName)
 	if err != nil {

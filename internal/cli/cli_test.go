@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"image"
 	"image/color"
 	"image/png"
 	"io/fs"
@@ -1794,6 +1795,10 @@ func TestBridgeAddonUpdateSendsFixtureAddon(t *testing.T) {
 	var gotAuth string
 	var gotEnvelope bridge.RequestEnvelope
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/ping" {
+			_ = json.NewEncoder(w).Encode(bridge.PingResponse{OK: true, Service: "godot_tcp_bridge", ProjectPath: t.TempDir()})
+			return
+		}
 		if r.URL.Path != "/addon/update" {
 			t.Fatalf("path = %s", r.URL.Path)
 		}
@@ -3219,5 +3224,1180 @@ func TestSceneRunRequiresGodotBeforeExec(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "headless Godot") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1: run logs filters (#3)
+// ---------------------------------------------------------------------------
+
+func TestRunLogsSourceFilter(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(bridge.LogsResponse{
+			OK: true,
+			Entries: []bridge.LogEntry{
+				{Time: "t1", Level: "info", Source: "runtime.game", Message: "keep"},
+				{Time: "t2", Level: "info", Source: "runtime.other", Message: "drop"},
+			},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), append(serverArgs(server), "--token", "secret", "run", "logs", "--source", "runtime.game"), &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "keep") {
+		t.Fatalf("expected 'keep' in output:\n%s", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "drop") {
+		t.Fatalf("expected 'drop' to be filtered out:\n%s", stdout.String())
+	}
+}
+
+func TestRunLogsLatestFilter(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(bridge.LogsResponse{
+			OK: true,
+			Entries: []bridge.LogEntry{
+				{Time: "t1", Level: "info", Source: "runtime.game", Message: "first"},
+				{Time: "t2", Level: "info", Source: "runtime.game", Message: "latest"},
+			},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), append(serverArgs(server), "--token", "secret", "run", "logs", "--latest"), &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "latest") {
+		t.Fatalf("expected 'latest' in output:\n%s", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "first") {
+		t.Fatalf("expected 'first' to be filtered out by --latest:\n%s", stdout.String())
+	}
+}
+
+func TestRunLogsSinceStartFilter(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(bridge.LogsResponse{
+			OK: true,
+			Entries: []bridge.LogEntry{
+				{Time: "2024-01-01T00:00:00Z", Level: "info", Source: "run.start", Message: "started"},
+				{Time: "2024-01-01T00:00:01Z", Level: "info", Source: "runtime.game", Message: "after"},
+				{Time: "2023-12-31T23:59:59Z", Level: "info", Source: "runtime.game", Message: "before"},
+			},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), append(serverArgs(server), "--token", "secret", "run", "logs", "--since-start"), &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "after") {
+		t.Fatalf("expected 'after' in output:\n%s", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "before") {
+		t.Fatalf("expected pre-start entry 'before' filtered out:\n%s", stdout.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1: run input --summary-probe (#4)
+// ---------------------------------------------------------------------------
+
+func TestRunInputSummaryProbe(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/run/input":
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"queued": true, "job_id": "inp-1"},
+			})
+		case "/jobs/inp-1":
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{
+				OK: true,
+				Job: bridge.Job{ID: "inp-1", Kind: "run.input", Status: "succeeded",
+					Result: map[string]any{"steps": 1, "duration_ms": 50}},
+			})
+		case "/run/logs":
+			_ = json.NewEncoder(w).Encode(bridge.LogsResponse{
+				OK: true,
+				Entries: []bridge.LogEntry{
+					{Time: "t1", Level: "info", Source: "runtime.probe", Message: "state", Detail: map[string]any{"hp": float64(100)}},
+				},
+			})
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	f := filepath.Join(t.TempDir(), "input.json")
+	if err := os.WriteFile(f, []byte(`{"steps":[{"action":"key","key":"ui_accept"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "run", "input", "--file", f, "--summary-probe", "runtime.probe")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "Probe [runtime.probe]:") {
+		t.Fatalf("expected probe summary in stdout:\n%s", stdout.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1: run wait-probe (#2)
+// ---------------------------------------------------------------------------
+
+func TestRunWaitProbeHappyPath(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/run/logs" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.LogsResponse{
+			OK: true,
+			Entries: []bridge.LogEntry{
+				{Time: "t1", Level: "info", Source: "runtime.game", Message: "state",
+					Detail: map[string]any{"score": float64(10)}},
+			},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "run", "wait-probe",
+		"--source", "runtime.game", "--assert", "score>=5", "--timeout", "5s")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "runtime.game") {
+		t.Fatalf("expected source in output:\n%s", stdout.String())
+	}
+}
+
+func TestRunWaitProbeRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"run", "wait-probe", "--source", "runtime.game"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected error when --assert is missing")
+	}
+	if !strings.Contains(err.Error(), "--assert") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunWaitProbeRequiresSourceBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"run", "wait-probe", "--assert", "score>=5"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected error when --source is missing")
+	}
+	if !strings.Contains(err.Error(), "--source") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1: node set transform shorthands (#7)
+// ---------------------------------------------------------------------------
+
+func TestNodeSetPositionShorthand(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/node/set" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "/root/Player", "property": "position"},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "node", "set",
+		"--path", "/root/Player", "--position", "1,2,3")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Params["property"] != "position" {
+		t.Fatalf("property = %v", gotEnvelope.Params["property"])
+	}
+}
+
+func TestNodeSetPositionConflictsWithProperty(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"node", "set",
+		"--path", "/root/Player", "--position", "1,2,3", "--property", "scale"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected error when both --position and --property are given")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1: --scene on node commands (#8)
+// ---------------------------------------------------------------------------
+
+func sceneJobServer(t *testing.T, mutation string, handler http.HandlerFunc) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/scene/open":
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"queued": true, "job_id": "open-s"},
+			})
+		case "/jobs/open-s":
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{
+				OK:  true,
+				Job: bridge.Job{ID: "open-s", Kind: "scene.open", Status: "succeeded", Result: map[string]any{"opened": true, "path": "res://main.tscn"}},
+			})
+		case "/scene/save":
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"queued": true, "job_id": "save-s"},
+			})
+		case "/jobs/save-s":
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{
+				OK:  true,
+				Job: bridge.Job{ID: "save-s", Kind: "scene.save", Status: "succeeded", Result: map[string]any{"saved": true, "path": "res://main.tscn"}},
+			})
+		case mutation:
+			handler(w, r)
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+}
+
+func TestNodeAddWithScene(t *testing.T) {
+	server := sceneJobServer(t, "/node/add", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "/root/Player/Temp", "created": true},
+		})
+	})
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "node", "add",
+		"--parent", "/root/Player", "--type", "Node3D", "--name", "Temp",
+		"--scene", "res://main.tscn")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "Added node:") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestNodeRemoveWithScene(t *testing.T) {
+	server := sceneJobServer(t, "/node/remove", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "/root/Player/Temp", "removed": true},
+		})
+	})
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "node", "remove",
+		"--path", "/root/Player/Temp", "--scene", "res://main.tscn")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "Removed node:") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1: screenshot sanity check (#11)
+// ---------------------------------------------------------------------------
+
+func TestRunScreenshotSanityCheckWarns(t *testing.T) {
+	// Build a solid-colour 100x100 PNG.
+	img := makeUniformPNG(100, 100, color.RGBA{R: 30, G: 30, B: 30, A: 255})
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	pngData := buf.Bytes()
+	outPath := filepath.Join(t.TempDir(), "out.png")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/run/screenshot":
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"queued": true, "job_id": "shot-sanity"},
+			})
+		case "/jobs/shot-sanity":
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{
+				OK: true,
+				Job: bridge.Job{ID: "shot-sanity", Kind: "run.screenshot", Status: "succeeded",
+					Result: map[string]any{
+						"format":         "png",
+						"source":         "game",
+						"width":          100,
+						"height":         100,
+						"content_base64": base64.StdEncoding.EncodeToString(pngData),
+					}},
+			})
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), append(serverArgs(server), "--token", "secret", "run", "screenshot", "--out", outPath), &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr.String(), "screenshot may be the desktop") {
+		t.Fatalf("expected sanity warning on stderr:\n%s", stderr.String())
+	}
+}
+
+func makeUniformPNG(w, h int, c color.RGBA) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			img.SetRGBA(x, y, c)
+		}
+	}
+	return img
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: script write --allow-missing-preloads (#5)
+// ---------------------------------------------------------------------------
+
+func TestScriptWriteAllowMissingPreloads(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/script/write" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "res://scripts/player.gd", "valid": true, "written": true},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "script", "write",
+		"--path", "res://scripts/player.gd", "--body", "extends Node\n", "--allow-missing-preloads")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Params["allow_missing_preloads"] != true {
+		t.Fatalf("expected allow_missing_preloads=true in params: %#v", gotEnvelope.Params)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: run probe raycast (#10)
+// ---------------------------------------------------------------------------
+
+func TestRunProbeRaycastHit(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/run/probe/raycast":
+			if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"queued": true, "job_id": "ray-1"},
+			})
+		case "/jobs/ray-1":
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{
+				OK: true,
+				Job: bridge.Job{ID: "ray-1", Kind: "run.probe.raycast", Status: "succeeded",
+					Result: map[string]any{
+						"hit":          true,
+						"camera_path":  "/root/Camera3D",
+						"hit_collider": "/root/Wall",
+						"hit_distance": 5.0,
+					}},
+			})
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), append(serverArgs(server), "--token", "secret", "run", "probe", "raycast"), &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "run.probe.raycast" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if !strings.Contains(stdout.String(), "Raycast hit:") || !strings.Contains(stdout.String(), "/root/Wall") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRunProbeRaycastNoHit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/run/probe/raycast":
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"queued": true, "job_id": "ray-2"},
+			})
+		case "/jobs/ray-2":
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{
+				OK: true,
+				Job: bridge.Job{ID: "ray-2", Kind: "run.probe.raycast", Status: "succeeded",
+					Result: map[string]any{"hit": false, "camera_path": "/root/Camera3D"}},
+			})
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), append(serverArgs(server), "--token", "secret", "run", "probe", "raycast"), &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "no hit") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: scene apply-blueprint (#6)
+// ---------------------------------------------------------------------------
+
+func TestSceneApplyBlueprintHappyPath(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/scene/open":
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"queued": true, "job_id": "open-bp"},
+			})
+		case "/jobs/open-bp":
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{
+				OK:  true,
+				Job: bridge.Job{ID: "open-bp", Kind: "scene.open", Status: "succeeded", Result: map[string]any{"opened": true, "path": "res://main.tscn"}},
+			})
+		case "/scene/apply/blueprint":
+			if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"path": "res://main.tscn", "blueprint": "player3d", "created": 3},
+			})
+		case "/scene/save":
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"queued": true, "job_id": "save-bp"},
+			})
+		case "/jobs/save-bp":
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{
+				OK:  true,
+				Job: bridge.Job{ID: "save-bp", Kind: "scene.save", Status: "succeeded", Result: map[string]any{"saved": true, "path": "res://main.tscn"}},
+			})
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "scene", "apply-blueprint",
+		"--path", "res://main.tscn", "--blueprint", "player3d")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "scene.apply.blueprint" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["blueprint"] != "player3d" {
+		t.Fatalf("blueprint param = %v", gotEnvelope.Params["blueprint"])
+	}
+	if !strings.Contains(stdout.String(), "Blueprint applied:") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestSceneApplyBlueprintRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"scene", "apply-blueprint", "--path", "res://main.tscn"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected error when --blueprint is missing")
+	}
+	if !strings.Contains(err.Error(), "--blueprint") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: theme commands (#14)
+// ---------------------------------------------------------------------------
+
+func TestThemeCreateHappyPath(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/theme/create" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "res://ui/main.tres", "created": true},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "theme", "create", "--path", "res://ui/main.tres")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "theme.create" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if !strings.Contains(stdout.String(), "Theme created:") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestThemeCreateRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"theme", "create"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected error when --path is missing")
+	}
+	if !strings.Contains(err.Error(), "--path") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestThemeSetColorHappyPath(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/theme/set-color" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "res://ui/main.tres", "set": true},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "theme", "set-color",
+		"--path", "res://ui/main.tres", "--node-type", "Label", "--name", "font_color", "--value", "1,0,0,1")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "theme.set-color" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["node_type"] != "Label" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+}
+
+func TestThemeSetColorRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"theme", "set-color", "--path", "res://ui/main.tres"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected error when required flags are missing")
+	}
+}
+
+func TestThemeSetFontSizeHappyPath(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/theme/set-font-size" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "res://ui/main.tres", "set": true},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "theme", "set-font-size",
+		"--path", "res://ui/main.tres", "--node-type", "Label", "--name", "font_size", "--value", "18")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "theme.set-font-size" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+}
+
+func TestThemeSetConstantHappyPath(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/theme/set-constant" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "res://ui/main.tres", "set": true},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "theme", "set-constant",
+		"--path", "res://ui/main.tres", "--node-type", "MarginContainer", "--name", "margin_top", "--value", "8")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "theme.set-constant" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: animation commands (#15)
+// ---------------------------------------------------------------------------
+
+func TestAnimationCreateHappyPath(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/animation/create" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "res://anim/player.tres", "name": "walk", "created": true},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "animation", "create",
+		"--path", "res://anim/player.tres", "--name", "walk", "--length", "1.0")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "animation.create" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["name"] != "walk" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Animation created:") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestAnimationCreateRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"animation", "create", "--path", "res://anim/player.tres"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected error when --name is missing")
+	}
+	if !strings.Contains(err.Error(), "--name") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestAnimationTrackAddHappyPath(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/animation/track-add" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "res://anim/player.tres", "animation": "walk", "track_idx": 0},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "animation", "track-add",
+		"--path", "res://anim/player.tres", "--animation", "walk",
+		"--node-path", "Player", "--property", "position")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "animation.track-add" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+}
+
+func TestAnimationKeyframeAddHappyPath(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/animation/keyframe-add" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "res://anim/player.tres", "animation": "walk", "track_idx": 0, "time": 0.5, "added": true},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "animation", "keyframe-add",
+		"--path", "res://anim/player.tres", "--animation", "walk",
+		"--track-idx", "0", "--time", "0.5", "--value", `{"kind":"Vector3","value":[0,1,0]}`)
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "animation.keyframe-add" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+}
+
+func TestAnimationPlayerPlayHappyPath(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/animation/player-play" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "/root/Player/AnimationPlayer", "name": "walk"},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "animation", "player-play",
+		"--node-path", "/root/Player/AnimationPlayer", "--animation", "walk")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "animation.player-play" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+}
+
+func TestAnimationPlayerPlayRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"animation", "player-play"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected error when --node-path is missing")
+	}
+	if !strings.Contains(err.Error(), "--node-path") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: tilemap commands (#16)
+// ---------------------------------------------------------------------------
+
+func TestTilesetCreateHappyPath(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/tilemap/tileset-create" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "res://tiles/world.tres", "created": true},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "tilemap", "tileset-create",
+		"--path", "res://tiles/world.tres", "--tile-width", "16", "--tile-height", "16")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "tilemap.tileset-create" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if !strings.Contains(stdout.String(), "TileSet created:") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestTilesetCreateRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"tilemap", "tileset-create"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected error when --path is missing")
+	}
+	if !strings.Contains(err.Error(), "--path") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestTilesetSourceAddHappyPath(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/tilemap/source-add" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "res://tiles/world.tres"},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "tilemap", "source-add",
+		"--path", "res://tiles/world.tres", "--texture", "res://tiles/atlas.png")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "tilemap.source-add" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+}
+
+func TestTilemapCellSetHappyPath(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/tilemap/cell-set" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"node": "/root/World/TileMap", "applied": true},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "tilemap", "cell-set",
+		"--node", "/root/World/TileMap", "--x", "3", "--y", "4", "--source-id", "0")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "tilemap.cell-set" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if !strings.Contains(stdout.String(), "Cell set:") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestTilemapCellClearHappyPath(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/tilemap/cell-clear" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"node": "/root/World/TileMap", "applied": true},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "tilemap", "cell-clear",
+		"--node", "/root/World/TileMap", "--x", "3", "--y", "4")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "tilemap.cell-clear" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+}
+
+func TestTilemapCellSetRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"tilemap", "cell-set", "--x", "0", "--y", "0", "--source-id", "0"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected error when --node is missing")
+	}
+	if !strings.Contains(err.Error(), "--node") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: audio commands (#17)
+// ---------------------------------------------------------------------------
+
+func TestAudioBusAddHappyPath(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/audio/bus-add" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"bus": "Music", "applied": true},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "audio", "bus-add", "--name", "Music")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "audio.bus-add" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if !strings.Contains(stdout.String(), "Audio bus added:") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestAudioBusAddRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"audio", "bus-add"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected error when --name is missing")
+	}
+	if !strings.Contains(err.Error(), "--name") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestAudioBusVolumeSetHappyPath(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/audio/bus-volume-set" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"bus": "Music", "applied": true},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "audio", "bus-volume-set",
+		"--name", "Music", "--volume-db", "-6.0")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "audio.bus-volume-set" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["volume_db"] != -6.0 {
+		t.Fatalf("volume_db = %v", gotEnvelope.Params["volume_db"])
+	}
+}
+
+func TestAudioBusEffectAddHappyPath(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/audio/bus-effect-add" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"bus": "Music", "applied": true},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "audio", "bus-effect-add",
+		"--name", "Music", "--effect-type", "AudioEffectReverb")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "audio.bus-effect-add" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: viewport set-size / add (#18)
+// ---------------------------------------------------------------------------
+
+func TestViewportSetSizeHappyPath(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/viewport/set-size" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"width": 1280, "height": 720},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "viewport", "set-size",
+		"--width", "1280", "--height", "720")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "viewport.set-size" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if !strings.Contains(stdout.String(), "Viewport size set:") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestViewportSetSizeRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"viewport", "set-size", "--width", "1280"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected error when --height is missing")
+	}
+	if !strings.Contains(err.Error(), "--height") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestViewportAddHappyPath(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/viewport/add" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "/root/SubViewport", "width": 320, "height": 240, "added": true},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "viewport", "add",
+		"--width", "320", "--height", "240")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "viewport.add" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if !strings.Contains(stdout.String(), "SubViewport added:") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestViewportAddRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"viewport", "add", "--width", "320"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected error when --height is missing")
+	}
+	if !strings.Contains(err.Error(), "--height") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Help entries for new command groups
+// ---------------------------------------------------------------------------
+
+func TestHelpRunSmoke(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), []string{"help", "run.smoke"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"run smoke", "--assert", "--screenshot", "PASS"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
+		}
+	}
+}
+
+func TestHelpThemeGroup(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), []string{"help", "theme"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"theme create", "theme set-color", "theme set-font-size", "theme set-constant"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
+		}
+	}
+}
+
+func TestHelpAnimationGroup(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), []string{"help", "animation"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"animation create", "animation track-add", "animation keyframe-add", "animation player-play"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
+		}
+	}
+}
+
+func TestHelpTilemapGroup(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), []string{"help", "tilemap"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"tilemap tileset-create", "tilemap source-add", "tilemap cell-set", "tilemap cell-clear"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
+		}
+	}
+}
+
+func TestHelpAudioGroup(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), []string{"help", "audio"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"audio bus-add", "audio bus-volume-set", "audio bus-effect-add"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
+		}
+	}
+}
+
+func TestHelpViewportSetSizeAndAdd(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), []string{"help", "viewport"}, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"viewport set-size", "viewport add"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
+		}
 	}
 }

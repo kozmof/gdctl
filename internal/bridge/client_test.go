@@ -79,7 +79,7 @@ func TestClientUpdateAddonRequest(t *testing.T) {
 
 	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http", Token: "secret"}
 	client := NewClient(cfg)
-	result, err := client.UpdateAddon(context.Background(), "cli-test", map[string]any{"name": "godot_tcp_bridge"}, []AddonUpdateFile{
+	result, err := client.UpdateAddon(context.Background(), "cli-test", map[string]any{"name": "godot_tcp_bridge"}, nil, []AddonUpdateFile{
 		{Path: "plugin.cfg", ContentBase64: "Zm9v"},
 	})
 	if err != nil {
@@ -890,7 +890,7 @@ func TestClientWriteScriptRequest(t *testing.T) {
 
 	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http"}
 	client := NewClient(cfg)
-	result, err := client.WriteScript(context.Background(), "cli-test", "res://scripts/player.gd", "extends Node2D\n")
+	result, err := client.WriteScript(context.Background(), "cli-test", "res://scripts/player.gd", "extends Node2D\n", false)
 	if err != nil {
 		t.Fatal(err)
 	}

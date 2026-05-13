@@ -54,6 +54,8 @@ func process(context: Dictionary) -> void:
 		_run_run_screenshot_job(job_id, context)
 	elif String(job.get("kind", "")) == "run.input":
 		_run_run_input_job(job_id, context)
+	elif String(job.get("kind", "")) == "run.probe.raycast":
+		_run_probe_raycast_job(job_id, context)
 	else:
 		_finish_error(job_id, "JOB_KIND_UNKNOWN", "Unknown job kind", {"kind": job.get("kind", "")}, context)
 
@@ -329,6 +331,71 @@ func _run_run_input_job(job_id: String, context: Dictionary) -> void:
 	if Time.get_ticks_msec() - started_ticks > RUNTIME_INPUT_TIMEOUT_MS:
 		_remove_runtime_file(RUNTIME_REQUESTS + job_id + ".json")
 		_finish_error(job_id, "RUN_INPUT_HELPER_TIMEOUT", "Runtime helper did not complete input playback. Restart the scene with gdctl run start.", {"request_id": job_id}, context)
+		return
+	job["status"] = "running"
+	job["updated_at"] = Time.get_datetime_string_from_system(true)
+	jobs[job_id] = job
+	pending_jobs.append(job_id)
+
+
+func _run_probe_raycast_job(job_id: String, context: Dictionary) -> void:
+	var job: Dictionary = jobs[job_id]
+	var detail: Dictionary = job.get("detail", {})
+	if not bool(detail.get("requested", false)):
+		var dir_err := _ensure_runtime_dirs()
+		if dir_err != OK:
+			_finish_error(job_id, "RUN_PROBE_REQUEST_FAILED", "Could not create runtime probe exchange directory", {"error": error_string(dir_err)}, context)
+			return
+		var request_path := RUNTIME_REQUESTS + job_id + ".json"
+		var request := {
+			"id": job_id,
+			"kind": "raycast",
+			"frames": 1,
+			"created_at": Time.get_datetime_string_from_system(true),
+		}
+		var file := FileAccess.open(request_path, FileAccess.WRITE)
+		if file == null:
+			_finish_error(job_id, "RUN_PROBE_REQUEST_FAILED", "Could not write runtime raycast request", {"path": request_path}, context)
+			return
+		file.store_string(JSON.stringify(request))
+		file.close()
+		detail["requested"] = true
+		detail["started_ticks"] = Time.get_ticks_msec()
+		job["detail"] = detail
+		job["status"] = "running"
+		job["updated_at"] = Time.get_datetime_string_from_system(true)
+		jobs[job_id] = job
+		pending_jobs.append(job_id)
+		return
+
+	var result_path := RUNTIME_RESULTS + job_id + ".json"
+	if FileAccess.file_exists(result_path):
+		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(result_path))
+		_remove_runtime_file(result_path)
+		_remove_runtime_file(RUNTIME_REQUESTS + job_id + ".json")
+		if typeof(parsed) != TYPE_DICTIONARY:
+			_finish_error(job_id, "RUN_PROBE_RESULT_INVALID", "Runtime raycast result is invalid JSON", {"path": result_path}, context)
+			return
+		var result: Dictionary = parsed
+		if not bool(result.get("ok", false)):
+			_finish_error(job_id, "RUN_PROBE_RAYCAST_FAILED", String(result.get("error", "Runtime raycast probe failed")), {"path": result_path}, context)
+			return
+		_finish_ok(job_id, {
+			"hit": bool(result.get("hit", false)),
+			"camera_path": String(result.get("camera_path", "")),
+			"ray_origin": result.get("ray_origin", []),
+			"ray_direction": result.get("ray_direction", []),
+			"hit_collider": String(result.get("hit_collider", "")),
+			"hit_position": result.get("hit_position", []),
+			"hit_normal": result.get("hit_normal", []),
+			"hit_distance": float(result.get("hit_distance", 0.0)),
+		}, context)
+		return
+
+	var started_ticks: int = int(detail.get("started_ticks", Time.get_ticks_msec()))
+	if Time.get_ticks_msec() - started_ticks > RUNTIME_INPUT_TIMEOUT_MS:
+		_remove_runtime_file(RUNTIME_REQUESTS + job_id + ".json")
+		_finish_error(job_id, "RUN_PROBE_RAYCAST_TIMEOUT", "Runtime helper did not return a raycast result. Make sure GdctlRuntimeBridge autoload is active.", {"request_id": job_id}, context)
 		return
 	job["status"] = "running"
 	job["updated_at"] = Time.get_datetime_string_from_system(true)

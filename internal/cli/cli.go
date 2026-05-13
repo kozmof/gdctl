@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	embeddedaddons "gdctl/addons"
@@ -28,6 +29,10 @@ import (
 var newAddonManager = func() addon.Manager {
 	return addon.NewManager(embeddedaddons.FS)
 }
+
+// sceneMu serializes all commands that open, mutate, and save a scene via --scene,
+// preventing cross-wire races when multiple gdctl invocations run concurrently in one process.
+var sceneMu sync.Mutex
 
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	cfg, rest, err := parseGlobalFlags(args)
@@ -56,7 +61,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	case "bridge":
 		return runBridge(ctx, client, addonManager, rest[1:], stdout)
 	case "run":
-		return runRun(ctx, client, rest[1:], stdout)
+		return runRun(ctx, client, rest[1:], stdout, stderr)
 	case "scene":
 		if len(rest) >= 2 {
 			switch rest[1] {
@@ -72,6 +77,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return runSceneSave(ctx, client, rest[2:], stdout)
 			case "apply":
 				return runSceneApply(ctx, client, rest[2:], stdout)
+			case "apply-blueprint":
+				return runSceneApplyBlueprint(ctx, client, rest[2:], stdout)
 			case "list":
 				return runSceneList(ctx, client, rest[2:], stdout)
 			case "run":
@@ -204,6 +211,62 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			switch rest[1] {
 			case "screenshot":
 				return runViewportScreenshot(ctx, client, rest[2:], stdout)
+			case "set-size":
+				return runViewportSetSize(ctx, client, rest[2:], stdout)
+			case "add":
+				return runViewportAdd(ctx, client, rest[2:], stdout)
+			}
+		}
+	case "theme":
+		if len(rest) >= 2 {
+			switch rest[1] {
+			case "create":
+				return runThemeCreate(ctx, client, rest[2:], stdout)
+			case "set-color":
+				return runThemeSetColor(ctx, client, rest[2:], stdout)
+			case "set-font-size":
+				return runThemeSetFontSize(ctx, client, rest[2:], stdout)
+			case "set-constant":
+				return runThemeSetConstant(ctx, client, rest[2:], stdout)
+			}
+		}
+	case "animation":
+		if len(rest) >= 2 {
+			switch rest[1] {
+			case "create":
+				return runAnimationCreate(ctx, client, rest[2:], stdout)
+			case "track-add":
+				return runAnimationTrackAdd(ctx, client, rest[2:], stdout)
+			case "keyframe-add":
+				return runAnimationKeyframeAdd(ctx, client, rest[2:], stdout)
+			case "length-set":
+				return runAnimationLengthSet(ctx, client, rest[2:], stdout)
+			case "player-play":
+				return runAnimationPlayerPlay(ctx, client, rest[2:], stdout)
+			}
+		}
+	case "tilemap":
+		if len(rest) >= 2 {
+			switch rest[1] {
+			case "tileset-create":
+				return runTilesetCreate(ctx, client, rest[2:], stdout)
+			case "source-add":
+				return runTilesetSourceAdd(ctx, client, rest[2:], stdout)
+			case "cell-set":
+				return runTilemapCellSet(ctx, client, rest[2:], stdout)
+			case "cell-clear":
+				return runTilemapCellClear(ctx, client, rest[2:], stdout)
+			}
+		}
+	case "audio":
+		if len(rest) >= 2 {
+			switch rest[1] {
+			case "bus-add":
+				return runAudioBusAdd(ctx, client, rest[2:], stdout)
+			case "bus-volume-set":
+				return runAudioBusVolumeSet(ctx, client, rest[2:], stdout)
+			case "bus-effect-add":
+				return runAudioBusEffectAdd(ctx, client, rest[2:], stdout)
 			}
 		}
 	case "help":
@@ -243,7 +306,7 @@ func normalizeCommandArgs(args []string) []string {
 	return append(normalized, args[1:]...)
 }
 
-func runRun(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+func runRun(ctx context.Context, client *bridge.Client, args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
 		return fmt.Errorf("run requires a subcommand")
 	}
@@ -257,9 +320,15 @@ func runRun(ctx context.Context, client *bridge.Client, args []string, stdout io
 	case "logs":
 		return runRunLogs(ctx, client, args[1:], stdout)
 	case "screenshot":
-		return runRunScreenshot(ctx, client, args[1:], stdout)
+		return runRunScreenshot(ctx, client, args[1:], stdout, stderr)
 	case "input":
 		return runRunInput(ctx, client, args[1:], stdout)
+	case "wait-probe":
+		return runRunWaitProbe(ctx, client, args[1:], stdout)
+	case "smoke":
+		return runRunSmoke(ctx, client, args[1:], stdout)
+	case "probe":
+		return runRunProbe(ctx, client, args[1:], stdout)
 	default:
 		return fmt.Errorf("unknown run command: %s", strings.Join(args, " "))
 	}
@@ -309,6 +378,43 @@ func runRunStatus(ctx context.Context, client *bridge.Client, stdout io.Writer) 
 			} else {
 				fmt.Fprintf(stdout, "Run status: paused (%s)\n", result.PlayingScene)
 			}
+			// Print typed stack frames if available (from bridge_server debugger capture).
+			for i, frame := range result.Debugger.StackFrames {
+				loc := frame.File
+				if frame.Line > 0 {
+					loc = fmt.Sprintf("%s:%d", frame.File, frame.Line)
+				}
+				if frame.Function != "" {
+					fmt.Fprintf(stdout, "  #%d %s in %s\n", i, frame.Function, loc)
+				} else {
+					fmt.Fprintf(stdout, "  #%d %s\n", i, loc)
+				}
+			}
+			// Fallback: raw stack entries from older bridge versions.
+			if len(result.Debugger.StackFrames) == 0 {
+				for i, raw := range result.Debugger.Stack {
+					file, _ := raw["file"].(string)
+					fn, _ := raw["function"].(string)
+					line := 0
+					if v, ok := raw["line"]; ok {
+						switch lv := v.(type) {
+						case float64:
+							line = int(lv)
+						case int:
+							line = lv
+						}
+					}
+					loc := file
+					if line > 0 {
+						loc = fmt.Sprintf("%s:%d", file, line)
+					}
+					if fn != "" {
+						fmt.Fprintf(stdout, "  #%d %s in %s\n", i, fn, loc)
+					} else if loc != "" {
+						fmt.Fprintf(stdout, "  #%d %s\n", i, loc)
+					}
+				}
+			}
 			return nil
 		}
 		if result.PlayingScene != "" {
@@ -327,6 +433,7 @@ func runRunInput(ctx context.Context, client *bridge.Client, args []string, stdo
 	fs.SetOutput(io.Discard)
 	filePath := fs.String("file", "", "input JSON file path")
 	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for input job")
+	summaryProbe := fs.String("summary-probe", "", "after completion print latest probe from this source")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -364,7 +471,276 @@ func runRunInput(ctx context.Context, client *bridge.Client, args []string, stdo
 	} else {
 		fmt.Fprintf(stdout, "Run input completed: %d steps\n", steps)
 	}
+	if *summaryProbe != "" {
+		entries, err := client.RunLogs(ctx)
+		if err == nil {
+			entries = filterLogEntries(entries, *summaryProbe, true, false)
+			if len(entries) > 0 {
+				detail := entries[len(entries)-1].Detail
+				if encoded, err := json.Marshal(detail); err == nil {
+					fmt.Fprintf(stdout, "Probe [%s]: %s\n", *summaryProbe, encoded)
+				}
+			}
+		}
+	}
 	return nil
+}
+
+func runRunWaitProbe(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("run wait-probe", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	source := fs.String("source", "", "log source to watch (e.g. runtime.echo_unit)")
+	assertExpr := fs.String("assert", "", "predicate in KEY>=VALUE form")
+	timeout := fs.Duration("timeout", 30*time.Second, "maximum time to wait")
+	jsonOut := fs.Bool("json", false, "print matching entry as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *source == "" {
+		return fmt.Errorf("run wait-probe requires --source")
+	}
+	if *assertExpr == "" {
+		return fmt.Errorf("run wait-probe requires --assert KEY>=VALUE")
+	}
+	key, op, rawVal, err := parseAssertExpr(*assertExpr)
+	if err != nil {
+		return err
+	}
+
+	deadline := time.Now().Add(*timeout)
+	var lastEntry *bridge.LogEntry
+	for {
+		entries, err := client.RunLogs(ctx)
+		if err != nil {
+			return err
+		}
+		filtered := filterLogEntries(entries, *source, true, false)
+		if len(filtered) > 0 {
+			e := filtered[len(filtered)-1]
+			lastEntry = &e
+			if evalPredicate(e.Detail, key, op, rawVal) {
+				if *jsonOut {
+					enc := json.NewEncoder(stdout)
+					enc.SetIndent("", "  ")
+					return enc.Encode(e)
+				}
+				encoded, _ := json.Marshal(e.Detail)
+				fmt.Fprintf(stdout, "Probe [%s] matched %s: %s\n", *source, *assertExpr, encoded)
+				return nil
+			}
+		}
+		if time.Now().After(deadline) {
+			if lastEntry != nil {
+				encoded, _ := json.Marshal(lastEntry.Detail)
+				return fmt.Errorf("run wait-probe timed out after %s; last probe [%s]: %s", *timeout, *source, encoded)
+			}
+			return fmt.Errorf("run wait-probe timed out after %s; no probe entries from %s", *timeout, *source)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+func parseAssertExpr(expr string) (key, op, val string, err error) {
+	for _, candidate := range []string{">=", "<=", "==", "!=", ">", "<"} {
+		if idx := strings.Index(expr, candidate); idx > 0 {
+			return strings.TrimSpace(expr[:idx]), candidate, strings.TrimSpace(expr[idx+len(candidate):]), nil
+		}
+	}
+	return "", "", "", fmt.Errorf("--assert must be in KEY>=VALUE form (operators: >= <= == != > <): %q", expr)
+}
+
+func evalPredicate(detail map[string]any, key, op, rawVal string) bool {
+	val, ok := detail[key]
+	if !ok {
+		return false
+	}
+	// try numeric comparison
+	wantF, wantErr := strconv.ParseFloat(rawVal, 64)
+	if wantErr == nil {
+		var gotF float64
+		switch v := val.(type) {
+		case float64:
+			gotF = v
+		case int:
+			gotF = float64(v)
+		case int64:
+			gotF = float64(v)
+		case bool:
+			if v {
+				gotF = 1
+			}
+		default:
+			return false
+		}
+		switch op {
+		case ">=":
+			return gotF >= wantF
+		case "<=":
+			return gotF <= wantF
+		case ">":
+			return gotF > wantF
+		case "<":
+			return gotF < wantF
+		case "==":
+			return gotF == wantF
+		case "!=":
+			return gotF != wantF
+		}
+	}
+	// string comparison
+	gotS := fmt.Sprintf("%v", val)
+	switch op {
+	case "==":
+		return gotS == rawVal
+	case "!=":
+		return gotS != rawVal
+	}
+	return false
+}
+
+func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("run smoke", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	scenePath := fs.String("scene", "", "scene path to run")
+	main := fs.Bool("main", false, "run the project main scene")
+	inputFile := fs.String("input", "", "input JSON file for automated steps")
+	assertExpr := fs.String("assert", "", "probe predicate in SOURCE:KEY>=VALUE form")
+	screenshotOut := fs.String("screenshot", "", "save game viewport screenshot to this path")
+	timeout := fs.Duration("timeout", 30*time.Second, "overall smoke timeout")
+	keepRunning := fs.Bool("keep-running", false, "do not stop the run after smoke completes")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *scenePath != "" && *main {
+		return fmt.Errorf("run smoke requires at most one of --scene or --main")
+	}
+
+	// start
+	startResult, err := client.RunStart(ctx, requestID(), *scenePath, *main, true)
+	if err != nil {
+		return fmt.Errorf("smoke start: %w", err)
+	}
+	scene := startResult.Scene
+	if scene == "" {
+		scene = startResult.PlayingScene
+	}
+	fmt.Fprintf(stdout, "Smoke started: %s\n", scene)
+
+	stop := func() {
+		if !*keepRunning {
+			_, _ = client.RunStop(ctx, requestID())
+		}
+	}
+
+	// input
+	if *inputFile != "" {
+		content, err := os.ReadFile(*inputFile)
+		if err != nil {
+			stop()
+			return fmt.Errorf("smoke input read: %w", err)
+		}
+		var payload struct {
+			Steps []any `json:"steps"`
+		}
+		if err := json.Unmarshal(content, &payload); err != nil {
+			stop()
+			return fmt.Errorf("smoke input parse: %w", err)
+		}
+		if len(payload.Steps) > 0 {
+			res, err := client.RunInput(ctx, requestID(), payload.Steps)
+			if err != nil {
+				stop()
+				return fmt.Errorf("smoke input: %w", err)
+			}
+			if res.JobID != "" {
+				if _, err := waitForJob(ctx, client, res.JobID, *timeout, "smoke input"); err != nil {
+					stop()
+					return fmt.Errorf("smoke input: %w", err)
+				}
+			}
+			fmt.Fprintf(stdout, "Smoke input: %d steps\n", len(payload.Steps))
+		}
+	}
+
+	// assert
+	if *assertExpr != "" {
+		// parse SOURCE:KEY>=VALUE
+		probeSource, predicate, found := strings.Cut(*assertExpr, ":")
+		if !found {
+			stop()
+			return fmt.Errorf("smoke --assert must be SOURCE:KEY>=VALUE")
+		}
+		key, op, rawVal, err := parseAssertExpr(predicate)
+		if err != nil {
+			stop()
+			return err
+		}
+		deadline := time.Now().Add(*timeout)
+		var lastDetail map[string]any
+		matched := false
+		for !matched {
+			entries, err := client.RunLogs(ctx)
+			if err != nil {
+				stop()
+				return fmt.Errorf("smoke assert: %w", err)
+			}
+			filtered := filterLogEntries(entries, probeSource, true, false)
+			if len(filtered) > 0 {
+				lastDetail = filtered[len(filtered)-1].Detail
+				if evalPredicate(lastDetail, key, op, rawVal) {
+					matched = true
+				}
+			}
+			if !matched {
+				if time.Now().After(deadline) {
+					stop()
+					encoded, _ := json.Marshal(lastDetail)
+					return fmt.Errorf("Smoke: FAIL — assert %s timed out; last probe: %s", *assertExpr, encoded)
+				}
+				time.Sleep(500 * time.Millisecond)
+			}
+		}
+		fmt.Fprintf(stdout, "Smoke assert: %s ok\n", *assertExpr)
+	}
+
+	// screenshot
+	if *screenshotOut != "" {
+		ssResult, err := client.RunScreenshot(ctx, requestID(), "game", 0)
+		if err != nil {
+			stop()
+			return fmt.Errorf("smoke screenshot: %w", err)
+		}
+		if ssResult.JobID != "" {
+			job, err := waitForJob(ctx, client, ssResult.JobID, *timeout, "smoke screenshot")
+			if err != nil {
+				stop()
+				return fmt.Errorf("smoke screenshot: %w", err)
+			}
+			if err := writeScreenshotJob(*screenshotOut, job); err != nil {
+				stop()
+				return fmt.Errorf("smoke screenshot write: %w", err)
+			}
+			w := intFromJobResult(job.Result["width"])
+			h := intFromJobResult(job.Result["height"])
+			fmt.Fprintf(stdout, "Smoke screenshot: %s (%dx%d)\n", *screenshotOut, w, h)
+		}
+	}
+
+	stop()
+	fmt.Fprintln(stdout, "Smoke: PASS")
+	return nil
+}
+
+func runRunProbe(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("run probe requires a subcommand (raycast)")
+	}
+	switch args[0] {
+	case "raycast":
+		return runRunProbeRaycast(ctx, client, args[1:], stdout)
+	default:
+		return fmt.Errorf("unknown run probe subcommand: %s", args[0])
+	}
 }
 
 func runRunStop(ctx context.Context, client *bridge.Client, stdout io.Writer) error {
@@ -385,6 +761,9 @@ func runRunLogs(ctx context.Context, client *bridge.Client, args []string, stdou
 	fs.SetOutput(io.Discard)
 	jsonOut := fs.Bool("json", false, "write logs as JSON")
 	clear := fs.Bool("clear", false, "clear run logs after reading")
+	source := fs.String("source", "", "keep only entries from this source")
+	latest := fs.Bool("latest", false, "keep only the last entry per source")
+	sinceStart := fs.Bool("since-start", false, "drop entries before the most recent run.start entry")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -392,6 +771,7 @@ func runRunLogs(ctx context.Context, client *bridge.Client, args []string, stdou
 	if err != nil {
 		return err
 	}
+	entries = filterLogEntries(entries, *source, *latest, *sinceStart)
 	if *jsonOut {
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
@@ -419,7 +799,58 @@ func runRunLogs(ctx context.Context, client *bridge.Client, args []string, stdou
 	return nil
 }
 
-func runRunScreenshot(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+func filterLogEntries(entries []bridge.LogEntry, source string, latest, sinceStart bool) []bridge.LogEntry {
+	if sinceStart {
+		startTime := ""
+		for _, e := range entries {
+			if e.Source == "run.start" && e.Time > startTime {
+				startTime = e.Time
+			}
+		}
+		if startTime != "" {
+			filtered := entries[:0]
+			for _, e := range entries {
+				if e.Source != "run.start" && e.Time > startTime {
+					filtered = append(filtered, e)
+				}
+			}
+			entries = filtered
+		}
+	}
+	if source != "" {
+		filtered := entries[:0]
+		for _, e := range entries {
+			if e.Source == source {
+				filtered = append(filtered, e)
+			}
+		}
+		entries = filtered
+	}
+	if latest {
+		seen := make(map[string]int)
+		for i, e := range entries {
+			seen[e.Source] = i
+		}
+		order := make([]int, 0, len(seen))
+		for _, idx := range seen {
+			order = append(order, idx)
+		}
+		// sort by original position
+		for i := 1; i < len(order); i++ {
+			for j := i; j > 0 && order[j] < order[j-1]; j-- {
+				order[j], order[j-1] = order[j-1], order[j]
+			}
+		}
+		out := make([]bridge.LogEntry, len(order))
+		for i, idx := range order {
+			out[i] = entries[idx]
+		}
+		entries = out
+	}
+	return entries
+}
+
+func runRunScreenshot(ctx context.Context, client *bridge.Client, args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("run screenshot", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	outPath := fs.String("out", "", "local PNG output path")
@@ -470,7 +901,62 @@ func runRunScreenshot(ctx context.Context, client *bridge.Client, args []string,
 	} else {
 		fmt.Fprintf(stdout, "Run screenshot written: %s (%s)\n", path, sourceLabel)
 	}
+	if pngData, err := os.ReadFile(path); err == nil {
+		if isSuspectedEditorCapture(pngData) {
+			fmt.Fprintln(stderr, "warning: screenshot may be the desktop or editor background (low pixel variance)")
+		}
+	}
 	return nil
+}
+
+// isSuspectedEditorCapture returns true when the image looks like a uniform
+// desktop/editor background: samples a 10x10 grid and considers it uniform if
+// ≥90% of sampled pixels are within ±10 of the dominant color per channel.
+func isSuspectedEditorCapture(pngData []byte) bool {
+	img, err := png.Decode(bytes.NewReader(pngData))
+	if err != nil {
+		return false
+	}
+	b := img.Bounds()
+	w, h := b.Max.X-b.Min.X, b.Max.Y-b.Min.Y
+	if w < 10 || h < 10 {
+		return false
+	}
+	const grid = 10
+	var samples []color.RGBA
+	for gy := 0; gy < grid; gy++ {
+		for gx := 0; gx < grid; gx++ {
+			x := b.Min.X + (gx*w)/grid + w/(grid*2)
+			y := b.Min.Y + (gy*h)/grid + h/(grid*2)
+			c := img.At(x, y)
+			r, g, bv, a := c.RGBA()
+			samples = append(samples, color.RGBA{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(bv >> 8), A: uint8(a >> 8)})
+		}
+	}
+	if len(samples) == 0 {
+		return false
+	}
+	dom := samples[0]
+	match := 0
+	const delta = 10
+	for _, s := range samples {
+		dr := int(s.R) - int(dom.R)
+		dg := int(s.G) - int(dom.G)
+		db := int(s.B) - int(dom.B)
+		if dr < 0 {
+			dr = -dr
+		}
+		if dg < 0 {
+			dg = -dg
+		}
+		if db < 0 {
+			db = -db
+		}
+		if dr <= delta && dg <= delta && db <= delta {
+			match++
+		}
+	}
+	return match*10 >= len(samples)*9
 }
 
 func runBridge(ctx context.Context, client *bridge.Client, manager addon.Manager, args []string, stdout io.Writer) error {
@@ -542,7 +1028,18 @@ func runBridgeAddonUpdate(ctx context.Context, client *bridge.Client, manager ad
 	if err != nil {
 		return err
 	}
-	result, err := client.UpdateAddon(ctx, requestID(), manifest, files)
+	// Load the currently installed manifest so the bridge can remove stale files.
+	var oldManifestMap map[string]any
+	cfg := bridge.Config{}
+	if ping, err := client.Ping(ctx); err == nil && ping.ProjectPath != "" {
+		if installed, err := addon.LoadInstalledManifest(ping.ProjectPath); err == nil && len(installed.Files) > 0 {
+			if data, err := json.Marshal(installed); err == nil {
+				_ = json.Unmarshal(data, &oldManifestMap)
+			}
+		}
+	}
+	_ = cfg
+	result, err := client.UpdateAddon(ctx, requestID(), manifest, oldManifestMap, files)
 	if err != nil {
 		return err
 	}
@@ -550,6 +1047,9 @@ func runBridgeAddonUpdate(ctx context.Context, client *bridge.Client, manager ad
 		fmt.Fprintf(stdout, "Addon updated over bridge: %d files written\n", result.FilesWritten)
 	} else {
 		fmt.Fprintln(stdout, "Addon already up to date")
+	}
+	if result.FilesRemoved > 0 {
+		fmt.Fprintf(stdout, "Stale files removed: %d\n", result.FilesRemoved)
 	}
 	if result.Backup != "" {
 		fmt.Fprintf(stdout, "Backup: %s\n", result.Backup)
@@ -1062,6 +1562,8 @@ func runNodeAdd(ctx context.Context, client *bridge.Client, args []string, stdou
 	nodeType := fs.String("type", "", "Godot node type")
 	name := fs.String("name", "", "new node name")
 	dryRun := fs.Bool("dry-run", false, "validate without mutating")
+	scenePath := fs.String("scene", "", "scene path to open before adding and save after")
+	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for scene open/save jobs")
 	propFlags := stringListFlag{}
 	fs.Var(&propFlags, "prop", "initial property in name=TYPED_JSON form")
 	if err := fs.Parse(args); err != nil {
@@ -1074,16 +1576,32 @@ func runNodeAdd(ctx context.Context, client *bridge.Client, args []string, stdou
 	if err != nil {
 		return err
 	}
+	if *scenePath != "" {
+		sceneMu.Lock()
+		defer sceneMu.Unlock()
+		openedPath, _, err := openSceneAndWait(ctx, client, *scenePath, *timeout)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Scene opened: %s\n", openedPath)
+	}
 	result, err := client.AddNode(ctx, requestID(), *parent, *nodeType, *name, props, *dryRun)
 	if err != nil {
 		return err
 	}
-	path, _ := result["path"].(string)
+	nodePath, _ := result["path"].(string)
 	if *dryRun {
-		fmt.Fprintf(stdout, "Dry run ok: %s\n", path)
+		fmt.Fprintf(stdout, "Dry run ok: %s\n", nodePath)
 		return nil
 	}
-	fmt.Fprintf(stdout, "Added node: %s\n", path)
+	fmt.Fprintf(stdout, "Added node: %s\n", nodePath)
+	if *scenePath != "" {
+		savedPath, err := saveSceneAndWait(ctx, client, *timeout)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Scene saved: %s\n", savedPath)
+	}
 	return nil
 }
 
@@ -1092,22 +1610,40 @@ func runNodeRemove(ctx context.Context, client *bridge.Client, args []string, st
 	fs.SetOutput(io.Discard)
 	path := fs.String("path", "", "node path")
 	dryRun := fs.Bool("dry-run", false, "validate without mutating")
+	scenePath := fs.String("scene", "", "scene path to open before removing and save after")
+	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for scene open/save jobs")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *path == "" {
 		return fmt.Errorf("node remove requires --path")
 	}
+	if *scenePath != "" {
+		sceneMu.Lock()
+		defer sceneMu.Unlock()
+		openedPath, _, err := openSceneAndWait(ctx, client, *scenePath, *timeout)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Scene opened: %s\n", openedPath)
+	}
 	result, err := client.RemoveNode(ctx, requestID(), *path, *dryRun)
 	if err != nil {
 		return err
 	}
-	removed, _ := result["removed"].(string)
+	removed, _ := result["path"].(string)
 	if *dryRun {
 		fmt.Fprintf(stdout, "Dry run ok: %s\n", removed)
 		return nil
 	}
 	fmt.Fprintf(stdout, "Removed node: %s\n", removed)
+	if *scenePath != "" {
+		savedPath, err := saveSceneAndWait(ctx, client, *timeout)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Scene saved: %s\n", savedPath)
+	}
 	return nil
 }
 
@@ -1117,11 +1653,22 @@ func runNodeRename(ctx context.Context, client *bridge.Client, args []string, st
 	path := fs.String("path", "", "node path")
 	name := fs.String("name", "", "new node name")
 	dryRun := fs.Bool("dry-run", false, "validate without mutating")
+	scenePath := fs.String("scene", "", "scene path to open before renaming and save after")
+	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for scene open/save jobs")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *path == "" || *name == "" {
 		return fmt.Errorf("node rename requires --path and --name")
+	}
+	if *scenePath != "" {
+		sceneMu.Lock()
+		defer sceneMu.Unlock()
+		openedPath, _, err := openSceneAndWait(ctx, client, *scenePath, *timeout)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Scene opened: %s\n", openedPath)
 	}
 	result, err := client.RenameNode(ctx, requestID(), *path, *name, *dryRun)
 	if err != nil {
@@ -1133,6 +1680,13 @@ func runNodeRename(ctx context.Context, client *bridge.Client, args []string, st
 		return nil
 	}
 	fmt.Fprintf(stdout, "Renamed node: %s\n", newPath)
+	if *scenePath != "" {
+		savedPath, err := saveSceneAndWait(ctx, client, *timeout)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Scene saved: %s\n", savedPath)
+	}
 	return nil
 }
 
@@ -1143,11 +1697,22 @@ func runNodeMove(ctx context.Context, client *bridge.Client, args []string, stdo
 	parent := fs.String("parent", "", "new parent node path")
 	index := fs.Int("index", -1, "optional child index under new parent")
 	dryRun := fs.Bool("dry-run", false, "validate without mutating")
+	scenePath := fs.String("scene", "", "scene path to open before moving and save after")
+	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for scene open/save jobs")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *path == "" || *parent == "" {
 		return fmt.Errorf("node move requires --path and --parent")
+	}
+	if *scenePath != "" {
+		sceneMu.Lock()
+		defer sceneMu.Unlock()
+		openedPath, _, err := openSceneAndWait(ctx, client, *scenePath, *timeout)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Scene opened: %s\n", openedPath)
 	}
 	result, err := client.MoveNode(ctx, requestID(), *path, *parent, *index, *dryRun)
 	if err != nil {
@@ -1159,6 +1724,13 @@ func runNodeMove(ctx context.Context, client *bridge.Client, args []string, stdo
 		return nil
 	}
 	fmt.Fprintf(stdout, "Moved node: %s\n", newPath)
+	if *scenePath != "" {
+		savedPath, err := saveSceneAndWait(ctx, client, *timeout)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Scene saved: %s\n", savedPath)
+	}
 	return nil
 }
 
@@ -1187,22 +1759,75 @@ func runNodeSet(ctx context.Context, client *bridge.Client, args []string, stdou
 	fs.SetOutput(io.Discard)
 	path := fs.String("path", "", "node path")
 	property := fs.String("property", "", "property name")
+	position := fs.String("position", "", "shorthand for --property position --vector3 X,Y,Z")
+	rotationDeg := fs.String("rotation-degrees", "", "shorthand for --property rotation_degrees --vector3 X,Y,Z")
+	scale := fs.String("scale", "", "shorthand for --property scale --vector3 X,Y,Z")
+	scenePath := fs.String("scene", "", "scene path to open before setting and save after")
+	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for scene open/save jobs")
 	valueFlags := newTypedValueFlags(fs, "node set")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *path == "" || *property == "" {
-		return fmt.Errorf("node set requires --path and --property")
+	if *path == "" {
+		return fmt.Errorf("node set requires --path")
 	}
-	value, err := valueFlags.Value()
-	if err != nil {
-		return err
+	// Resolve transform shorthands into property + value
+	var resolvedProp string
+	var resolvedValue any
+	shorthandCount := 0
+	for _, sh := range []struct{ flag, prop string }{
+		{*position, "position"},
+		{*rotationDeg, "rotation_degrees"},
+		{*scale, "scale"},
+	} {
+		if sh.flag != "" {
+			shorthandCount++
+			resolvedProp = sh.prop
+			vals, err := parseFloatList(sh.flag, 3, "--"+sh.prop)
+			if err != nil {
+				return err
+			}
+			resolvedValue = map[string]any{"kind": "Vector3", "value": vals}
+		}
 	}
-	result, err := client.SetNodeProperty(ctx, requestID(), *path, *property, value)
+	if shorthandCount > 1 {
+		return fmt.Errorf("node set: only one of --position, --rotation-degrees, --scale may be used at a time")
+	}
+	if shorthandCount > 0 && *property != "" {
+		return fmt.Errorf("node set: --property cannot be combined with --position, --rotation-degrees, or --scale")
+	}
+	if shorthandCount == 0 {
+		if *property == "" {
+			return fmt.Errorf("node set requires --property (or a transform shorthand)")
+		}
+		resolvedProp = *property
+		var err error
+		resolvedValue, err = valueFlags.Value()
+		if err != nil {
+			return err
+		}
+	}
+	if *scenePath != "" {
+		sceneMu.Lock()
+		defer sceneMu.Unlock()
+		openedPath, _, err := openSceneAndWait(ctx, client, *scenePath, *timeout)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Scene opened: %s\n", openedPath)
+	}
+	result, err := client.SetNodeProperty(ctx, requestID(), *path, resolvedProp, resolvedValue)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "Set %s on %s\n", result.Property, result.Path)
+	if *scenePath != "" {
+		savedPath, err := saveSceneAndWait(ctx, client, *timeout)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Scene saved: %s\n", savedPath)
+	}
 	return nil
 }
 
@@ -1240,6 +1865,8 @@ func runNodeAttachScript(ctx context.Context, client *bridge.Client, args []stri
 		return fmt.Errorf("node attach-script requires --path and --script")
 	}
 	if *scenePath != "" {
+		sceneMu.Lock()
+		defer sceneMu.Unlock()
 		openedPath, _, err := openSceneAndWait(ctx, client, *scenePath, *timeout)
 		if err != nil {
 			return err
@@ -1495,6 +2122,7 @@ func runScriptWrite(ctx context.Context, client *bridge.Client, args []string, s
 	path := fs.String("path", "", "script path")
 	body := fs.String("body", "", "script body")
 	bodyFile := fs.String("body-file", "", "local file containing script body")
+	allowMissingPreloads := fs.Bool("allow-missing-preloads", false, "write script even if preloaded scenes/resources do not exist yet")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -1512,7 +2140,7 @@ func runScriptWrite(ctx context.Context, client *bridge.Client, args []string, s
 		}
 		bodyText = string(data)
 	}
-	result, err := client.WriteScript(ctx, requestID(), *path, bodyText)
+	result, err := client.WriteScript(ctx, requestID(), *path, bodyText, *allowMissingPreloads)
 	if err != nil {
 		return err
 	}
@@ -2164,6 +2792,492 @@ func runViewportScreenshot(ctx context.Context, client *bridge.Client, args []st
 	return nil
 }
 
+func runViewportSetSize(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("viewport set-size", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	width := fs.Int("width", 0, "viewport width in pixels")
+	height := fs.Int("height", 0, "viewport height in pixels")
+	path := fs.String("path", "", "SubViewport node path (empty = main viewport)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *width <= 0 || *height <= 0 {
+		return fmt.Errorf("viewport set-size requires --width and --height > 0")
+	}
+	result, err := client.ViewportSetSize(ctx, requestID(), *width, *height, *path)
+	if err != nil {
+		return err
+	}
+	if result.Path != "" {
+		fmt.Fprintf(stdout, "Viewport size set: %s (%dx%d)\n", result.Path, result.Width, result.Height)
+	} else {
+		fmt.Fprintf(stdout, "Viewport size set: %dx%d\n", result.Width, result.Height)
+	}
+	return nil
+}
+
+func runViewportAdd(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("viewport add", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	parent := fs.String("parent", "", "parent node path (optional)")
+	width := fs.Int("width", 320, "SubViewport width")
+	height := fs.Int("height", 0, "SubViewport height")
+	addCamera := fs.Bool("camera", true, "add a Camera3D child")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *width <= 0 || *height <= 0 {
+		return fmt.Errorf("viewport add requires --width and --height > 0")
+	}
+	result, err := client.ViewportAdd(ctx, requestID(), *parent, *width, *height, *addCamera)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "SubViewport added: %s (%dx%d)\n", result.Path, result.Width, result.Height)
+	return nil
+}
+
+func runSceneApplyBlueprint(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("scene apply-blueprint", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "scene path")
+	blueprint := fs.String("blueprint", "", "blueprint name: player3d, spotlight, trigger_area, hud_label")
+	dryRun := fs.Bool("dry-run", false, "validate without mutating")
+	propFlags := stringListFlag{}
+	fs.Var(&propFlags, "prop", "override property in name=TYPED_JSON form")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *blueprint == "" {
+		return fmt.Errorf("scene apply-blueprint requires --path and --blueprint")
+	}
+	props, err := parseNameJSONPairs(propFlags)
+	if err != nil {
+		return err
+	}
+	result, err := client.ApplyBlueprint(ctx, requestID(), *path, *blueprint, props, *dryRun)
+	if err != nil {
+		return err
+	}
+	if *dryRun {
+		fmt.Fprintf(stdout, "Dry run ok: %s (%s, %d nodes)\n", result.Path, result.Blueprint, result.Created)
+		return nil
+	}
+	fmt.Fprintf(stdout, "Blueprint applied: %s (%s, %d nodes)\n", result.Path, result.Blueprint, result.Created)
+	return nil
+}
+
+func runRunProbeRaycast(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("run probe raycast", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	jsonOut := fs.Bool("json", false, "output as JSON")
+	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for raycast job")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	queued, err := client.RunRaycast(ctx, requestID())
+	if err != nil {
+		return err
+	}
+	var result bridge.RunRaycastResult
+	if queued.JobID != "" {
+		job, err := waitForJob(ctx, client, queued.JobID, *timeout, "run probe raycast")
+		if err != nil {
+			return err
+		}
+		encoded, _ := json.Marshal(job.Result)
+		_ = json.Unmarshal(encoded, &result)
+	} else {
+		result = queued
+	}
+	if *jsonOut {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(result)
+	}
+	if result.Hit {
+		fmt.Fprintf(stdout, "Raycast hit: %s at distance %.3f\n", result.HitCollider, result.HitDistance)
+	} else {
+		fmt.Fprintln(stdout, "Raycast: no hit")
+	}
+	if result.CameraPath != "" {
+		fmt.Fprintf(stdout, "Camera: %s\n", result.CameraPath)
+	}
+	return nil
+}
+
+func runThemeCreate(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("theme create", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "theme resource path (res://ui/main.tres)")
+	force := fs.Bool("force", false, "overwrite existing theme")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" {
+		return fmt.Errorf("theme create requires --path")
+	}
+	result, err := client.ThemeCreate(ctx, requestID(), *path, *force)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Theme created: %s\n", result.Path)
+	return nil
+}
+
+func runThemeSetColor(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("theme set-color", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "theme resource path")
+	nodeType := fs.String("node-type", "", "Godot node type (e.g. Label)")
+	name := fs.String("name", "", "color override name (e.g. font_color)")
+	value := fs.String("value", "", "RGBA as r,g,b,a with 0-1 floats or rrggbbaa hex")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *nodeType == "" || *name == "" || *value == "" {
+		return fmt.Errorf("theme set-color requires --path, --node-type, --name, --value")
+	}
+	rgba, err := parseColorValue(*value)
+	if err != nil {
+		return err
+	}
+	result, err := client.ThemeSetColor(ctx, requestID(), *path, *nodeType, *name, rgba)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Theme color set: %s/%s on %s\n", result.NodeType, result.Name, result.Path)
+	return nil
+}
+
+func runThemeSetFontSize(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("theme set-font-size", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "theme resource path")
+	nodeType := fs.String("node-type", "", "Godot node type (e.g. Label)")
+	name := fs.String("name", "", "font size name (e.g. font_size)")
+	size := fs.Int("value", 0, "font size in pixels")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *nodeType == "" || *name == "" || *size <= 0 {
+		return fmt.Errorf("theme set-font-size requires --path, --node-type, --name, --value > 0")
+	}
+	result, err := client.ThemeSetFontSize(ctx, requestID(), *path, *nodeType, *name, *size)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Theme font size set: %s/%s=%d on %s\n", result.NodeType, result.Name, *size, result.Path)
+	return nil
+}
+
+func runThemeSetConstant(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("theme set-constant", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "theme resource path")
+	nodeType := fs.String("node-type", "", "Godot node type (e.g. MarginContainer)")
+	name := fs.String("name", "", "constant name (e.g. margin_top)")
+	value := fs.Int("value", 0, "integer constant value")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *nodeType == "" || *name == "" {
+		return fmt.Errorf("theme set-constant requires --path, --node-type, --name, --value")
+	}
+	result, err := client.ThemeSetConstant(ctx, requestID(), *path, *nodeType, *name, *value)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Theme constant set: %s/%s=%d on %s\n", result.NodeType, result.Name, *value, result.Path)
+	return nil
+}
+
+func parseColorValue(s string) ([4]float64, error) {
+	// Support r,g,b,a (0-1 floats) or rrggbbaa / rrggbb hex
+	if strings.ContainsRune(s, ',') {
+		parts := strings.Split(s, ",")
+		if len(parts) < 3 || len(parts) > 4 {
+			return [4]float64{}, fmt.Errorf("color must be r,g,b or r,g,b,a: %q", s)
+		}
+		var out [4]float64
+		out[3] = 1.0
+		for i, p := range parts {
+			f, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
+			if err != nil {
+				return out, fmt.Errorf("invalid color component %q: %w", p, err)
+			}
+			out[i] = f
+		}
+		return out, nil
+	}
+	// hex
+	s = strings.TrimPrefix(s, "#")
+	if len(s) == 6 {
+		s += "ff"
+	}
+	if len(s) != 8 {
+		return [4]float64{}, fmt.Errorf("hex color must be rrggbb or rrggbbaa: %q", s)
+	}
+	var out [4]float64
+	for i := 0; i < 4; i++ {
+		v, err := strconv.ParseUint(s[i*2:i*2+2], 16, 8)
+		if err != nil {
+			return out, fmt.Errorf("invalid hex color %q: %w", s, err)
+		}
+		out[i] = float64(v) / 255.0
+	}
+	return out, nil
+}
+
+func runAnimationCreate(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("animation create", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "AnimationLibrary resource path (res://anims/player.tres)")
+	name := fs.String("name", "", "animation name")
+	length := fs.Float64("length", 1.0, "animation length in seconds")
+	loop := fs.Bool("loop", false, "enable looping")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *name == "" {
+		return fmt.Errorf("animation create requires --path and --name")
+	}
+	result, err := client.AnimationCreate(ctx, requestID(), *path, *name, *length, *loop)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Animation created: %s in %s\n", result.Name, result.Path)
+	return nil
+}
+
+func runAnimationTrackAdd(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("animation track-add", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "AnimationLibrary resource path")
+	animation := fs.String("animation", "", "animation name")
+	nodePath := fs.String("node-path", "", "node path for the track")
+	property := fs.String("property", "", "property name for the track")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *animation == "" || *nodePath == "" || *property == "" {
+		return fmt.Errorf("animation track-add requires --path, --animation, --node-path, --property")
+	}
+	result, err := client.AnimationTrackAdd(ctx, requestID(), *path, *animation, *nodePath, *property)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Track added: index %d in %s/%s\n", result.TrackIdx, result.Path, result.Animation)
+	return nil
+}
+
+func runAnimationKeyframeAdd(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("animation keyframe-add", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "AnimationLibrary resource path")
+	animation := fs.String("animation", "", "animation name")
+	trackIdx := fs.Int("track-idx", 0, "track index")
+	timePos := fs.Float64("time", 0, "keyframe time in seconds")
+	valueStr := fs.String("value", "", "keyframe value as TYPED_JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *animation == "" || *valueStr == "" {
+		return fmt.Errorf("animation keyframe-add requires --path, --animation, --value")
+	}
+	var value any
+	if err := json.Unmarshal([]byte(*valueStr), &value); err != nil {
+		return fmt.Errorf("animation keyframe-add --value must be JSON: %w", err)
+	}
+	result, err := client.AnimationKeyframeAdd(ctx, requestID(), *path, *animation, *trackIdx, *timePos, value)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Keyframe added: track %d at t=%.3f in %s/%s\n", result.TrackIdx, *timePos, result.Path, result.Animation)
+	return nil
+}
+
+func runAnimationLengthSet(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("animation length-set", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "AnimationLibrary resource path")
+	animation := fs.String("animation", "", "animation name")
+	length := fs.Float64("length", 0, "animation length in seconds")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *animation == "" || *length <= 0 {
+		return fmt.Errorf("animation length-set requires --path, --animation, --length > 0")
+	}
+	result, err := client.AnimationLengthSet(ctx, requestID(), *path, *animation, *length)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Animation length set: %s in %s to %.3fs\n", result.Name, result.Path, *length)
+	return nil
+}
+
+func runAnimationPlayerPlay(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("animation player-play", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	nodePath := fs.String("node-path", "", "AnimationPlayer node path in running scene")
+	animation := fs.String("animation", "", "animation name to play")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *nodePath == "" || *animation == "" {
+		return fmt.Errorf("animation player-play requires --node-path and --animation")
+	}
+	_, err := client.AnimationPlayerPlay(ctx, requestID(), *nodePath, *animation)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Playing animation: %s on %s\n", *animation, *nodePath)
+	return nil
+}
+
+func runTilesetCreate(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("tilemap tileset-create", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "TileSet resource path (res://tilesets/world.tres)")
+	tileW := fs.Int("tile-width", 16, "tile width in pixels")
+	tileH := fs.Int("tile-height", 16, "tile height in pixels")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" {
+		return fmt.Errorf("tilemap tileset-create requires --path")
+	}
+	result, err := client.TilesetCreate(ctx, requestID(), *path, *tileW, *tileH)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "TileSet created: %s\n", result.Path)
+	return nil
+}
+
+func runTilesetSourceAdd(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("tilemap source-add", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "TileSet resource path")
+	texture := fs.String("texture", "", "texture resource path (res://textures/tileset.png)")
+	tileW := fs.Int("tile-width", 16, "tile width in pixels")
+	tileH := fs.Int("tile-height", 16, "tile height in pixels")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *texture == "" {
+		return fmt.Errorf("tilemap source-add requires --path and --texture")
+	}
+	result, err := client.TilesetSourceAdd(ctx, requestID(), *path, *texture, *tileW, *tileH)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "TileSet source added: %s\n", result.Path)
+	return nil
+}
+
+func runTilemapCellSet(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("tilemap cell-set", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	node := fs.String("node", "", "TileMap node path")
+	layer := fs.Int("layer", 0, "tile layer index")
+	x := fs.Int("x", 0, "cell x coordinate")
+	y := fs.Int("y", 0, "cell y coordinate")
+	sourceID := fs.Int("source-id", 0, "TileSet source id")
+	atlasX := fs.Int("atlas-x", 0, "atlas x coordinate")
+	atlasY := fs.Int("atlas-y", 0, "atlas y coordinate")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *node == "" {
+		return fmt.Errorf("tilemap cell-set requires --node")
+	}
+	result, err := client.TilemapCellSet(ctx, requestID(), *node, *layer, *x, *y, *sourceID, *atlasX, *atlasY)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Cell set: %s [%d,%d] layer %d\n", result.Node, *x, *y, *layer)
+	return nil
+}
+
+func runTilemapCellClear(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("tilemap cell-clear", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	node := fs.String("node", "", "TileMap node path")
+	layer := fs.Int("layer", 0, "tile layer index")
+	x := fs.Int("x", 0, "cell x coordinate")
+	y := fs.Int("y", 0, "cell y coordinate")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *node == "" {
+		return fmt.Errorf("tilemap cell-clear requires --node")
+	}
+	result, err := client.TilemapCellClear(ctx, requestID(), *node, *layer, *x, *y)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Cell cleared: %s [%d,%d] layer %d\n", result.Node, *x, *y, *layer)
+	return nil
+}
+
+func runAudioBusAdd(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("audio bus-add", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	name := fs.String("name", "", "audio bus name")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *name == "" {
+		return fmt.Errorf("audio bus-add requires --name")
+	}
+	result, err := client.AudioBusAdd(ctx, requestID(), *name)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Audio bus added: %s\n", result.Bus)
+	return nil
+}
+
+func runAudioBusVolumeSet(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("audio bus-volume-set", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	name := fs.String("name", "", "audio bus name")
+	volumeDB := fs.Float64("volume-db", 0, "volume in decibels")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *name == "" {
+		return fmt.Errorf("audio bus-volume-set requires --name")
+	}
+	result, err := client.AudioBusVolumeSet(ctx, requestID(), *name, *volumeDB)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Audio bus volume set: %s = %.1f dB\n", result.Bus, *volumeDB)
+	return nil
+}
+
+func runAudioBusEffectAdd(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("audio bus-effect-add", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	name := fs.String("name", "", "audio bus name")
+	effectType := fs.String("effect-type", "", "AudioEffect subclass (e.g. AudioEffectReverb)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *name == "" || *effectType == "" {
+		return fmt.Errorf("audio bus-effect-add requires --name and --effect-type")
+	}
+	result, err := client.AudioBusEffectAdd(ctx, requestID(), *name, *effectType)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Audio effect added: %s on %s\n", *effectType, result.Bus)
+	return nil
+}
+
 func writeScreenshotJob(outPath string, job bridge.Job) error {
 	content, _ := job.Result["content_base64"].(string)
 	if content == "" {
@@ -2607,11 +3721,14 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "logs",
-			line: "  gdctl [--host host] [--port port] [--token token] run logs [--json] [--clear]",
+			line: "  gdctl [--host host] [--port port] [--token token] run logs [--json] [--clear] [--source SOURCE] [--latest] [--since-start]",
 			desc: "read run/debug logs captured by the bridge",
 			flags: []helpFlag{
 				{name: "json", usage: "write logs as JSON"},
 				{name: "clear", usage: "clear run logs after reading"},
+				{name: "source", meta: "SOURCE", usage: "filter by log source (e.g. runtime.game)"},
+				{name: "latest", usage: "keep only the most-recent entry per distinct source"},
+				{name: "since-start", usage: "exclude entries logged before the current run start"},
 			},
 		},
 		{
@@ -2631,11 +3748,53 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "input",
-			line: "  gdctl [--host host] [--port port] [--token token] run input --file input.json [--timeout DURATION]",
+			line: "  gdctl [--host host] [--port port] [--token token] run input --file input.json [--timeout DURATION] [--summary-probe SOURCE]",
 			desc: "play a short input sequence into the running game",
 			flags: []helpFlag{
 				{name: "file", meta: "FILE", usage: "input JSON file containing steps"},
 				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for input job (default 5s)"},
+				{name: "summary-probe", meta: "SOURCE", usage: "after input completes, print the latest log entry for this source"},
+			},
+		},
+		{
+			sub:  "wait-probe",
+			line: "  gdctl [--host host] [--port port] [--token token] run wait-probe --source SOURCE --assert KEY OP VALUE [--timeout DURATION] [--json]",
+			desc: "poll run logs until a probe field satisfies a predicate or timeout fires",
+			flags: []helpFlag{
+				{name: "source", meta: "SOURCE", usage: "log source to watch (e.g. runtime.game)"},
+				{name: "assert", meta: "EXPR", usage: "predicate expression, e.g. targets_disabled>=1 (ops: >= <= > < == !=)"},
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait (default 30s)"},
+				{name: "json", usage: "print matching entry as JSON"},
+			},
+		},
+		{
+			sub:  "probe raycast",
+			line: "  gdctl [--host host] [--port port] [--token token] run probe raycast [--json] [--timeout DURATION]",
+			desc: "fire a center-screen ray in the running 3D game and report the hit",
+			flags: []helpFlag{
+				{name: "json", usage: "print result as JSON"},
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for raycast result (default 5s)"},
+			},
+			notes: []string{
+				"Requires GdctlRuntimeBridge autoload and an active Camera3D in the running scene.",
+			},
+		},
+		{
+			sub:  "smoke",
+			line: "  gdctl [--host host] [--port port] [--token token] run smoke [--scene SCENE | --main] [--input FILE] [--assert SOURCE:KEY>=VALUE] [--screenshot OUT] [--timeout DURATION] [--keep-running]",
+			desc: "one-shot automated test: start, optionally inject input, probe, screenshot, then stop",
+			flags: []helpFlag{
+				{name: "scene", meta: "SCENE", usage: "scene to run (res://)"},
+				{name: "main", usage: "run the project main scene"},
+				{name: "input", meta: "FILE", usage: "input JSON file to inject after start"},
+				{name: "assert", meta: "SOURCE:KEY>=VALUE", usage: "wait for a probe predicate before proceeding"},
+				{name: "screenshot", meta: "FILE", usage: "capture game viewport to this PNG path"},
+				{name: "timeout", meta: "DURATION", usage: "total time limit for the smoke run (default 30s)"},
+				{name: "keep-running", usage: "do not stop the scene after the test"},
+			},
+			notes: []string{
+				"Exits with code 0 on pass, 1 on failure.",
+				"Prints 'Smoke: PASS' or 'Smoke: FAIL — <reason>'.",
 			},
 		},
 	}},
@@ -2708,6 +3867,17 @@ var helpGroups = []helpGroup{
 			},
 		},
 		{
+			sub:  "apply-blueprint",
+			line: "  gdctl [--host host] [--port port] [--token token] scene apply-blueprint --path SCENE --blueprint NAME [--dry-run] [--timeout DURATION]",
+			desc: "apply a named node-tree blueprint to the current scene",
+			flags: []helpFlag{
+				{name: "path", meta: "SCENE", usage: "scene to open and mutate (res://main.tscn)"},
+				{name: "blueprint", meta: "NAME", usage: "blueprint name: player3d, spotlight, trigger_area, hud_label"},
+				{name: "dry-run", usage: "validate without mutating or saving"},
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for open/save jobs (default 5s)"},
+			},
+		},
+		{
 			sub:  "run",
 			line: "  gdctl [--project PATH] [--godot PATH] scene run --path SCENE [--timeout DURATION]",
 			desc: "run a scene with headless Godot",
@@ -2722,7 +3892,7 @@ var helpGroups = []helpGroup{
 	{name: "node", cmds: []helpCmd{
 		{
 			sub:  "add",
-			line: "  gdctl [--host host] [--port port] [--token token] node add --parent PATH --type TYPE --name NAME [--prop NAME=TYPED_JSON] [--dry-run]",
+			line: "  gdctl [--host host] [--port port] [--token token] node add --parent PATH --type TYPE --name NAME [--prop NAME=TYPED_JSON] [--dry-run] [--scene SCENE] [--timeout DURATION]",
 			desc: "add a node to the scene",
 			flags: []helpFlag{
 				{name: "parent", meta: "PATH", usage: "parent node path"},
@@ -2730,36 +3900,44 @@ var helpGroups = []helpGroup{
 				{name: "name", meta: "NAME", usage: "new node name"},
 				{name: "prop", meta: "NAME=TYPED_JSON", usage: "initial property value (repeatable)"},
 				{name: "dry-run", usage: "validate without mutating"},
+				{name: "scene", meta: "SCENE", usage: "open this scene before mutating and save it after"},
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for scene open/save jobs (default 5s)"},
 			},
 		},
 		{
 			sub:  "remove",
-			line: "  gdctl [--host host] [--port port] [--token token] node remove --path PATH [--dry-run]",
+			line: "  gdctl [--host host] [--port port] [--token token] node remove --path PATH [--dry-run] [--scene SCENE] [--timeout DURATION]",
 			desc: "remove a node from the scene",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "node path"},
 				{name: "dry-run", usage: "validate without mutating"},
+				{name: "scene", meta: "SCENE", usage: "open this scene before mutating and save it after"},
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for scene open/save jobs (default 5s)"},
 			},
 		},
 		{
 			sub:  "rename",
-			line: "  gdctl [--host host] [--port port] [--token token] node rename --path PATH --name NAME [--dry-run]",
+			line: "  gdctl [--host host] [--port port] [--token token] node rename --path PATH --name NAME [--dry-run] [--scene SCENE] [--timeout DURATION]",
 			desc: "rename a node",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "node path"},
 				{name: "name", meta: "NAME", usage: "new node name"},
 				{name: "dry-run", usage: "validate without mutating"},
+				{name: "scene", meta: "SCENE", usage: "open this scene before mutating and save it after"},
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for scene open/save jobs (default 5s)"},
 			},
 		},
 		{
 			sub:  "move",
-			line: "  gdctl [--host host] [--port port] [--token token] node move --path PATH --parent PARENT [--index N] [--dry-run]",
+			line: "  gdctl [--host host] [--port port] [--token token] node move --path PATH --parent PARENT [--index N] [--dry-run] [--scene SCENE] [--timeout DURATION]",
 			desc: "move a node to a new parent",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "node path"},
 				{name: "parent", meta: "PATH", usage: "new parent node path"},
 				{name: "index", meta: "N", usage: "child index under new parent (-1 = append)"},
 				{name: "dry-run", usage: "validate without mutating"},
+				{name: "scene", meta: "SCENE", usage: "open this scene before mutating and save it after"},
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for scene open/save jobs (default 5s)"},
 			},
 		},
 		{
@@ -2773,7 +3951,7 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "set",
-			line: "  gdctl [--host host] [--port port] [--token token] node set --path PATH --property PROPERTY (--value TYPED_JSON | --string S | --int N | --float N | --bool BOOL | --vector2 X,Y | --vector3 X,Y,Z | --color R,G,B[,A] | --resource PATH | --array-vector3 A;B)",
+			line: "  gdctl [--host host] [--port port] [--token token] node set --path PATH (--property PROPERTY VALUE | --position X,Y,Z | --rotation-degrees X,Y,Z | --scale X,Y,Z) [--scene SCENE] [--timeout DURATION]",
 			desc: "set a node property value",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "node path"},
@@ -2793,6 +3971,14 @@ var helpGroups = []helpGroup{
 				{name: "array-int", meta: "N;N", usage: "Array[int] shorthand"},
 				{name: "array-float", meta: "N;N", usage: "Array[float] shorthand"},
 				{name: "array-bool", meta: "BOOL;BOOL", usage: "Array[bool] shorthand"},
+				{name: "position", meta: "X,Y,Z", usage: "transform shorthand: sets position property as Vector3"},
+				{name: "rotation-degrees", meta: "X,Y,Z", usage: "transform shorthand: sets rotation_degrees property as Vector3"},
+				{name: "scale", meta: "X,Y,Z", usage: "transform shorthand: sets scale property as Vector3"},
+				{name: "scene", meta: "SCENE", usage: "open this scene before mutating and save it after"},
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for scene open/save jobs (default 5s)"},
+			},
+			notes: []string{
+				"Transform shorthands (--position, --rotation-degrees, --scale) cannot be combined with --property.",
 			},
 		},
 		{
@@ -2880,15 +4066,17 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "write",
-			line: "  gdctl [--host host] [--port port] [--token token] script write --path PATH (--body TEXT | --body-file FILE)",
+			line: "  gdctl [--host host] [--port port] [--token token] script write --path PATH (--body TEXT | --body-file FILE) [--allow-missing-preloads]",
 			desc: "syntax-check and write a GDScript file body",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "script path (res://)"},
 				{name: "body", meta: "TEXT", usage: "script body as a string"},
 				{name: "body-file", meta: "FILE", usage: "local file containing the script body"},
+				{name: "allow-missing-preloads", usage: "suppress preload/resource-not-found errors and write anyway"},
 			},
 			notes: []string{
 				"Invalid GDScript is not written and reports Godot's diagnostic, line number, and nearby source context when available.",
+				"--allow-missing-preloads is useful during iterative authoring when preloaded scenes will be created shortly after.",
 			},
 		},
 		{
@@ -3098,6 +4286,203 @@ var helpGroups = []helpGroup{
 				{name: "kind", meta: "KIND", usage: "editor viewport kind: 2d or 3d (default 2d)"},
 				{name: "index", meta: "N", usage: "3D viewport index (default 0)"},
 				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for screenshot job (default 5s)"},
+			},
+		},
+		{
+			sub:  "set-size",
+			line: "  gdctl [--host host] [--port port] [--token token] viewport set-size --width W --height H [--path NODE_PATH]",
+			desc: "resize the main window or a SubViewport node",
+			flags: []helpFlag{
+				{name: "width", meta: "W", usage: "viewport width in pixels"},
+				{name: "height", meta: "H", usage: "viewport height in pixels"},
+				{name: "path", meta: "NODE_PATH", usage: "SubViewport node path; omit to resize the main window"},
+			},
+		},
+		{
+			sub:  "add",
+			line: "  gdctl [--host host] [--port port] [--token token] viewport add --width W --height H [--parent PATH] [--add-camera]",
+			desc: "add a SubViewport node to the current scene",
+			flags: []helpFlag{
+				{name: "width", meta: "W", usage: "SubViewport width in pixels (default 320)"},
+				{name: "height", meta: "H", usage: "SubViewport height in pixels (default 240)"},
+				{name: "parent", meta: "PATH", usage: "parent node path (defaults to scene root)"},
+				{name: "add-camera", usage: "add a Camera3D child inside the SubViewport"},
+			},
+		},
+	}},
+	{name: "theme", cmds: []helpCmd{
+		{
+			sub:  "create",
+			line: "  gdctl [--host host] [--port port] [--token token] theme create --path PATH [--force]",
+			desc: "create a Theme resource file",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "theme path (res://*.tres)"},
+				{name: "force", usage: "overwrite an existing theme file"},
+			},
+		},
+		{
+			sub:  "set-color",
+			line: "  gdctl [--host host] [--port port] [--token token] theme set-color --path PATH --node-type TYPE --name NAME --value COLOR",
+			desc: "set a named color override on a theme",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "theme file path (res://*.tres)"},
+				{name: "node-type", meta: "TYPE", usage: "Godot control type (e.g. Label, Button)"},
+				{name: "name", meta: "NAME", usage: "color override name (e.g. font_color)"},
+				{name: "value", meta: "COLOR", usage: "color as R,G,B,A floats or HTML hex (e.g. ff8800ff)"},
+			},
+		},
+		{
+			sub:  "set-font-size",
+			line: "  gdctl [--host host] [--port port] [--token token] theme set-font-size --path PATH --node-type TYPE --name NAME --value N",
+			desc: "set a named font size override on a theme",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "theme file path"},
+				{name: "node-type", meta: "TYPE", usage: "Godot control type"},
+				{name: "name", meta: "NAME", usage: "font size override name (e.g. font_size)"},
+				{name: "value", meta: "N", usage: "font size in pixels"},
+			},
+		},
+		{
+			sub:  "set-constant",
+			line: "  gdctl [--host host] [--port port] [--token token] theme set-constant --path PATH --node-type TYPE --name NAME --value N",
+			desc: "set a named integer constant override on a theme",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "theme file path"},
+				{name: "node-type", meta: "TYPE", usage: "Godot control type"},
+				{name: "name", meta: "NAME", usage: "constant name (e.g. margin_top)"},
+				{name: "value", meta: "N", usage: "integer constant value"},
+			},
+		},
+	}},
+	{name: "animation", cmds: []helpCmd{
+		{
+			sub:  "create",
+			line: "  gdctl [--host host] [--port port] [--token token] animation create --path LIBRARY --name NAME [--length N] [--loop]",
+			desc: "create an animation in an AnimationLibrary resource",
+			flags: []helpFlag{
+				{name: "path", meta: "LIBRARY", usage: "AnimationLibrary .tres path (created if absent)"},
+				{name: "name", meta: "NAME", usage: "animation name (valid GDScript identifier)"},
+				{name: "length", meta: "N", usage: "animation length in seconds (default 1.0)"},
+				{name: "loop", usage: "enable linear loop mode"},
+			},
+		},
+		{
+			sub:  "track-add",
+			line: "  gdctl [--host host] [--port port] [--token token] animation track-add --path LIBRARY --animation NAME --node-path NODE --property PROP",
+			desc: "add a value track to an animation",
+			flags: []helpFlag{
+				{name: "path", meta: "LIBRARY", usage: "AnimationLibrary .tres path"},
+				{name: "animation", meta: "NAME", usage: "animation name"},
+				{name: "node-path", meta: "NODE", usage: "node path relative to AnimationPlayer root (e.g. Player)"},
+				{name: "property", meta: "PROP", usage: "property name on that node (e.g. position)"},
+			},
+		},
+		{
+			sub:  "keyframe-add",
+			line: "  gdctl [--host host] [--port port] [--token token] animation keyframe-add --path LIBRARY --animation NAME --track-idx N --time T --value TYPED_JSON",
+			desc: "insert a keyframe on a track at a given time",
+			flags: []helpFlag{
+				{name: "path", meta: "LIBRARY", usage: "AnimationLibrary .tres path"},
+				{name: "animation", meta: "NAME", usage: "animation name"},
+				{name: "track-idx", meta: "N", usage: "track index (from track-add output)"},
+				{name: "time", meta: "T", usage: "time position in seconds"},
+				{name: "value", meta: "TYPED_JSON", usage: "keyframe value as typed JSON"},
+			},
+		},
+		{
+			sub:  "length-set",
+			line: "  gdctl [--host host] [--port port] [--token token] animation length-set --path LIBRARY --animation NAME --length N",
+			desc: "set the duration of an animation",
+			flags: []helpFlag{
+				{name: "path", meta: "LIBRARY", usage: "AnimationLibrary .tres path"},
+				{name: "animation", meta: "NAME", usage: "animation name"},
+				{name: "length", meta: "N", usage: "new duration in seconds"},
+			},
+		},
+		{
+			sub:  "player-play",
+			line: "  gdctl [--host host] [--port port] [--token token] animation player-play --node-path PATH [--animation NAME]",
+			desc: "trigger playback on an AnimationPlayer node in the open scene",
+			flags: []helpFlag{
+				{name: "node-path", meta: "PATH", usage: "path to the AnimationPlayer node"},
+				{name: "animation", meta: "NAME", usage: "animation name to play (defaults to current)"},
+			},
+		},
+	}},
+	{name: "tilemap", cmds: []helpCmd{
+		{
+			sub:  "tileset-create",
+			line: "  gdctl [--host host] [--port port] [--token token] tilemap tileset-create --path PATH [--tile-width W] [--tile-height H] [--force]",
+			desc: "create a TileSet resource file",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "TileSet resource path (res://)"},
+				{name: "tile-width", meta: "W", usage: "tile width in pixels (default 16)"},
+				{name: "tile-height", meta: "H", usage: "tile height in pixels (default 16)"},
+				{name: "force", usage: "overwrite an existing TileSet"},
+			},
+		},
+		{
+			sub:  "source-add",
+			line: "  gdctl [--host host] [--port port] [--token token] tilemap source-add --path TILESET --texture TEX [--tile-width W] [--tile-height H]",
+			desc: "add an atlas texture source to a TileSet",
+			flags: []helpFlag{
+				{name: "path", meta: "TILESET", usage: "TileSet resource path"},
+				{name: "texture", meta: "TEX", usage: "atlas texture resource path (res://)"},
+				{name: "tile-width", meta: "W", usage: "tile width in pixels (default 16)"},
+				{name: "tile-height", meta: "H", usage: "tile height in pixels (default 16)"},
+			},
+		},
+		{
+			sub:  "cell-set",
+			line: "  gdctl [--host host] [--port port] [--token token] tilemap cell-set --node PATH --layer N --x X --y Y --source-id ID [--atlas-x AX] [--atlas-y AY]",
+			desc: "paint a cell on a TileMap node",
+			flags: []helpFlag{
+				{name: "node", meta: "PATH", usage: "TileMap node path in the open scene"},
+				{name: "layer", meta: "N", usage: "layer index (default 0)"},
+				{name: "x", meta: "X", usage: "cell column"},
+				{name: "y", meta: "Y", usage: "cell row"},
+				{name: "source-id", meta: "ID", usage: "TileSet source ID"},
+				{name: "atlas-x", meta: "AX", usage: "atlas tile column (default 0)"},
+				{name: "atlas-y", meta: "AY", usage: "atlas tile row (default 0)"},
+			},
+		},
+		{
+			sub:  "cell-clear",
+			line: "  gdctl [--host host] [--port port] [--token token] tilemap cell-clear --node PATH --layer N --x X --y Y",
+			desc: "erase a cell on a TileMap node",
+			flags: []helpFlag{
+				{name: "node", meta: "PATH", usage: "TileMap node path in the open scene"},
+				{name: "layer", meta: "N", usage: "layer index (default 0)"},
+				{name: "x", meta: "X", usage: "cell column"},
+				{name: "y", meta: "Y", usage: "cell row"},
+			},
+		},
+	}},
+	{name: "audio", cmds: []helpCmd{
+		{
+			sub:  "bus-add",
+			line: "  gdctl [--host host] [--port port] [--token token] audio bus-add --name NAME",
+			desc: "add a named audio bus",
+			flags: []helpFlag{
+				{name: "name", meta: "NAME", usage: "bus name"},
+			},
+		},
+		{
+			sub:  "bus-volume-set",
+			line: "  gdctl [--host host] [--port port] [--token token] audio bus-volume-set --name NAME --volume-db DB",
+			desc: "set the volume of an audio bus in dB",
+			flags: []helpFlag{
+				{name: "name", meta: "NAME", usage: "bus name"},
+				{name: "volume-db", meta: "DB", usage: "volume in decibels (e.g. 0.0 for unity, -6.0 for half)"},
+			},
+		},
+		{
+			sub:  "bus-effect-add",
+			line: "  gdctl [--host host] [--port port] [--token token] audio bus-effect-add --name NAME --effect-type TYPE",
+			desc: "add an AudioEffect to a bus",
+			flags: []helpFlag{
+				{name: "name", meta: "NAME", usage: "bus name"},
+				{name: "effect-type", meta: "TYPE", usage: "AudioEffect subclass name (e.g. AudioEffectReverb, AudioEffectCompressor)"},
 			},
 		},
 	}},

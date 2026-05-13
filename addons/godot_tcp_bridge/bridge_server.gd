@@ -1,7 +1,7 @@
 @tool
 extends RefCounted
 
-const PLUGIN_VERSION := "0.1.9"
+const PLUGIN_VERSION := "0.2.0"
 const PROTOCOL_VERSION := "gdctl.v1"
 const DEFAULT_HOST := "127.0.0.1"
 const DEFAULT_PORT := 7777
@@ -30,6 +30,10 @@ const Protocol = preload("res://addons/godot_tcp_bridge/protocol.gd")
 const LogBuffer = preload("res://addons/godot_tcp_bridge/log_buffer.gd")
 const LogCommands = preload("res://addons/godot_tcp_bridge/commands/log_commands.gd")
 const Jobs = preload("res://addons/godot_tcp_bridge/jobs.gd")
+const ThemeCommands = preload("res://addons/godot_tcp_bridge/commands/theme_commands.gd")
+const AnimationCommands = preload("res://addons/godot_tcp_bridge/commands/animation_commands.gd")
+const TilemapCommands = preload("res://addons/godot_tcp_bridge/commands/tilemap_commands.gd")
+const AudioCommands = preload("res://addons/godot_tcp_bridge/commands/audio_commands.gd")
 
 class RuntimeLogCapture extends Logger:
 	var log_buffer
@@ -76,6 +80,10 @@ var addon_update = AddonUpdate.new()
 var protocol = Protocol.new()
 var log_buffer = LogBuffer.new()
 var log_commands = LogCommands.new()
+var theme_commands = ThemeCommands.new()
+var animation_commands = AnimationCommands.new()
+var tilemap_commands = TilemapCommands.new()
+var audio_commands = AudioCommands.new()
 var jobs = Jobs.new()
 var tcp_server := TCPServer.new()
 var clients: Array[Dictionary] = []
@@ -144,6 +152,16 @@ func reset_token() -> String:
 
 
 func record_debugger_state(message: String, detail: Dictionary) -> void:
+	var frames: Array = []
+	if EngineDebugger.is_active():
+		var raw_stack: Array = get_stack()
+		for frame in raw_stack:
+			if typeof(frame) == TYPE_DICTIONARY:
+				frames.append({
+					"file": String(frame.get("source", "")),
+					"line": int(frame.get("line", 0)),
+					"function": String(frame.get("function", "")),
+				})
 	debugger_state = {
 		"paused": true,
 		"reason": "runtime.error",
@@ -151,6 +169,7 @@ func record_debugger_state(message: String, detail: Dictionary) -> void:
 		"file": String(detail.get("file", "")),
 		"line": int(detail.get("line", 0)),
 		"function": String(detail.get("function", "")),
+		"stack_frames": frames,
 		"raw_data": detail.duplicate(true),
 		"updated_at": Time.get_datetime_string_from_system(true),
 	}
@@ -323,6 +342,46 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return _handle_run_screenshot(request)
 	if method == "POST" and path == "/run/input":
 		return _handle_run_input(request)
+	if method == "POST" and path == "/run/probe/raycast":
+		return _handle_run_probe_raycast(request)
+	if method == "POST" and path == "/scene/apply/blueprint":
+		return scene_commands.handle_apply_blueprint(request, _command_context())
+	if method == "POST" and path == "/theme/create":
+		return theme_commands.handle_create(request, _command_context())
+	if method == "POST" and path == "/theme/set-color":
+		return theme_commands.handle_set_color(request, _command_context())
+	if method == "POST" and path == "/theme/set-font-size":
+		return theme_commands.handle_set_font_size(request, _command_context())
+	if method == "POST" and path == "/theme/set-constant":
+		return theme_commands.handle_set_constant(request, _command_context())
+	if method == "POST" and path == "/animation/create":
+		return animation_commands.handle_create(request, _command_context())
+	if method == "POST" and path == "/animation/track-add":
+		return animation_commands.handle_track_add(request, _command_context())
+	if method == "POST" and path == "/animation/keyframe-add":
+		return animation_commands.handle_keyframe_add(request, _command_context())
+	if method == "POST" and path == "/animation/length-set":
+		return animation_commands.handle_length_set(request, _command_context())
+	if method == "POST" and path == "/animation/player-play":
+		return animation_commands.handle_player_play(request, _command_context())
+	if method == "POST" and path == "/tilemap/tileset-create":
+		return tilemap_commands.handle_tileset_create(request, _command_context())
+	if method == "POST" and path == "/tilemap/source-add":
+		return tilemap_commands.handle_source_add(request, _command_context())
+	if method == "POST" and path == "/tilemap/cell-set":
+		return tilemap_commands.handle_cell_set(request, _command_context())
+	if method == "POST" and path == "/tilemap/cell-clear":
+		return tilemap_commands.handle_cell_clear(request, _command_context())
+	if method == "POST" and path == "/audio/bus-add":
+		return audio_commands.handle_bus_add(request, _command_context())
+	if method == "POST" and path == "/audio/bus-volume-set":
+		return audio_commands.handle_bus_volume_set(request, _command_context())
+	if method == "POST" and path == "/audio/bus-effect-add":
+		return audio_commands.handle_bus_effect_add(request, _command_context())
+	if method == "POST" and path == "/viewport/set-size":
+		return viewport_commands.handle_set_size(request, _command_context())
+	if method == "POST" and path == "/viewport/add":
+		return viewport_commands.handle_add(request, _command_context())
 	return protocol.bridge_error(404, "", "UNKNOWN_ENDPOINT", "Unknown bridge endpoint", {"method": method, "path": path})
 
 
@@ -471,6 +530,24 @@ func _handle_run_input(request: Dictionary) -> Dictionary:
 		"queued": true,
 		"job_id": job_id,
 		"steps": (steps_value as Array).size(),
+	})
+
+
+func _handle_run_probe_raycast(request: Dictionary) -> Dictionary:
+	var checked: Dictionary = command_request.require_body(request, _command_context(), "run.probe.raycast", "Run probe raycast requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	if not _editor_plugin_available():
+		return protocol.bridge_error(503, String(checked["request_id"]), "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {})
+	var editor_interface := editor_plugin.get_editor_interface()
+	if not editor_interface.is_playing_scene():
+		return protocol.bridge_error(409, String(checked["request_id"]), "RUN_NOT_PLAYING", "No scene is currently running", {})
+	var job_id: String = String(_queue_job("run.probe.raycast", {
+		"request_id": String(checked["request_id"]),
+	}))
+	return protocol.bridge_ok(String(checked["request_id"]), {
+		"queued": true,
+		"job_id": job_id,
 	})
 
 
@@ -652,6 +729,26 @@ func _capabilities() -> Array:
 		"run.logs.clear",
 		"run.screenshot",
 		"run.input",
+		"run.probe.raycast",
+		"scene.apply.blueprint",
+		"theme.create",
+		"theme.set-color",
+		"theme.set-font-size",
+		"theme.set-constant",
+		"animation.create",
+		"animation.track-add",
+		"animation.keyframe-add",
+		"animation.length-set",
+		"animation.player-play",
+		"tilemap.tileset-create",
+		"tilemap.source-add",
+		"tilemap.cell-set",
+		"tilemap.cell-clear",
+		"audio.bus-add",
+		"audio.bus-volume-set",
+		"audio.bus-effect-add",
+		"viewport.set-size",
+		"viewport.add",
 	]
 
 

@@ -360,3 +360,169 @@ func _array_to_vector3(raw: Variant) -> Variant:
 
 func _apply_error(code: String, message: String, detail: Dictionary) -> Dictionary:
 	return {"ok": false, "code": code, "message": message, "detail": detail}
+
+
+func handle_apply_blueprint(request: Dictionary, context: Dictionary) -> Dictionary:
+	var checked: Dictionary = context["request"].require_body(request, context, "scene.apply.blueprint", "Scene apply-blueprint requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
+	var scene_path: String = String(params.get("path", ""))
+	var blueprint_name: String = String(params.get("blueprint", ""))
+	var dry_run: bool = bool(params.get("dry_run", false))
+	if scene_path == "" or not scene_path.begins_with("res://") or not scene_path.ends_with(".tscn"):
+		return context["bridge_error"].call(400, request_id, "SCENE_PATH_INVALID", "Scene path must be a res:// .tscn path", {"path": scene_path})
+	if blueprint_name == "":
+		return context["bridge_error"].call(400, request_id, "BLUEPRINT_NAME_MISSING", "blueprint name is required", {})
+	var blueprint: Dictionary = _get_blueprint(blueprint_name)
+	if blueprint.is_empty():
+		return context["bridge_error"].call(400, request_id, "BLUEPRINT_NOT_FOUND", "Unknown blueprint name", {"blueprint": blueprint_name, "available": _available_blueprints()})
+	var root: Node = context["edited_scene_root"].call()
+	if root == null:
+		return context["bridge_error"].call(409, request_id, "NO_SCENE_OPEN", "No edited scene is open", {})
+	var apply_result: Dictionary = _apply_blueprint_nodes(blueprint, root, context, dry_run)
+	if not bool(apply_result.get("ok", false)):
+		return context["bridge_error"].call(400, request_id, String(apply_result.get("code", "BLUEPRINT_APPLY_FAILED")), String(apply_result.get("message", "Could not apply blueprint")), apply_result.get("detail", {}))
+	var created: int = int(apply_result.get("created", 0))
+	if not dry_run:
+		context["mark_scene_dirty"].call()
+	return context["bridge_ok"].call(request_id, {"path": scene_path, "blueprint": blueprint_name, "created": created, "dry_run": dry_run})
+
+
+func _apply_blueprint_nodes(blueprint: Dictionary, root: Node, context: Dictionary, dry_run: bool) -> Dictionary:
+	var nodes: Array = blueprint.get("nodes", [])
+	var created: int = 0
+	for node_spec_value in nodes:
+		if typeof(node_spec_value) != TYPE_DICTIONARY:
+			return {"ok": false, "code": "BLUEPRINT_SPEC_INVALID", "message": "Blueprint node spec must be a dictionary", "detail": {}}
+		var node_spec: Dictionary = node_spec_value
+		var type_name: String = String(node_spec.get("type", ""))
+		var node_name: String = String(node_spec.get("name", ""))
+		var parent_path: String = String(node_spec.get("parent", ""))
+		if type_name == "" or node_name == "":
+			return {"ok": false, "code": "BLUEPRINT_SPEC_INVALID", "message": "Blueprint node spec requires type and name", "detail": {}}
+		if not ClassDB.class_exists(type_name):
+			return {"ok": false, "code": "BLUEPRINT_TYPE_INVALID", "message": "Unknown node type", "detail": {"type": type_name}}
+		var parent: Node = root
+		if parent_path != "":
+			parent = context["node_by_path"].call(parent_path)
+			if parent == null:
+				return {"ok": false, "code": "NODE_NOT_FOUND", "message": "Blueprint parent node not found", "detail": {"path": parent_path}}
+		var node: Node = ClassDB.instantiate(type_name)
+		node.name = node_name
+		if not dry_run:
+			parent.add_child(node)
+			node.owner = root
+		var properties: Dictionary = node_spec.get("properties", {})
+		if not dry_run:
+			for prop_key in properties.keys():
+				node.set(String(prop_key), properties[prop_key])
+		var children: Array = node_spec.get("children", [])
+		var child_result := _apply_blueprint_children(children, node, root, context, dry_run)
+		if dry_run:
+			node.free()
+		if not bool(child_result.get("ok", false)):
+			return child_result
+		created += 1 + int(child_result.get("created", 0))
+	return {"ok": true, "created": created}
+
+
+func _apply_blueprint_children(children: Array, parent: Node, root: Node, context: Dictionary, dry_run: bool) -> Dictionary:
+	var created: int = 0
+	for child_spec_value in children:
+		if typeof(child_spec_value) != TYPE_DICTIONARY:
+			return {"ok": false, "code": "BLUEPRINT_SPEC_INVALID", "message": "Blueprint child spec must be a dictionary", "detail": {}}
+		var child_spec: Dictionary = child_spec_value
+		var type_name: String = String(child_spec.get("type", ""))
+		var child_name: String = String(child_spec.get("name", ""))
+		if type_name == "" or child_name == "":
+			return {"ok": false, "code": "BLUEPRINT_SPEC_INVALID", "message": "Blueprint child spec requires type and name", "detail": {}}
+		if not ClassDB.class_exists(type_name):
+			return {"ok": false, "code": "BLUEPRINT_TYPE_INVALID", "message": "Unknown child node type", "detail": {"type": type_name}}
+		var child: Node = ClassDB.instantiate(type_name)
+		child.name = child_name
+		if not dry_run:
+			parent.add_child(child)
+			child.owner = root
+		var properties: Dictionary = child_spec.get("properties", {})
+		if not dry_run:
+			for prop_key in properties.keys():
+				child.set(String(prop_key), properties[prop_key])
+		var grandchildren: Array = child_spec.get("children", [])
+		var gc_result := _apply_blueprint_children(grandchildren, child, root, context, dry_run)
+		if dry_run:
+			child.free()
+		if not bool(gc_result.get("ok", false)):
+			return gc_result
+		created += 1 + int(gc_result.get("created", 0))
+	return {"ok": true, "created": created}
+
+
+func _get_blueprint(name: String) -> Dictionary:
+	match name:
+		"player3d":
+			return {
+				"nodes": [{
+					"type": "CharacterBody3D",
+					"name": "Player",
+					"parent": "",
+					"children": [
+						{
+							"type": "CollisionShape3D",
+							"name": "CollisionShape3D",
+							"properties": {},
+							"children": [],
+						},
+						{
+							"type": "Camera3D",
+							"name": "Camera3D",
+							"properties": {"position": Vector3(0, 1.6, 0)},
+							"children": [],
+						},
+					],
+				}],
+			}
+		"spotlight":
+			return {
+				"nodes": [{
+					"type": "SpotLight3D",
+					"name": "SpotLight3D",
+					"parent": "",
+					"properties": {"light_energy": 2.0, "spot_range": 10.0, "spot_angle": 30.0},
+					"children": [],
+				}],
+			}
+		"trigger_area":
+			return {
+				"nodes": [{
+					"type": "Area3D",
+					"name": "TriggerArea",
+					"parent": "",
+					"children": [{
+						"type": "CollisionShape3D",
+						"name": "CollisionShape3D",
+						"properties": {},
+						"children": [],
+					}],
+				}],
+			}
+		"hud_label":
+			return {
+				"nodes": [{
+					"type": "CanvasLayer",
+					"name": "HUD",
+					"parent": "",
+					"children": [{
+						"type": "Label",
+						"name": "Label",
+						"properties": {},
+						"children": [],
+					}],
+				}],
+			}
+	return {}
+
+
+func _available_blueprints() -> Array:
+	return ["player3d", "spotlight", "trigger_area", "hud_label"]
