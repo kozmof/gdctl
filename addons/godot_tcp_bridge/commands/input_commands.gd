@@ -103,6 +103,43 @@ func handle_event_add_key(request: Dictionary, context: Dictionary) -> Dictionar
 	return context["bridge_ok"].call(request_id, _action_payload(action, {"event_added": true, "key": key_name, "physical": physical}))
 
 
+func handle_event_add_joypad(request: Dictionary, context: Dictionary) -> Dictionary:
+	var checked: Dictionary = context["request"].require_body(request, context, "input.event_add_joypad", "Input joypad event add requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
+	var action: String = String(params.get("action", ""))
+	var button: int = int(params.get("button", -1))
+	var axis: int = int(params.get("axis", -1))
+	var axis_value: float = float(params.get("axis_value", 1.0))
+	var device: int = int(params.get("device", -1))
+	var valid_error: String = _validate_action(action)
+	if valid_error != "":
+		return context["bridge_error"].call(400, request_id, "INPUT_ACTION_INVALID", valid_error, {"action": action})
+	if button < 0 and axis < 0:
+		return context["bridge_error"].call(400, request_id, "INPUT_JOYPAD_PARAMS_MISSING", "Either --button or --axis is required", {})
+	if not InputMap.has_action(action):
+		InputMap.add_action(action)
+	if button >= 0:
+		var event := InputEventJoypadButton.new()
+		event.button_index = button
+		if device >= 0:
+			event.device = device
+		InputMap.action_add_event(action, event)
+	else:
+		var event := InputEventJoypadMotion.new()
+		event.axis = axis
+		event.axis_value = axis_value
+		if device >= 0:
+			event.device = device
+		InputMap.action_add_event(action, event)
+	var save_result: Dictionary = _save_action(action)
+	if not bool(save_result.get("ok", false)):
+		return context["bridge_error"].call(500, request_id, "INPUT_SAVE_FAILED", String(save_result.get("error", "Failed to save input map")), {})
+	return context["bridge_ok"].call(request_id, _action_payload(action, {"event_added": true}))
+
+
 func _validate_action(action: String) -> String:
 	if action == "":
 		return "Input action is required"
@@ -150,6 +187,21 @@ func _event_payload(event: InputEvent) -> Dictionary:
 			"keycode": keycode,
 			"key": OS.get_keycode_string(keycode),
 			"physical": physical,
+		}
+	if event is InputEventJoypadButton:
+		var btn_event := event as InputEventJoypadButton
+		return {
+			"type": "joypad_button",
+			"button": int(btn_event.button_index),
+			"device": btn_event.device,
+		}
+	if event is InputEventJoypadMotion:
+		var motion_event := event as InputEventJoypadMotion
+		return {
+			"type": "joypad_motion",
+			"axis": int(motion_event.axis),
+			"axis_value": motion_event.axis_value,
+			"device": motion_event.device,
 		}
 	return {
 		"type": event.get_class(),

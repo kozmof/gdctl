@@ -49,6 +49,8 @@ func decode(encoded: Variant) -> Dictionary:
 			for item in raw_strings:
 				string_array.append(String(item))
 			return {"ok": true, "value": string_array}
+		"nodepath", "node_path":
+			return {"ok": true, "value": NodePath(String(raw))}
 		"resource":
 			return _decode_resource(raw)
 	return {"ok": false, "error": "Unsupported value kind: " + kind}

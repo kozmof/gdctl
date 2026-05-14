@@ -367,6 +367,42 @@ func (c *Client) ViewportSetSize(ctx context.Context, requestID string, width, h
 	return out, json.Unmarshal(encoded, &out)
 }
 
+func (c *Client) ViewportCameraAssign(ctx context.Context, requestID, viewportPath, cameraPath string) (ViewportCameraAssignResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "viewport.camera-assign",
+		Params:    map[string]any{"viewport": viewportPath, "camera": cameraPath},
+	}
+	result, err := c.postEnvelope(ctx, "/viewport/camera-assign", env)
+	if err != nil {
+		return ViewportCameraAssignResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return ViewportCameraAssignResult{}, err
+	}
+	var out ViewportCameraAssignResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) AudioListenerMakeCurrent(ctx context.Context, requestID, path string) (AudioListenerResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "audio.listener-make-current",
+		Params:    map[string]any{"path": path},
+	}
+	result, err := c.postEnvelope(ctx, "/audio/listener-make-current", env)
+	if err != nil {
+		return AudioListenerResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return AudioListenerResult{}, err
+	}
+	var out AudioListenerResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
 func (c *Client) ViewportAdd(ctx context.Context, requestID, parent string, width, height int, addCamera bool) (ViewportAddResult, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,

@@ -462,6 +462,9 @@ func _apply_blueprint_children(children: Array, parent: Node, root: Node, contex
 func _get_blueprint(name: String) -> Dictionary:
 	match name:
 		"player3d":
+			var capsule := CapsuleShape3D.new()
+			capsule.radius = 0.4
+			capsule.height = 1.8
 			return {
 				"nodes": [{
 					"type": "CharacterBody3D",
@@ -471,7 +474,7 @@ func _get_blueprint(name: String) -> Dictionary:
 						{
 							"type": "CollisionShape3D",
 							"name": "CollisionShape3D",
-							"properties": {},
+							"properties": {"shape": capsule},
 							"children": [],
 						},
 						{

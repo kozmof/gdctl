@@ -143,17 +143,39 @@ func _process_requests() -> void:
 			active.erase(id)
 			continue
 		if kind == "node_probe":
-			_probe_node(id, request)
+			_probe_node(id, request.get("request", {}))
 			_remove_file(String(request.get("path", "")))
 			active.erase(id)
 			continue
-		_capture(id)
+		if kind == "instantiate":
+			_instantiate(id, request.get("request", {}))
+			_remove_file(String(request.get("path", "")))
+			active.erase(id)
+			continue
+		if kind == "scene_reload":
+			_scene_reload(id)
+			_remove_file(String(request.get("path", "")))
+			active.erase(id)
+			continue
+		_capture(id, request.get("request", {}))
 		_remove_file(String(request.get("path", "")))
 		active.erase(id)
 
 
-func _capture(id: String) -> void:
-	var texture := get_viewport().get_texture()
+func _capture(id: String, request: Dictionary = {}) -> void:
+	var viewport_path := String(request.get("viewport_path", ""))
+	var texture: ViewportTexture = null
+	if viewport_path != "":
+		var node := get_node_or_null(NodePath(viewport_path))
+		if node == null:
+			_write_error(id, "Viewport node not found: " + viewport_path)
+			return
+		if not node is SubViewport:
+			_write_error(id, "Node is not a SubViewport: " + viewport_path)
+			return
+		texture = (node as SubViewport).get_texture()
+	else:
+		texture = get_viewport().get_texture()
 	if texture == null:
 		_write_error(id, "Game viewport texture is unavailable")
 		return
@@ -174,6 +196,47 @@ func _capture(id: String) -> void:
 		"content_base64": Marshalls.raw_to_base64(png),
 	}
 	_write_result(id, result)
+
+
+func _instantiate(id: String, request: Dictionary) -> void:
+	var scene_path := String(request.get("scene", ""))
+	var parent_path := String(request.get("parent", ""))
+	var node_name := String(request.get("name", ""))
+	if scene_path == "" or parent_path == "":
+		_write_error(id, "Instantiate requires scene and parent")
+		return
+	var packed: PackedScene = load(scene_path)
+	if packed == null:
+		_write_error(id, "Could not load scene: " + scene_path)
+		return
+	var parent := get_node_or_null(NodePath(parent_path))
+	if parent == null:
+		_write_error(id, "Parent node not found: " + parent_path)
+		return
+	var instance := packed.instantiate()
+	if node_name != "":
+		instance.name = node_name
+	parent.add_child(instance)
+	_write_result(id, {
+		"ok": true,
+		"source": "game",
+		"scene": scene_path,
+		"parent": parent_path,
+		"name": String(instance.name),
+		"path": str(instance.get_path()),
+		"instanced": true,
+	})
+
+
+func _scene_reload(id: String) -> void:
+	var scene_path := get_tree().current_scene.scene_file_path if get_tree().current_scene != null else ""
+	_write_result(id, {
+		"ok": true,
+		"source": "game",
+		"scene": scene_path,
+		"reloaded": true,
+	})
+	get_tree().reload_current_scene()
 
 
 func _capture_raycast(id: String) -> void:

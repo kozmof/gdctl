@@ -58,6 +58,10 @@ func process(context: Dictionary) -> void:
 		_run_probe_raycast_job(job_id, context)
 	elif String(job.get("kind", "")) == "run.probe.node":
 		_run_probe_node_job(job_id, context)
+	elif String(job.get("kind", "")) == "run.instantiate":
+		_run_run_instantiate_job(job_id, context)
+	elif String(job.get("kind", "")) == "run.scene-reload":
+		_run_run_scene_reload_job(job_id, context)
 	else:
 		_finish_error(job_id, "JOB_KIND_UNKNOWN", "Unknown job kind", {"kind": job.get("kind", "")}, context)
 
@@ -224,6 +228,7 @@ func _run_game_screenshot_job(job_id: String, context: Dictionary) -> void:
 			"id": job_id,
 			"kind": "screenshot",
 			"frames": int(detail.get("frames_remaining", 2)),
+			"viewport_path": String(detail.get("viewport_path", "")),
 			"created_at": Time.get_datetime_string_from_system(true),
 		}
 		var file := FileAccess.open(request_path, FileAccess.WRITE)
@@ -461,6 +466,131 @@ func _run_probe_node_job(job_id: String, context: Dictionary) -> void:
 	if Time.get_ticks_msec() - started_ticks > RUNTIME_INPUT_TIMEOUT_MS:
 		_remove_runtime_file(RUNTIME_REQUESTS + job_id + ".json")
 		_finish_error(job_id, "RUN_PROBE_NODE_TIMEOUT", "Runtime helper did not return a node probe result. Make sure GdctlRuntimeBridge autoload is active.", {"request_id": job_id}, context)
+		return
+	job["status"] = "running"
+	job["updated_at"] = Time.get_datetime_string_from_system(true)
+	jobs[job_id] = job
+	pending_jobs.append(job_id)
+
+
+func _run_run_instantiate_job(job_id: String, context: Dictionary) -> void:
+	var job: Dictionary = jobs[job_id]
+	var detail: Dictionary = job.get("detail", {})
+	if not bool(detail.get("requested", false)):
+		var dir_err := _ensure_runtime_dirs()
+		if dir_err != OK:
+			_finish_error(job_id, "RUN_INSTANTIATE_REQUEST_FAILED", "Could not create runtime exchange directory", {"error": error_string(dir_err)}, context)
+			return
+		var request_path := RUNTIME_REQUESTS + job_id + ".json"
+		var request := {
+			"id": job_id,
+			"kind": "instantiate",
+			"frames": 1,
+			"scene": String(detail.get("scene", "")),
+			"parent": String(detail.get("parent", "")),
+			"name": String(detail.get("name", "")),
+			"created_at": Time.get_datetime_string_from_system(true),
+		}
+		var file := FileAccess.open(request_path, FileAccess.WRITE)
+		if file == null:
+			_finish_error(job_id, "RUN_INSTANTIATE_REQUEST_FAILED", "Could not write runtime instantiate request", {"path": request_path}, context)
+			return
+		file.store_string(JSON.stringify(request))
+		file.close()
+		detail["requested"] = true
+		detail["started_ticks"] = Time.get_ticks_msec()
+		job["detail"] = detail
+		job["status"] = "running"
+		job["updated_at"] = Time.get_datetime_string_from_system(true)
+		jobs[job_id] = job
+		pending_jobs.append(job_id)
+		return
+
+	var result_path := RUNTIME_RESULTS + job_id + ".json"
+	if FileAccess.file_exists(result_path):
+		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(result_path))
+		_remove_runtime_file(result_path)
+		_remove_runtime_file(RUNTIME_REQUESTS + job_id + ".json")
+		if typeof(parsed) != TYPE_DICTIONARY:
+			_finish_error(job_id, "RUN_INSTANTIATE_RESULT_INVALID", "Runtime instantiate result is invalid JSON", {"path": result_path}, context)
+			return
+		var result: Dictionary = parsed
+		if not bool(result.get("ok", false)):
+			_finish_error(job_id, "RUN_INSTANTIATE_FAILED", String(result.get("error", "Runtime helper failed to instantiate scene")), {"path": result_path}, context)
+			return
+		_finish_ok(job_id, {
+			"source": "game",
+			"scene": String(result.get("scene", "")),
+			"parent": String(result.get("parent", "")),
+			"name": String(result.get("name", "")),
+			"path": String(result.get("path", "")),
+			"instanced": bool(result.get("instanced", false)),
+		}, context)
+		return
+
+	var started_ticks: int = int(detail.get("started_ticks", Time.get_ticks_msec()))
+	if Time.get_ticks_msec() - started_ticks > RUNTIME_INPUT_TIMEOUT_MS:
+		_remove_runtime_file(RUNTIME_REQUESTS + job_id + ".json")
+		_finish_error(job_id, "RUN_INSTANTIATE_HELPER_TIMEOUT", "Runtime helper did not complete instantiate. Make sure GdctlRuntimeBridge autoload is active.", {"request_id": job_id}, context)
+		return
+	job["status"] = "running"
+	job["updated_at"] = Time.get_datetime_string_from_system(true)
+	jobs[job_id] = job
+	pending_jobs.append(job_id)
+
+
+func _run_run_scene_reload_job(job_id: String, context: Dictionary) -> void:
+	var job: Dictionary = jobs[job_id]
+	var detail: Dictionary = job.get("detail", {})
+	if not bool(detail.get("requested", false)):
+		var dir_err := _ensure_runtime_dirs()
+		if dir_err != OK:
+			_finish_error(job_id, "RUN_SCENE_RELOAD_REQUEST_FAILED", "Could not create runtime exchange directory", {"error": error_string(dir_err)}, context)
+			return
+		var request_path := RUNTIME_REQUESTS + job_id + ".json"
+		var request := {
+			"id": job_id,
+			"kind": "scene_reload",
+			"frames": 1,
+			"created_at": Time.get_datetime_string_from_system(true),
+		}
+		var file := FileAccess.open(request_path, FileAccess.WRITE)
+		if file == null:
+			_finish_error(job_id, "RUN_SCENE_RELOAD_REQUEST_FAILED", "Could not write runtime scene-reload request", {"path": request_path}, context)
+			return
+		file.store_string(JSON.stringify(request))
+		file.close()
+		detail["requested"] = true
+		detail["started_ticks"] = Time.get_ticks_msec()
+		job["detail"] = detail
+		job["status"] = "running"
+		job["updated_at"] = Time.get_datetime_string_from_system(true)
+		jobs[job_id] = job
+		pending_jobs.append(job_id)
+		return
+
+	var result_path := RUNTIME_RESULTS + job_id + ".json"
+	if FileAccess.file_exists(result_path):
+		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(result_path))
+		_remove_runtime_file(result_path)
+		_remove_runtime_file(RUNTIME_REQUESTS + job_id + ".json")
+		if typeof(parsed) != TYPE_DICTIONARY:
+			_finish_error(job_id, "RUN_SCENE_RELOAD_RESULT_INVALID", "Runtime scene-reload result is invalid JSON", {"path": result_path}, context)
+			return
+		var result: Dictionary = parsed
+		if not bool(result.get("ok", false)):
+			_finish_error(job_id, "RUN_SCENE_RELOAD_FAILED", String(result.get("error", "Runtime helper failed to reload scene")), {"path": result_path}, context)
+			return
+		_finish_ok(job_id, {
+			"reloaded": true,
+			"scene": String(result.get("scene", "")),
+		}, context)
+		return
+
+	var started_ticks: int = int(detail.get("started_ticks", Time.get_ticks_msec()))
+	if Time.get_ticks_msec() - started_ticks > RUNTIME_INPUT_TIMEOUT_MS:
+		_remove_runtime_file(RUNTIME_REQUESTS + job_id + ".json")
+		_finish_error(job_id, "RUN_SCENE_RELOAD_HELPER_TIMEOUT", "Runtime helper did not complete scene reload. Make sure GdctlRuntimeBridge autoload is active.", {"request_id": job_id}, context)
 		return
 	job["status"] = "running"
 	job["updated_at"] = Time.get_datetime_string_from_system(true)

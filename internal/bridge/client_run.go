@@ -132,14 +132,18 @@ func (c *Client) ClearRunLogs(ctx context.Context, requestID string) error {
 	return err
 }
 
-func (c *Client) RunScreenshot(ctx context.Context, requestID, source string, screen int) (RunScreenshotResult, error) {
+func (c *Client) RunScreenshot(ctx context.Context, requestID, source string, screen int, viewportPath string) (RunScreenshotResult, error) {
+	params := map[string]any{
+		"source": source,
+		"screen": screen,
+	}
+	if viewportPath != "" {
+		params["viewport_path"] = viewportPath
+	}
 	env := RequestEnvelope{
 		RequestID: requestID,
 		Op:        "run.screenshot",
-		Params: map[string]any{
-			"source": source,
-			"screen": screen,
-		},
+		Params:    params,
 	}
 	result, err := c.postEnvelope(ctx, "/run/screenshot", env)
 	if err != nil {
@@ -154,6 +158,46 @@ func (c *Client) RunScreenshot(ctx context.Context, requestID, source string, sc
 		return RunScreenshotResult{}, err
 	}
 	return out, nil
+}
+
+func (c *Client) RunInstantiate(ctx context.Context, requestID, scene, parent, name string) (RunInstantiateResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "run.instantiate",
+		Params: map[string]any{
+			"scene":  scene,
+			"parent": parent,
+			"name":   name,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/run/instantiate", env)
+	if err != nil {
+		return RunInstantiateResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return RunInstantiateResult{}, err
+	}
+	var out RunInstantiateResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
+func (c *Client) RunSceneReload(ctx context.Context, requestID string) (RunSceneReloadResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "run.scene-reload",
+		Params:    map[string]any{},
+	}
+	result, err := c.postEnvelope(ctx, "/run/scene-reload", env)
+	if err != nil {
+		return RunSceneReloadResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return RunSceneReloadResult{}, err
+	}
+	var out RunSceneReloadResult
+	return out, json.Unmarshal(encoded, &out)
 }
 
 func (c *Client) RunInput(ctx context.Context, requestID string, steps []any) (RunInputResult, error) {

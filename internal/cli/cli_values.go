@@ -26,6 +26,7 @@ type typedValueFlags struct {
 	intValue     *string
 	floatValue   *string
 	boolValue    *string
+	nodePath     *string
 	vector2      *string
 	vector3      *string
 	color        *string
@@ -45,6 +46,7 @@ func newTypedValueFlags(fs *flag.FlagSet, label string) *typedValueFlags {
 	flags.intValue = fs.String("int", "", "integer value shorthand")
 	flags.floatValue = fs.String("float", "", "float value shorthand")
 	flags.boolValue = fs.String("bool", "", "boolean value shorthand")
+	flags.nodePath = fs.String("node-path", "", "NodePath shorthand as /root/Node/Child")
 	flags.vector2 = fs.String("vector2", "", "Vector2 shorthand as x,y")
 	flags.vector3 = fs.String("vector3", "", "Vector3 shorthand as x,y,z")
 	flags.color = fs.String("color", "", "Color shorthand as r,g,b[,a]")
@@ -68,6 +70,7 @@ func (f *typedValueFlags) Value() (any, error) {
 		{"int", *f.intValue},
 		{"float", *f.floatValue},
 		{"bool", *f.boolValue},
+		{"node-path", *f.nodePath},
 		{"vector2", *f.vector2},
 		{"vector3", *f.vector3},
 		{"color", *f.color},
@@ -86,7 +89,7 @@ func (f *typedValueFlags) Value() (any, error) {
 		}
 	}
 	if count == 0 {
-		return nil, fmt.Errorf("%s requires a value flag: --value, --string, --int, --float, --bool, --vector2, --vector3, --color, --resource, or --array-*", f.label)
+		return nil, fmt.Errorf("%s requires a value flag: --value, --string, --int, --float, --bool, --node-path, --vector2, --vector3, --color, --resource, or --array-*", f.label)
 	}
 	if count > 1 {
 		return nil, fmt.Errorf("%s requires exactly one value flag", f.label)
@@ -121,6 +124,9 @@ func (f *typedValueFlags) Value() (any, error) {
 			return nil, fmt.Errorf("%s --bool must be true or false: %w", f.label, err)
 		}
 		return map[string]any{"kind": "bool", "value": v}, nil
+	}
+	if *f.nodePath != "" {
+		return map[string]any{"kind": "NodePath", "value": *f.nodePath}, nil
 	}
 	if *f.vector2 != "" {
 		values, err := parseFloatList(*f.vector2, 2, "vector2")

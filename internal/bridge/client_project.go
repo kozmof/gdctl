@@ -131,6 +131,35 @@ func (c *Client) InputEventAddKey(ctx context.Context, requestID, action, key st
 	return out, json.Unmarshal(encoded, &out)
 }
 
+func (c *Client) InputEventAddJoypad(ctx context.Context, requestID, action string, button, axis int, axisValue float64, device int) (InputActionResult, error) {
+	params := map[string]any{
+		"action": action,
+		"button": button,
+		"axis":   axis,
+	}
+	if axisValue != 0 {
+		params["axis_value"] = axisValue
+	}
+	if device >= 0 {
+		params["device"] = device
+	}
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "input.event_add_joypad",
+		Params:    params,
+	}
+	result, err := c.postEnvelope(ctx, "/input/event-add-joypad", env)
+	if err != nil {
+		return InputActionResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return InputActionResult{}, err
+	}
+	var out InputActionResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
 func (c *Client) SignalConnect(ctx context.Context, requestID, fromPath, signalName, toPath, method string) (SignalConnectResult, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,

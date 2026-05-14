@@ -269,7 +269,7 @@ func TestClientRunScreenshotRequest(t *testing.T) {
 
 	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http", Token: "secret"}
 	client := NewClient(cfg)
-	result, err := client.RunScreenshot(context.Background(), "cli-test", "screen", 1)
+	result, err := client.RunScreenshot(context.Background(), "cli-test", "screen", 1, "")
 	if err != nil {
 		t.Fatal(err)
 	}

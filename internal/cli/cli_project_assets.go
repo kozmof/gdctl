@@ -372,11 +372,13 @@ func runInputMap(ctx context.Context, client *bridge.Client, args []string, stdo
 		}
 	case "event":
 		if len(args) < 2 {
-			return fmt.Errorf("input event requires a subcommand (add-key)")
+			return fmt.Errorf("input event requires a subcommand (add-key, add-joypad)")
 		}
 		switch args[1] {
 		case "add-key":
 			return runInputEventAddKey(ctx, client, args[2:], stdout)
+		case "add-joypad":
+			return runInputEventAddJoypad(ctx, client, args[2:], stdout)
 		default:
 			return fmt.Errorf("unknown input event subcommand: %s", args[1])
 		}
@@ -484,6 +486,31 @@ func runInputEventAddKey(ctx context.Context, client *bridge.Client, args []stri
 	} else {
 		fmt.Fprintf(stdout, "Input key already present: %s -> %s\n", result.Action, result.Key)
 	}
+	return nil
+}
+
+func runInputEventAddJoypad(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("input event add-joypad", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	action := fs.String("action", "", "input action name")
+	button := fs.Int("button", -1, "joypad button index (JoyButton enum, e.g. 0=A/Cross)")
+	axis := fs.Int("axis", -1, "joypad axis index (JoyAxis enum, e.g. 0=left_x)")
+	axisValue := fs.Float64("axis-value", 1.0, "axis threshold value")
+	device := fs.Int("device", -1, "joypad device index (-1 = any device)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *action == "" {
+		return fmt.Errorf("input event add-joypad requires --action")
+	}
+	if *button < 0 && *axis < 0 {
+		return fmt.Errorf("input event add-joypad requires --button or --axis")
+	}
+	result, err := client.InputEventAddJoypad(ctx, requestID(), *action, *button, *axis, *axisValue, *device)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Joypad event added to action: %s\n", result.Action)
 	return nil
 }
 

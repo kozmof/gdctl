@@ -39,6 +39,10 @@ func runRun(ctx context.Context, client *bridge.Client, args []string, stdout, s
 		return runRunSmoke(ctx, client, args[1:], stdout)
 	case "probe":
 		return runRunProbe(ctx, client, args[1:], stdout)
+	case "instantiate":
+		return runRunInstantiate(ctx, client, args[1:], stdout)
+	case "scene-reload":
+		return runRunSceneReload(ctx, client, args[1:], stdout)
 	default:
 		return fmt.Errorf("unknown run command: %s", strings.Join(args, " "))
 	}
@@ -555,7 +559,7 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 
 	// screenshot
 	if *screenshotOut != "" {
-		ssResult, err := client.RunScreenshot(ctx, requestID(), "game", 0)
+		ssResult, err := client.RunScreenshot(ctx, requestID(), "game", 0, "")
 		if err != nil {
 			stop()
 			return fmt.Errorf("smoke screenshot: %w", err)
@@ -775,6 +779,7 @@ func runRunScreenshot(ctx context.Context, client *bridge.Client, args []string,
 	outPath := fs.String("out", "", "local PNG output path")
 	source := fs.String("source", "game", "screenshot source: game or screen")
 	screen := fs.Int("screen", 0, "host display screen index")
+	viewport := fs.String("viewport", "", "SubViewport node path within the running scene")
 	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for screenshot job")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -789,7 +794,7 @@ func runRunScreenshot(ctx context.Context, client *bridge.Client, args []string,
 	if *source != "game" && *source != "screen" {
 		return fmt.Errorf("run screenshot --source must be game or screen")
 	}
-	result, err := client.RunScreenshot(ctx, requestID(), *source, *screen)
+	result, err := client.RunScreenshot(ctx, requestID(), *source, *screen, *viewport)
 	if err != nil {
 		return err
 	}
@@ -825,5 +830,60 @@ func runRunScreenshot(ctx context.Context, client *bridge.Client, args []string,
 			fmt.Fprintln(stderr, "warning: screenshot may be the desktop or editor background (low pixel variance)")
 		}
 	}
+	return nil
+}
+
+func runRunInstantiate(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("run instantiate", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	scene := fs.String("scene", "", "packed scene path to instantiate (res://...)")
+	parent := fs.String("parent", "", "parent node path in the running scene")
+	name := fs.String("name", "", "name for the new node (optional)")
+	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for instantiate job")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *scene == "" || *parent == "" {
+		return fmt.Errorf("run instantiate requires --scene and --parent")
+	}
+	result, err := client.RunInstantiate(ctx, requestID(), *scene, *parent, *name)
+	if err != nil {
+		return err
+	}
+	if result.JobID == "" {
+		return fmt.Errorf("run instantiate did not return a job id")
+	}
+	job, err := waitForJob(ctx, client, result.JobID, *timeout, "run instantiate")
+	if err != nil {
+		return err
+	}
+	nodePath, _ := job.Result["path"].(string)
+	if nodePath != "" {
+		fmt.Fprintf(stdout, "Instantiated: %s at %s\n", *scene, nodePath)
+	} else {
+		fmt.Fprintf(stdout, "Instantiated: %s\n", *scene)
+	}
+	return nil
+}
+
+func runRunSceneReload(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("run scene-reload", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for scene reload")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	result, err := client.RunSceneReload(ctx, requestID())
+	if err != nil {
+		return err
+	}
+	if result.JobID == "" {
+		return fmt.Errorf("run scene-reload did not return a job id")
+	}
+	_, err = waitForJob(ctx, client, result.JobID, *timeout, "run scene-reload")
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(stdout, "Scene reloaded")
 	return nil
 }

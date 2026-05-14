@@ -66,6 +66,43 @@ func handle_add(request: Dictionary, context: Dictionary) -> Dictionary:
 	return context["bridge_ok"].call(request_id, {"path": vp_path, "width": width, "height": height, "added": true})
 
 
+func handle_camera_assign(request: Dictionary, context: Dictionary) -> Dictionary:
+	var checked: Dictionary = context["request"].require_body(request, context, "viewport.camera-assign", "Viewport camera-assign requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
+	var viewport_path: String = String(params.get("viewport", ""))
+	var camera_path: String = String(params.get("camera", ""))
+	if viewport_path == "" or camera_path == "":
+		return context["bridge_error"].call(400, request_id, "VIEWPORT_CAMERA_PARAMS_MISSING", "viewport and camera paths are required", {})
+	var root: Node = context["edited_scene_root"].call()
+	if root == null:
+		return context["bridge_error"].call(409, request_id, "NO_SCENE_OPEN", "No edited scene is open", {})
+	var vp_node: Node = context["node_by_path"].call(viewport_path)
+	if vp_node == null:
+		return context["bridge_error"].call(404, request_id, "NODE_NOT_FOUND", "Viewport node not found", {"path": viewport_path})
+	if not vp_node is SubViewport:
+		return context["bridge_error"].call(400, request_id, "VIEWPORT_NODE_INVALID", "Node is not a SubViewport", {"path": viewport_path})
+	var cam_node: Node = context["node_by_path"].call(camera_path)
+	if cam_node == null:
+		return context["bridge_error"].call(404, request_id, "NODE_NOT_FOUND", "Camera node not found", {"path": camera_path})
+	if not cam_node is Camera3D and not cam_node is Camera2D:
+		return context["bridge_error"].call(400, request_id, "CAMERA_NODE_INVALID", "Node is not a Camera3D or Camera2D", {"path": camera_path})
+	if cam_node is Camera3D:
+		var cam3d: Camera3D = cam_node as Camera3D
+		cam3d.current = true
+	elif cam_node is Camera2D:
+		var cam2d: Camera2D = cam_node as Camera2D
+		cam2d.make_current()
+	context["mark_scene_dirty"].call()
+	return context["bridge_ok"].call(request_id, {
+		"viewport": viewport_path,
+		"camera": camera_path,
+		"applied": true,
+	})
+
+
 func handle_screenshot(request: Dictionary, context: Dictionary) -> Dictionary:
 	var checked: Dictionary = context["request"].require_body(request, context, "viewport.screenshot", "Viewport screenshot requires bearer token")
 	if not bool(checked.get("ok", false)):

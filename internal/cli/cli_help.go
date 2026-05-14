@@ -208,6 +208,18 @@ var helpGroups = []helpGroup{
 				{name: "physical", meta: "BOOL", usage: "use physical keycode instead of layout keycode (default true)"},
 			},
 		},
+		{
+			sub:  "event add-joypad",
+			line: "  gdctl [--host host] [--port port] [--token token] input event add-joypad --action ACTION (--button N | --axis N [--axis-value V]) [--device N]",
+			desc: "add a joypad button or axis event to an input action",
+			flags: []helpFlag{
+				{name: "action", meta: "ACTION", usage: "input action name"},
+				{name: "button", meta: "N", usage: "JoyButton index (e.g. 0=A/Cross, 1=B/Circle); mutually exclusive with --axis"},
+				{name: "axis", meta: "N", usage: "JoyAxis index (e.g. 0=left_x, 1=left_y); mutually exclusive with --button"},
+				{name: "axis-value", meta: "V", usage: "axis threshold value (default 1.0)"},
+				{name: "device", meta: "N", usage: "joypad device index (-1 = any device, default -1)"},
+			},
+		},
 	}},
 	{name: "run", cmds: []helpCmd{
 		{
@@ -259,17 +271,19 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "screenshot",
-			line: "  gdctl [--host host] [--port port] [--token token] run screenshot [--out FILE] [--source game|screen] [--screen N]",
+			line: "  gdctl [--host host] [--port port] [--token token] run screenshot [--out FILE] [--source game|screen] [--screen N] [--viewport PATH]",
 			desc: "capture the running game viewport or host screen",
 			flags: []helpFlag{
 				{name: "out", meta: "FILE", usage: "local PNG output path (default screenshots/YYYYMMDD-HHMMSS.png)"},
 				{name: "source", meta: "SOURCE", usage: "screenshot source: game or screen (default game)"},
 				{name: "screen", meta: "N", usage: "host display screen index when --source screen is used (default 0)"},
+				{name: "viewport", meta: "PATH", usage: "SubViewport node path in the running scene; captures that viewport instead of the root"},
 				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for screenshot job (default 5s)"},
 			},
 			notes: []string{
 				"Game screenshots require the gdctl runtime helper autoload installed by run start.",
 				"Use --source screen for the legacy whole-host-screen capture.",
+				"Use --viewport to capture a specific SubViewport (e.g. a split-screen panel).",
 			},
 		},
 		{
@@ -320,6 +334,32 @@ var helpGroups = []helpGroup{
 			},
 			notes: []string{
 				"Requires GdctlRuntimeBridge autoload in the running scene.",
+			},
+		},
+		{
+			sub:  "instantiate",
+			line: "  gdctl [--host host] [--port port] [--token token] run instantiate --scene SCENE --parent PATH [--name NAME] [--timeout DURATION]",
+			desc: "instantiate a packed scene at a parent node in the running game",
+			flags: []helpFlag{
+				{name: "scene", meta: "SCENE", usage: "packed scene path to instantiate (res://)"},
+				{name: "parent", meta: "PATH", usage: "parent node path in the running scene"},
+				{name: "name", meta: "NAME", usage: "name for the new node (optional, uses scene default)"},
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for instantiate job (default 5s)"},
+			},
+			notes: []string{
+				"Requires GdctlRuntimeBridge autoload in the running scene.",
+			},
+		},
+		{
+			sub:  "scene-reload",
+			line: "  gdctl [--host host] [--port port] [--token token] run scene-reload [--timeout DURATION]",
+			desc: "reload the current scene in the running game",
+			flags: []helpFlag{
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for scene reload (default 5s)"},
+			},
+			notes: []string{
+				"Requires GdctlRuntimeBridge autoload in the running scene.",
+				"Autoloads (including the runtime helper) persist across the reload.",
 			},
 		},
 		{
@@ -523,6 +563,7 @@ var helpGroups = []helpGroup{
 				{name: "int", meta: "N", usage: "integer shorthand"},
 				{name: "float", meta: "N", usage: "float shorthand"},
 				{name: "bool", meta: "BOOL", usage: "boolean shorthand"},
+				{name: "node-path", meta: "PATH", usage: "NodePath shorthand (e.g. /root/World/Player)"},
 				{name: "vector2", meta: "X,Y", usage: "Vector2 shorthand"},
 				{name: "vector3", meta: "X,Y,Z", usage: "Vector3 shorthand"},
 				{name: "color", meta: "R,G,B[,A]", usage: "Color shorthand"},
@@ -820,7 +861,7 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "setting set",
-			line: "  gdctl [--host host] [--port port] [--token token] project setting set --key KEY (--value TYPED_JSON | --string S | --int N | --float N | --bool BOOL | --vector2 X,Y | --vector3 X,Y,Z | --color R,G,B[,A] | --resource PATH | --array-vector3 A;B)",
+			line: "  gdctl [--host host] [--port port] [--token token] project setting set --key KEY (--value TYPED_JSON | --string S | --int N | --float N | --bool BOOL | --node-path PATH | --vector2 X,Y | --vector3 X,Y,Z | --color R,G,B[,A] | --resource PATH | --array-vector3 A;B)",
 			desc: "set a project setting value",
 			flags: []helpFlag{
 				{name: "key", meta: "KEY", usage: "project setting key"},
@@ -829,6 +870,7 @@ var helpGroups = []helpGroup{
 				{name: "int", meta: "N", usage: "integer shorthand"},
 				{name: "float", meta: "N", usage: "float shorthand"},
 				{name: "bool", meta: "BOOL", usage: "boolean shorthand"},
+				{name: "node-path", meta: "PATH", usage: "NodePath shorthand (e.g. /root/World/Player)"},
 				{name: "vector2", meta: "X,Y", usage: "Vector2 shorthand"},
 				{name: "vector3", meta: "X,Y,Z", usage: "Vector3 shorthand"},
 				{name: "color", meta: "R,G,B[,A]", usage: "Color shorthand"},
@@ -884,6 +926,15 @@ var helpGroups = []helpGroup{
 				{name: "height", meta: "H", usage: "SubViewport height in pixels (default 240)"},
 				{name: "parent", meta: "PATH", usage: "parent node path (defaults to scene root)"},
 				{name: "add-camera", usage: "add a Camera3D child inside the SubViewport"},
+			},
+		},
+		{
+			sub:  "camera-assign",
+			line: "  gdctl [--host host] [--port port] [--token token] viewport camera-assign --viewport PATH --camera PATH",
+			desc: "make a Camera3D or Camera2D current inside a SubViewport",
+			flags: []helpFlag{
+				{name: "viewport", meta: "PATH", usage: "SubViewport node path"},
+				{name: "camera", meta: "PATH", usage: "Camera3D or Camera2D node path"},
 			},
 		},
 	}},
@@ -1077,6 +1128,14 @@ var helpGroups = []helpGroup{
 			flags: []helpFlag{
 				{name: "name", meta: "NAME", usage: "bus name"},
 				{name: "effect-type", meta: "TYPE", usage: "AudioEffect subclass name (e.g. AudioEffectReverb, AudioEffectCompressor)"},
+			},
+		},
+		{
+			sub:  "listener-make-current",
+			line: "  gdctl [--host host] [--port port] [--token token] audio listener-make-current --path PATH",
+			desc: "make an AudioListener3D or AudioListener2D the active listener",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "AudioListener3D or AudioListener2D node path"},
 			},
 		},
 	}},

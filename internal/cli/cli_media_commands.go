@@ -554,6 +554,43 @@ func runAudioBusVolumeSet(ctx context.Context, client *bridge.Client, args []str
 	return nil
 }
 
+func runViewportCameraAssign(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("viewport camera-assign", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	viewport := fs.String("viewport", "", "SubViewport node path")
+	camera := fs.String("camera", "", "Camera3D or Camera2D node path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *viewport == "" || *camera == "" {
+		return fmt.Errorf("viewport camera-assign requires --viewport and --camera")
+	}
+	result, err := client.ViewportCameraAssign(ctx, requestID(), *viewport, *camera)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Camera assigned: %s -> %s\n", result.Camera, result.Viewport)
+	return nil
+}
+
+func runAudioListenerMakeCurrent(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("audio listener-make-current", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "AudioListener3D or AudioListener2D node path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" {
+		return fmt.Errorf("audio listener-make-current requires --path")
+	}
+	result, err := client.AudioListenerMakeCurrent(ctx, requestID(), *path)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Audio listener active: %s (%s)\n", result.Path, result.Type)
+	return nil
+}
+
 func runAudioBusEffectAdd(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("audio bus-effect-add", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)

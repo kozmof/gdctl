@@ -623,3 +623,32 @@ type ViewportAddResult struct {
 	Height int    `json:"height"`
 	Added  bool   `json:"added,omitempty"`
 }
+
+type ViewportCameraAssignResult struct {
+	Viewport string `json:"viewport,omitempty"`
+	Camera   string `json:"camera,omitempty"`
+	Applied  bool   `json:"applied,omitempty"`
+}
+
+type AudioListenerResult struct {
+	Path    string `json:"path,omitempty"`
+	Type    string `json:"type,omitempty"`
+	Applied bool   `json:"applied,omitempty"`
+}
+
+type RunInstantiateResult struct {
+	Queued    bool   `json:"queued,omitempty"`
+	JobID     string `json:"job_id,omitempty"`
+	Scene     string `json:"scene,omitempty"`
+	Parent    string `json:"parent,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Path      string `json:"path,omitempty"`
+	Instanced bool   `json:"instanced,omitempty"`
+}
+
+type RunSceneReloadResult struct {
+	Queued   bool   `json:"queued,omitempty"`
+	JobID    string `json:"job_id,omitempty"`
+	Reloaded bool   `json:"reloaded,omitempty"`
+	Scene    string `json:"scene,omitempty"`
+}

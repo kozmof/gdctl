@@ -405,6 +405,16 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return viewport_commands.handle_set_size(request, _command_context())
 	if method == "POST" and path == "/viewport/add":
 		return viewport_commands.handle_add(request, _command_context())
+	if method == "POST" and path == "/viewport/camera-assign":
+		return viewport_commands.handle_camera_assign(request, _command_context())
+	if method == "POST" and path == "/audio/listener-make-current":
+		return audio_commands.handle_listener_make_current(request, _command_context())
+	if method == "POST" and path == "/input/event-add-joypad":
+		return input_commands.handle_event_add_joypad(request, _command_context())
+	if method == "POST" and path == "/run/instantiate":
+		return _handle_run_instantiate(request)
+	if method == "POST" and path == "/run/scene-reload":
+		return _handle_run_scene_reload(request)
 	return protocol.bridge_error(404, "", "UNKNOWN_ENDPOINT", "Unknown bridge endpoint", {"method": method, "path": path})
 
 
@@ -524,9 +534,11 @@ func _handle_run_screenshot(request: Dictionary) -> Dictionary:
 	var screen: int = int(params.get("screen", 0))
 	if source == "screen" and (screen < 0 or screen >= DisplayServer.get_screen_count()):
 		return protocol.bridge_error(400, String(checked["request_id"]), "RUN_SCREEN_INVALID", "Screen index is out of range", {"screen": screen})
+	var viewport_path: String = String(params.get("viewport_path", ""))
 	var job_id: String = String(_queue_job("run.screenshot", {
 		"source": source,
 		"screen": screen,
+		"viewport_path": viewport_path,
 		"frames_remaining": 2,
 		"request_id": String(checked["request_id"]),
 	}))
@@ -606,6 +618,53 @@ func _handle_run_probe_node(request: Dictionary) -> Dictionary:
 		"job_id": job_id,
 		"path": path,
 		"properties": properties_value,
+	})
+
+
+func _handle_run_instantiate(request: Dictionary) -> Dictionary:
+	var checked: Dictionary = command_request.require_body(request, _command_context(), "run.instantiate", "Run instantiate requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	if not _editor_plugin_available():
+		return protocol.bridge_error(503, String(checked["request_id"]), "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {})
+	var editor_interface := editor_plugin.get_editor_interface()
+	if not editor_interface.is_playing_scene():
+		return protocol.bridge_error(409, String(checked["request_id"]), "RUN_NOT_PLAYING", "No scene is currently running", {})
+	var params: Dictionary = checked["params"]
+	var scene: String = String(params.get("scene", ""))
+	var parent: String = String(params.get("parent", ""))
+	if scene == "" or parent == "":
+		return protocol.bridge_error(400, String(checked["request_id"]), "RUN_INSTANTIATE_PARAMS_MISSING", "scene and parent are required", {})
+	var name: String = String(params.get("name", ""))
+	var job_id: String = String(_queue_job("run.instantiate", {
+		"scene": scene,
+		"parent": parent,
+		"name": name,
+		"request_id": String(checked["request_id"]),
+	}))
+	return protocol.bridge_ok(String(checked["request_id"]), {
+		"queued": true,
+		"job_id": job_id,
+		"scene": scene,
+		"parent": parent,
+	})
+
+
+func _handle_run_scene_reload(request: Dictionary) -> Dictionary:
+	var checked: Dictionary = command_request.require_body(request, _command_context(), "run.scene-reload", "Run scene-reload requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	if not _editor_plugin_available():
+		return protocol.bridge_error(503, String(checked["request_id"]), "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {})
+	var editor_interface := editor_plugin.get_editor_interface()
+	if not editor_interface.is_playing_scene():
+		return protocol.bridge_error(409, String(checked["request_id"]), "RUN_NOT_PLAYING", "No scene is currently running", {})
+	var job_id: String = String(_queue_job("run.scene-reload", {
+		"request_id": String(checked["request_id"]),
+	}))
+	return protocol.bridge_ok(String(checked["request_id"]), {
+		"queued": true,
+		"job_id": job_id,
 	})
 
 
@@ -869,8 +928,13 @@ func _capabilities() -> Array:
 		"audio.bus-add",
 		"audio.bus-volume-set",
 		"audio.bus-effect-add",
+		"audio.listener-make-current",
 		"viewport.set-size",
 		"viewport.add",
+		"viewport.camera-assign",
+		"input.event-add-joypad",
+		"run.instantiate",
+		"run.scene-reload",
 	]
 
 

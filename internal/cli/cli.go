@@ -212,6 +212,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return runViewportSetSize(ctx, client, rest[2:], stdout)
 			case "add":
 				return runViewportAdd(ctx, client, rest[2:], stdout)
+			case "camera-assign":
+				return runViewportCameraAssign(ctx, client, rest[2:], stdout)
 			}
 		}
 	case "theme":
@@ -266,6 +268,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return runAudioBusVolumeSet(ctx, client, rest[2:], stdout)
 			case "bus-effect-add":
 				return runAudioBusEffectAdd(ctx, client, rest[2:], stdout)
+			case "listener-make-current":
+				return runAudioListenerMakeCurrent(ctx, client, rest[2:], stdout)
 			}
 		}
 	case "help":
