@@ -106,6 +106,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return runNodeGet(ctx, client, rest[2:], stdout)
 			case "set":
 				return runNodeSet(ctx, client, rest[2:], stdout)
+			case "set-many":
+				return runNodeSetMany(ctx, client, rest[2:], stdout)
 			case "set-resource":
 				return runNodeSetResource(ctx, client, rest[2:], stdout)
 			case "attach-script":
@@ -260,6 +262,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return runTilesetSourceAdd(ctx, client, rest[2:], stdout)
 			case "cell-set":
 				return runTilemapCellSet(ctx, client, rest[2:], stdout)
+			case "cell-set-rect":
+				return runTilemapCellSetRect(ctx, client, rest[2:], stdout)
 			case "cell-clear":
 				return runTilemapCellClear(ctx, client, rest[2:], stdout)
 			}
@@ -1631,6 +1635,20 @@ func runSceneBatchOperation(ctx context.Context, client *bridge.Client, idx int,
 			return err
 		}
 		fmt.Fprintf(stdout, "Batch node.set: %s.%s\n", path, property)
+	case "node.set-many":
+		path, _ := op["path"].(string)
+		if path == "" {
+			return fmt.Errorf("scene batch operation %d node.set-many requires path", idx)
+		}
+		properties, err := propertiesMapFromValue(op["properties"])
+		if err != nil {
+			return fmt.Errorf("scene batch operation %d node.set-many: %w", idx, err)
+		}
+		result, err := client.SetNodeProperties(ctx, requestID(), path, properties)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Batch node.set-many: %s (%d properties)\n", path, result.Updated)
 	case "node.attach-script":
 		path, _ := op["path"].(string)
 		script, _ := op["script"].(string)
@@ -1994,6 +2012,67 @@ func runNodeSet(ctx context.Context, client *bridge.Client, args []string, stdou
 		fmt.Fprintf(stdout, "Scene saved: %s\n", savedPath)
 	}
 	return nil
+}
+
+func runNodeSetMany(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("node set-many", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "node path")
+	filePath := fs.String("file", "", "JSON file containing properties")
+	scenePath := fs.String("scene", "", "scene path to open before setting and save after")
+	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for scene open/save jobs")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" || *filePath == "" {
+		return fmt.Errorf("node set-many requires --path and --file")
+	}
+	properties, err := readSetManyPropertiesFile(*filePath)
+	if err != nil {
+		return err
+	}
+	if *scenePath != "" {
+		sceneMu.Lock()
+		defer sceneMu.Unlock()
+		openedPath, _, err := openSceneAndWait(ctx, client, *scenePath, *timeout)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Scene opened: %s\n", openedPath)
+	}
+	result, err := client.SetNodeProperties(ctx, requestID(), *path, properties)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Set %d properties on %s\n", result.Updated, result.Path)
+	if *scenePath != "" {
+		savedPath, err := saveSceneAndWait(ctx, client, *timeout)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Scene saved: %s\n", savedPath)
+	}
+	return nil
+}
+
+func readSetManyPropertiesFile(filePath string) (map[string]any, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, fmt.Errorf("node set-many --file must be JSON: %w", err)
+	}
+	return propertiesMapFromValue(payload["properties"])
+}
+
+func propertiesMapFromValue(value any) (map[string]any, error) {
+	raw, ok := value.(map[string]any)
+	if !ok || len(raw) == 0 {
+		return nil, fmt.Errorf("requires non-empty properties object")
+	}
+	return raw, nil
 }
 
 func runNodeSetResource(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
@@ -3589,6 +3668,35 @@ func runTilemapCellSet(ctx context.Context, client *bridge.Client, args []string
 	return nil
 }
 
+func runTilemapCellSetRect(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("tilemap cell-set-rect", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	node := fs.String("node", "", "TileMap node path")
+	layer := fs.Int("layer", 0, "tile layer index")
+	x := fs.Int("x", 0, "rectangle x coordinate")
+	y := fs.Int("y", 0, "rectangle y coordinate")
+	width := fs.Int("width", 0, "rectangle width in cells")
+	height := fs.Int("height", 0, "rectangle height in cells")
+	sourceID := fs.Int("source-id", 0, "TileSet source id")
+	atlasX := fs.Int("atlas-x", 0, "atlas x coordinate")
+	atlasY := fs.Int("atlas-y", 0, "atlas y coordinate")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *node == "" {
+		return fmt.Errorf("tilemap cell-set-rect requires --node")
+	}
+	if *width <= 0 || *height <= 0 {
+		return fmt.Errorf("tilemap cell-set-rect requires --width and --height greater than 0")
+	}
+	result, err := client.TilemapCellSetRect(ctx, requestID(), *node, *layer, *x, *y, *width, *height, *sourceID, *atlasX, *atlasY)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Cell rect set: %s [%d,%d] %dx%d layer %d (%d cells)\n", result.Node, *x, *y, *width, *height, *layer, result.Cells)
+	return nil
+}
+
 func runTilemapCellClear(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("tilemap cell-clear", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -3614,15 +3722,20 @@ func runAudioBusAdd(ctx context.Context, client *bridge.Client, args []string, s
 	fs := flag.NewFlagSet("audio bus-add", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	name := fs.String("name", "", "audio bus name")
+	ifMissing := fs.Bool("if-missing", false, "succeed when the audio bus already exists")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *name == "" {
 		return fmt.Errorf("audio bus-add requires --name")
 	}
-	result, err := client.AudioBusAdd(ctx, requestID(), *name)
+	result, err := client.AudioBusAdd(ctx, requestID(), *name, *ifMissing)
 	if err != nil {
 		return err
+	}
+	if *ifMissing && !result.Created {
+		fmt.Fprintf(stdout, "Audio bus already exists: %s\n", result.Bus)
+		return nil
 	}
 	fmt.Fprintf(stdout, "Audio bus added: %s\n", result.Bus)
 	return nil
@@ -4328,7 +4441,7 @@ var helpGroups = []helpGroup{
 				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for open/save jobs (default 5s)"},
 			},
 			notes: []string{
-				"Supported ops: node.add, node.set, node.attach-script, node.set-resource.",
+				"Supported ops: node.add, node.set, node.set-many, node.attach-script, node.set-resource.",
 				"Use this when several small edits should share one open/save cycle.",
 			},
 		},
@@ -4464,6 +4577,17 @@ var helpGroups = []helpGroup{
 				{name: "path", meta: "PATH", usage: "node path"},
 				{name: "property", meta: "NAME", usage: "property name"},
 				{name: "resource", meta: "PATH", usage: "resource path (res://)"},
+			},
+		},
+		{
+			sub:  "set-many",
+			line: "  gdctl [--host host] [--port port] [--token token] node set-many --path PATH --file PROPS.json [--scene SCENE] [--timeout DURATION]",
+			desc: "set several node properties from one JSON file",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "node path"},
+				{name: "file", meta: "PROPS.json", usage: `JSON file shaped as {"properties":{"text":{"kind":"String","value":"Hi"}}}`},
+				{name: "scene", meta: "SCENE", usage: "open this scene before mutating and save it after"},
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for scene open/save jobs (default 5s)"},
 			},
 		},
 		{
@@ -4926,6 +5050,22 @@ var helpGroups = []helpGroup{
 			},
 		},
 		{
+			sub:  "cell-set-rect",
+			line: "  gdctl [--host host] [--port port] [--token token] tilemap cell-set-rect --node PATH --layer N --x X --y Y --width W --height H --source-id ID [--atlas-x AX] [--atlas-y AY]",
+			desc: "paint a rectangular area on a TileMap node",
+			flags: []helpFlag{
+				{name: "node", meta: "PATH", usage: "TileMap node path in the open scene"},
+				{name: "layer", meta: "N", usage: "layer index (default 0)"},
+				{name: "x", meta: "X", usage: "rectangle start column"},
+				{name: "y", meta: "Y", usage: "rectangle start row"},
+				{name: "width", meta: "W", usage: "rectangle width in cells"},
+				{name: "height", meta: "H", usage: "rectangle height in cells"},
+				{name: "source-id", meta: "ID", usage: "TileSet source ID"},
+				{name: "atlas-x", meta: "AX", usage: "atlas tile column (default 0)"},
+				{name: "atlas-y", meta: "AY", usage: "atlas tile row (default 0)"},
+			},
+		},
+		{
 			sub:  "cell-clear",
 			line: "  gdctl [--host host] [--port port] [--token token] tilemap cell-clear --node PATH --layer N --x X --y Y",
 			desc: "erase a cell on a TileMap node",
@@ -4940,10 +5080,11 @@ var helpGroups = []helpGroup{
 	{name: "audio", cmds: []helpCmd{
 		{
 			sub:  "bus-add",
-			line: "  gdctl [--host host] [--port port] [--token token] audio bus-add --name NAME",
+			line: "  gdctl [--host host] [--port port] [--token token] audio bus-add --name NAME [--if-missing]",
 			desc: "add a named audio bus",
 			flags: []helpFlag{
 				{name: "name", meta: "NAME", usage: "bus name"},
+				{name: "if-missing", usage: "succeed without changes when the bus already exists"},
 			},
 		},
 		{

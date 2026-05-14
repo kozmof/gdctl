@@ -481,6 +481,57 @@ func TestRunSceneBatchOpensAndSavesOnce(t *testing.T) {
 	}
 }
 
+func TestRunSceneBatchSupportsNodeSetMany(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	batchPath := filepath.Join(t.TempDir(), "ops.json")
+	batchJSON := `{"operations":[{"op":"node.set-many","path":"/root/Main/HUD","properties":{"text":{"kind":"String","value":"Market"},"position":{"kind":"Vector2","value":[10,20]}}}]}`
+	if err := os.WriteFile(batchPath, []byte(batchJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/scene/open":
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"queued": true, "job_id": "open-batch"},
+			})
+		case "/jobs/open-batch":
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{OK: true, Job: bridge.Job{ID: "open-batch", Kind: "scene.open", Status: "succeeded", Result: map[string]any{"path": "res://main.tscn"}}})
+		case "/node/set-many":
+			if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"path": "/root/Main/HUD", "updated": 2},
+			})
+		case "/scene/save":
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"queued": true, "job_id": "save-batch"},
+			})
+		case "/jobs/save-batch":
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{OK: true, Job: bridge.Job{ID: "save-batch", Kind: "scene.save", Status: "succeeded", Result: map[string]any{"path": "res://main.tscn"}}})
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "scene", "batch", "--path", "res://main.tscn", "--file", batchPath)
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "node.set_many" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	props := gotEnvelope.Params["properties"].(map[string]any)
+	if len(props) != 2 {
+		t.Fatalf("properties = %#v", props)
+	}
+}
+
 func TestRunSceneInstance(t *testing.T) {
 	var gotAuth string
 	var gotEnvelope bridge.RequestEnvelope
@@ -608,6 +659,68 @@ func TestNodeSetRequiresTypedJSONBeforeNetwork(t *testing.T) {
 		t.Fatal("expected validation error")
 	}
 	if !strings.Contains(err.Error(), "typed JSON") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestNodeSetManyHappyPath(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	propsPath := filepath.Join(t.TempDir(), "props.json")
+	propsJSON := `{"properties":{"text":{"kind":"String","value":"Hollow Market"},"position":{"kind":"Vector2","value":[10,20]}}}`
+	if err := os.WriteFile(propsPath, []byte(propsJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/node/set-many" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"path": "/root/Main/HUD", "updated": 2},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "node", "set-many", "--path", "/root/Main/HUD", "--file", propsPath)
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "node.set_many" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["path"] != "/root/Main/HUD" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Set 2 properties") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestNodeSetManyRequiresFlagsBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"node", "set-many", "--path", "/root/Main"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--path and --file") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestNodeSetManyRejectsMalformedJSONBeforeNetwork(t *testing.T) {
+	propsPath := filepath.Join(t.TempDir(), "props.json")
+	if err := os.WriteFile(propsPath, []byte(`{"properties":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"node", "set-many", "--path", "/root/Main", "--file", propsPath}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "must be JSON") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -4337,6 +4450,49 @@ func TestTilemapCellSetHappyPath(t *testing.T) {
 	}
 }
 
+func TestTilemapCellSetRectHappyPath(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/tilemap/cell-set-rect" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"node": "/root/World/TileMap", "layer": 0, "x": 3, "y": 4, "width": 5, "height": 2, "cells": 10, "applied": true},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "tilemap", "cell-set-rect",
+		"--node", "/root/World/TileMap", "--x", "3", "--y", "4", "--width", "5", "--height", "2", "--source-id", "0")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "tilemap.cell-set-rect" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["width"] != float64(5) && gotEnvelope.Params["width"] != 5 {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Cell rect set:") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestTilemapCellSetRectRequiresPositiveSizeBeforeNetwork(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"tilemap", "cell-set-rect", "--node", "/root/TileMap", "--width", "0", "--height", "2"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "--width and --height") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestTilemapCellClearHappyPath(t *testing.T) {
 	var gotEnvelope bridge.RequestEnvelope
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -4402,6 +4558,37 @@ func TestAudioBusAddHappyPath(t *testing.T) {
 		t.Fatalf("op = %q", gotEnvelope.Op)
 	}
 	if !strings.Contains(stdout.String(), "Audio bus added:") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestAudioBusAddIfMissingHappyPath(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/audio/bus-add" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK:     true,
+			Result: map[string]any{"bus": "Ambience", "applied": false, "created": false},
+		})
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "audio", "bus-add", "--name", "Ambience", "--if-missing")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "audio.bus-add" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["if_missing"] != true {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Audio bus already exists: Ambience") {
 		t.Fatalf("stdout:\n%s", stdout.String())
 	}
 }
@@ -4601,7 +4788,7 @@ func TestHelpTilemapGroup(t *testing.T) {
 	if err := Run(context.Background(), []string{"help", "tilemap"}, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"tilemap tileset-create", "tilemap source-add", "tilemap cell-set", "tilemap cell-clear"} {
+	for _, want := range []string{"tilemap tileset-create", "tilemap source-add", "tilemap cell-set", "tilemap cell-set-rect", "tilemap cell-clear"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
 		}
@@ -4613,7 +4800,7 @@ func TestHelpAudioGroup(t *testing.T) {
 	if err := Run(context.Background(), []string{"help", "audio"}, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"audio bus-add", "audio bus-volume-set", "audio bus-effect-add"} {
+	for _, want := range []string{"audio bus-add", "--if-missing", "audio bus-volume-set", "audio bus-effect-add"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
 		}

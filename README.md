@@ -97,6 +97,7 @@ gdctl node rename --path PATH --name NAME [--dry-run] [--scene SCENE] [--timeout
 gdctl node move --path PATH --parent PARENT [--index N] [--dry-run] [--scene SCENE] [--timeout DURATION]
 gdctl node get --path PATH --property PROPERTY
 gdctl node set --path PATH (--property PROPERTY VALUE | --position X,Y,Z | --rotation-degrees X,Y,Z | --scale X,Y,Z) [--scene SCENE] [--timeout DURATION]
+gdctl node set-many --path PATH --file PROPS.json [--scene SCENE] [--timeout DURATION]
 gdctl node set-resource --path PATH --property PROPERTY --resource RESOURCE
 gdctl node attach-script --path PATH --script SCRIPT [--scene SCENE] [--timeout DURATION]
 gdctl node group add --path PATH --group GROUP
@@ -151,9 +152,10 @@ gdctl animation player-play --node-path PATH [--animation NAME]
 gdctl tilemap tileset-create --path PATH [--tile-width W] [--tile-height H] [--force]
 gdctl tilemap source-add --path TILESET --texture TEX [--tile-width W] [--tile-height H]
 gdctl tilemap cell-set --node PATH --layer N --x X --y Y --source-id ID [--atlas-x AX] [--atlas-y AY]
+gdctl tilemap cell-set-rect --node PATH --layer N --x X --y Y --width W --height H --source-id ID [--atlas-x AX] [--atlas-y AY]
 gdctl tilemap cell-clear --node PATH --layer N --x X --y Y
 
-gdctl audio bus-add --name NAME
+gdctl audio bus-add --name NAME [--if-missing]
 gdctl audio bus-volume-set --name NAME --volume-db DB
 gdctl audio bus-effect-add --name NAME --effect-type TYPE
 ```

@@ -274,6 +274,8 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return node_commands.handle_get(request, _command_context())
 	if method == "POST" and path == "/node/set":
 		return node_commands.handle_set(request, _command_context())
+	if method == "POST" and path == "/node/set-many":
+		return node_commands.handle_set_many(request, _command_context())
 	if method == "POST" and path == "/node/set-resource":
 		return node_commands.handle_set_resource(request, _command_context())
 	if method == "POST" and path == "/node/attach-script":
@@ -386,6 +388,8 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return tilemap_commands.handle_source_add(request, _command_context())
 	if method == "POST" and path == "/tilemap/cell-set":
 		return tilemap_commands.handle_cell_set(request, _command_context())
+	if method == "POST" and path == "/tilemap/cell-set-rect":
+		return tilemap_commands.handle_cell_set_rect(request, _command_context())
 	if method == "POST" and path == "/tilemap/cell-clear":
 		return tilemap_commands.handle_cell_clear(request, _command_context())
 	if method == "POST" and path == "/audio/bus-add":
@@ -709,6 +713,7 @@ func _capabilities() -> Array:
 		"node.move",
 		"node.get",
 		"node.set",
+		"node.set_many",
 		"node.set_resource",
 		"node.attach_script",
 		"node.group_add",
@@ -766,6 +771,7 @@ func _capabilities() -> Array:
 		"tilemap.tileset-create",
 		"tilemap.source-add",
 		"tilemap.cell-set",
+		"tilemap.cell-set-rect",
 		"tilemap.cell-clear",
 		"audio.bus-add",
 		"audio.bus-volume-set",

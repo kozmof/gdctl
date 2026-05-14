@@ -220,6 +220,11 @@ type NodePropertyResult struct {
 	Value    any    `json:"value,omitempty"`
 }
 
+type NodeSetManyResult struct {
+	Path    string `json:"path"`
+	Updated int    `json:"updated"`
+}
+
 type NodeSetResourceResult struct {
 	Path     string `json:"path"`
 	Property string `json:"property"`
@@ -567,12 +572,16 @@ type TilemapCellResult struct {
 	Layer   int    `json:"layer"`
 	X       int    `json:"x"`
 	Y       int    `json:"y"`
+	Width   int    `json:"width,omitempty"`
+	Height  int    `json:"height,omitempty"`
+	Cells   int    `json:"cells,omitempty"`
 	Applied bool   `json:"applied,omitempty"`
 }
 
 type AudioBusResult struct {
 	Bus     string `json:"bus,omitempty"`
 	Applied bool   `json:"applied,omitempty"`
+	Created bool   `json:"created,omitempty"`
 }
 
 type ViewportSetSizeResult struct {

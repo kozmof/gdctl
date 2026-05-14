@@ -200,6 +200,26 @@ func handle_set(request: Dictionary, context: Dictionary) -> Dictionary:
 	})
 
 
+func handle_set_many(request: Dictionary, context: Dictionary) -> Dictionary:
+	var checked: Dictionary = context["request"].require_body(request, context, "node.set_many", "Mutation endpoint requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
+	var path: String = String(params.get("path", ""))
+	var node: Node = context["node_by_path"].call(path)
+	if node == null:
+		return context["bridge_error"].call(404, request_id, "NODE_NOT_FOUND", "Node does not exist", {"path": path})
+	var props_result := _apply_props(node, params.get("properties", {}), context)
+	if not bool(props_result.get("ok", false)):
+		return context["bridge_error"].call(400, request_id, String(props_result.get("code", "VALUE_INVALID")), String(props_result.get("message", "Invalid property value")), props_result.get("detail", {}))
+	context["mark_scene_dirty"].call()
+	return context["bridge_ok"].call(request_id, {
+		"path": context["logical_path"].call(node),
+		"updated": int(props_result.get("updated", 0)),
+	})
+
+
 func handle_set_resource(request: Dictionary, context: Dictionary) -> Dictionary:
 	var checked: Dictionary = context["request"].require_body(request, context, "node.set_resource", "Mutation endpoint requires bearer token")
 	if not bool(checked.get("ok", false)):

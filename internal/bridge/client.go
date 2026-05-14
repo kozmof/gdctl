@@ -439,6 +439,30 @@ func (c *Client) SetNodeProperty(ctx context.Context, requestID, path, property 
 	return out, nil
 }
 
+func (c *Client) SetNodeProperties(ctx context.Context, requestID, path string, properties map[string]any) (NodeSetManyResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "node.set_many",
+		Params: map[string]any{
+			"path":       path,
+			"properties": properties,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/node/set-many", env)
+	if err != nil {
+		return NodeSetManyResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return NodeSetManyResult{}, err
+	}
+	var out NodeSetManyResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return NodeSetManyResult{}, err
+	}
+	return out, nil
+}
+
 func (c *Client) SetNodeResource(ctx context.Context, requestID, path, property, resourcePath string) (NodeSetResourceResult, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,
@@ -1391,6 +1415,24 @@ func (c *Client) TilemapCellSet(ctx context.Context, requestID, nodePath string,
 	return out, json.Unmarshal(encoded, &out)
 }
 
+func (c *Client) TilemapCellSetRect(ctx context.Context, requestID, nodePath string, layer, x, y, width, height, sourceID, atlasX, atlasY int) (TilemapCellResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "tilemap.cell-set-rect",
+		Params:    map[string]any{"node": nodePath, "layer": layer, "x": x, "y": y, "width": width, "height": height, "source_id": sourceID, "atlas_x": atlasX, "atlas_y": atlasY},
+	}
+	result, err := c.postEnvelope(ctx, "/tilemap/cell-set-rect", env)
+	if err != nil {
+		return TilemapCellResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return TilemapCellResult{}, err
+	}
+	var out TilemapCellResult
+	return out, json.Unmarshal(encoded, &out)
+}
+
 func (c *Client) TilemapCellClear(ctx context.Context, requestID, nodePath string, layer, x, y int) (TilemapCellResult, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,
@@ -1409,11 +1451,11 @@ func (c *Client) TilemapCellClear(ctx context.Context, requestID, nodePath strin
 	return out, json.Unmarshal(encoded, &out)
 }
 
-func (c *Client) AudioBusAdd(ctx context.Context, requestID, name string) (AudioBusResult, error) {
+func (c *Client) AudioBusAdd(ctx context.Context, requestID, name string, ifMissing bool) (AudioBusResult, error) {
 	env := RequestEnvelope{
 		RequestID: requestID,
 		Op:        "audio.bus-add",
-		Params:    map[string]any{"name": name},
+		Params:    map[string]any{"name": name, "if_missing": ifMissing},
 	}
 	result, err := c.postEnvelope(ctx, "/audio/bus-add", env)
 	if err != nil {

@@ -85,6 +85,39 @@ func handle_cell_set(request: Dictionary, context: Dictionary) -> Dictionary:
 	return context["bridge_ok"].call(request_id, {"node": node_path_str, "layer": layer, "x": x, "y": y, "applied": true})
 
 
+func handle_cell_set_rect(request: Dictionary, context: Dictionary) -> Dictionary:
+	var checked: Dictionary = context["request"].require_body(request, context, "tilemap.cell-set-rect", "TileMap cell-set-rect requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
+	var node_path_str: String = String(params.get("node", ""))
+	var layer: int = int(params.get("layer", 0))
+	var x: int = int(params.get("x", 0))
+	var y: int = int(params.get("y", 0))
+	var width: int = int(params.get("width", 0))
+	var height: int = int(params.get("height", 0))
+	var source_id: int = int(params.get("source_id", 0))
+	var atlas_x: int = int(params.get("atlas_x", 0))
+	var atlas_y: int = int(params.get("atlas_y", 0))
+	if width <= 0 or height <= 0:
+		return context["bridge_error"].call(400, request_id, "TILEMAP_RECT_INVALID", "width and height must be positive", {"width": width, "height": height})
+	var node_result := _get_tilemap_node(node_path_str, request_id, context)
+	if node_result.has("error"):
+		return node_result["error"]
+	var tilemap: TileMap = node_result["node"]
+	if layer < 0 or layer >= tilemap.get_layers_count():
+		return context["bridge_error"].call(400, request_id, "TILEMAP_LAYER_INVALID", "Layer index out of range", {"layer": layer, "layers": tilemap.get_layers_count()})
+	var atlas_coords := Vector2i(atlas_x, atlas_y)
+	var applied := 0
+	for cy in range(y, y + height):
+		for cx in range(x, x + width):
+			tilemap.set_cell(layer, Vector2i(cx, cy), source_id, atlas_coords)
+			applied += 1
+	context["mark_scene_dirty"].call()
+	return context["bridge_ok"].call(request_id, {"node": node_path_str, "layer": layer, "x": x, "y": y, "width": width, "height": height, "applied": true, "cells": applied})
+
+
 func handle_cell_clear(request: Dictionary, context: Dictionary) -> Dictionary:
 	var checked: Dictionary = context["request"].require_body(request, context, "tilemap.cell-clear", "TileMap cell-clear requires bearer token")
 	if not bool(checked.get("ok", false)):

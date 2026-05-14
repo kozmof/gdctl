@@ -9,14 +9,17 @@ func handle_bus_add(request: Dictionary, context: Dictionary) -> Dictionary:
 	var params: Dictionary = checked["params"]
 	var request_id: String = String(checked["request_id"])
 	var bus_name: String = String(params.get("name", ""))
+	var if_missing: bool = bool(params.get("if_missing", false))
 	if bus_name == "":
 		return context["bridge_error"].call(400, request_id, "AUDIO_BUS_NAME_MISSING", "Bus name is required", {})
 	if AudioServer.get_bus_index(bus_name) >= 0:
+		if if_missing:
+			return context["bridge_ok"].call(request_id, {"bus": bus_name, "applied": false, "created": false})
 		return context["bridge_error"].call(409, request_id, "AUDIO_BUS_ALREADY_EXISTS", "Audio bus already exists", {"bus": bus_name})
 	var idx: int = AudioServer.get_bus_count()
 	AudioServer.add_bus(idx)
 	AudioServer.set_bus_name(idx, bus_name)
-	return context["bridge_ok"].call(request_id, {"bus": bus_name, "applied": true})
+	return context["bridge_ok"].call(request_id, {"bus": bus_name, "applied": true, "created": true})
 
 
 func handle_bus_volume_set(request: Dictionary, context: Dictionary) -> Dictionary:
