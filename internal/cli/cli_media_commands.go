@@ -104,6 +104,7 @@ func runSceneApplyBlueprint(ctx context.Context, client *bridge.Client, args []s
 	path := fs.String("path", "", "scene path")
 	blueprint := fs.String("blueprint", "", "blueprint name: player3d, spotlight, trigger_area, hud_label, world_environment, directional_light, gpu_particles")
 	dryRun := fs.Bool("dry-run", false, "validate without mutating")
+	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for scene open/save jobs")
 	propFlags := stringListFlag{}
 	fs.Var(&propFlags, "prop", "override property in name=TYPED_JSON form")
 	if err := fs.Parse(args); err != nil {
@@ -116,6 +117,13 @@ func runSceneApplyBlueprint(ctx context.Context, client *bridge.Client, args []s
 	if err != nil {
 		return err
 	}
+	sceneMu.Lock()
+	defer sceneMu.Unlock()
+	openedPath, _, err := openSceneAndWait(ctx, client, *path, *timeout)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Scene opened: %s\n", openedPath)
 	result, err := client.ApplyBlueprint(ctx, requestID(), *path, *blueprint, props, *dryRun)
 	if err != nil {
 		return err
@@ -124,7 +132,11 @@ func runSceneApplyBlueprint(ctx context.Context, client *bridge.Client, args []s
 		fmt.Fprintf(stdout, "Dry run ok: %s (%s, %d nodes)\n", result.Path, result.Blueprint, result.Created)
 		return nil
 	}
-	fmt.Fprintf(stdout, "Blueprint applied: %s (%s, %d nodes)\n", result.Path, result.Blueprint, result.Created)
+	savedPath, err := saveSceneAndWait(ctx, client, *timeout)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Blueprint applied: %s (%s, %d nodes)\n", savedPath, result.Blueprint, result.Created)
 	return nil
 }
 

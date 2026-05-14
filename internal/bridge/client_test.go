@@ -890,7 +890,7 @@ func TestClientWriteScriptRequest(t *testing.T) {
 
 	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http"}
 	client := NewClient(cfg)
-	result, err := client.WriteScript(context.Background(), "cli-test", "res://scripts/player.gd", "extends Node2D\n", false)
+	result, err := client.WriteScript(context.Background(), "cli-test", "res://scripts/player.gd", "extends Node2D\n", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}

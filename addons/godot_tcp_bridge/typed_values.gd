@@ -51,6 +51,11 @@ func decode(encoded: Variant) -> Dictionary:
 			return {"ok": true, "value": string_array}
 		"nodepath", "node_path":
 			return {"ok": true, "value": NodePath(String(raw))}
+		"aabb":
+			var aabb_value: Variant = _dict_to_aabb(raw)
+			if typeof(aabb_value) != TYPE_AABB:
+				return {"ok": false, "error": "AABB value must be {\"position\":[x,y,z],\"size\":[w,h,d]}"}
+			return {"ok": true, "value": aabb_value}
 		"resource":
 			return _decode_resource(raw)
 	return {"ok": false, "error": "Unsupported value kind: " + kind}
@@ -89,6 +94,12 @@ func encode(value: Variant) -> Dictionary:
 			for item in packed_strings:
 				encoded_strings.append(String(item))
 			return {"kind": "PackedStringArray", "value": encoded_strings}
+		TYPE_AABB:
+			var aabb_value: AABB = value
+			return {"kind": "AABB", "value": {
+				"position": [aabb_value.position.x, aabb_value.position.y, aabb_value.position.z],
+				"size": [aabb_value.size.x, aabb_value.size.y, aabb_value.size.z],
+			}}
 		TYPE_ARRAY:
 			var array_value: Array = value
 			var encoded_array: Array = []
@@ -191,6 +202,17 @@ func _array_to_packed_vector2_array(raw: Variant) -> Variant:
 		var point_vector: Vector2 = point
 		points.append(point_vector)
 	return points
+
+
+func _dict_to_aabb(raw: Variant) -> Variant:
+	if typeof(raw) != TYPE_DICTIONARY:
+		return null
+	var spec: Dictionary = raw
+	var pos: Variant = _array_to_vector3(spec.get("position", null))
+	var sz: Variant = _array_to_vector3(spec.get("size", null))
+	if typeof(pos) != TYPE_VECTOR3 or typeof(sz) != TYPE_VECTOR3:
+		return null
+	return AABB(pos, sz)
 
 
 func _decode_resource(raw: Variant) -> Dictionary:

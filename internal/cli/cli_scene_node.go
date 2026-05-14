@@ -680,17 +680,35 @@ func runNodeSetResource(ctx context.Context, client *bridge.Client, args []strin
 	path := fs.String("path", "", "node path")
 	property := fs.String("property", "", "property name")
 	resourcePath := fs.String("resource", "", "resource path")
+	scenePath := fs.String("scene", "", "scene path to open before setting and save after")
+	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for scene open/save jobs")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *path == "" || *property == "" || *resourcePath == "" {
 		return fmt.Errorf("node set-resource requires --path, --property, and --resource")
 	}
+	if *scenePath != "" {
+		sceneMu.Lock()
+		defer sceneMu.Unlock()
+		openedPath, _, err := openSceneAndWait(ctx, client, *scenePath, *timeout)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Scene opened: %s\n", openedPath)
+	}
 	result, err := client.SetNodeResource(ctx, requestID(), *path, *property, *resourcePath)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "Set %s on %s to %s\n", result.Property, result.Path, result.Resource)
+	if *scenePath != "" {
+		savedPath, err := saveSceneAndWait(ctx, client, *timeout)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Scene saved: %s\n", savedPath)
+	}
 	return nil
 }
 

@@ -53,13 +53,16 @@ func (c *Client) CreateScript(ctx context.Context, requestID, path, extends stri
 	return out, nil
 }
 
-func (c *Client) WriteScript(ctx context.Context, requestID, path, body string, allowMissingPreloads bool) (ScriptWriteResult, error) {
+func (c *Client) WriteScript(ctx context.Context, requestID, path, body string, allowMissingPreloads bool, allowMissingAutoloads bool) (ScriptWriteResult, error) {
 	params := map[string]any{
 		"path": path,
 		"body": body,
 	}
 	if allowMissingPreloads {
 		params["allow_missing_preloads"] = true
+	}
+	if allowMissingAutoloads {
+		params["allow_missing_autoloads"] = true
 	}
 	env := RequestEnvelope{
 		RequestID: requestID,

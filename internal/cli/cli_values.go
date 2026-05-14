@@ -31,6 +31,7 @@ type typedValueFlags struct {
 	vector3      *string
 	color        *string
 	resource     *string
+	aabb         *string
 	arrayVector2 *string
 	arrayVector3 *string
 	arrayString  *string
@@ -51,6 +52,7 @@ func newTypedValueFlags(fs *flag.FlagSet, label string) *typedValueFlags {
 	flags.vector3 = fs.String("vector3", "", "Vector3 shorthand as x,y,z")
 	flags.color = fs.String("color", "", "Color shorthand as r,g,b[,a]")
 	flags.resource = fs.String("resource", "", "Resource shorthand as res://path")
+	flags.aabb = fs.String("aabb", "", "AABB shorthand as px,py,pz,sx,sy,sz (position x,y,z then size x,y,z)")
 	flags.arrayVector2 = fs.String("array-vector2", "", "Array[Vector2] shorthand as x,y;x,y")
 	flags.arrayVector3 = fs.String("array-vector3", "", "Array[Vector3] shorthand as x,y,z;x,y,z")
 	flags.arrayString = fs.String("array-string", "", "Array[String] shorthand as a;b;c")
@@ -75,6 +77,7 @@ func (f *typedValueFlags) Value() (any, error) {
 		{"vector3", *f.vector3},
 		{"color", *f.color},
 		{"resource", *f.resource},
+		{"aabb", *f.aabb},
 		{"array-vector2", *f.arrayVector2},
 		{"array-vector3", *f.arrayVector3},
 		{"array-string", *f.arrayString},
@@ -89,7 +92,7 @@ func (f *typedValueFlags) Value() (any, error) {
 		}
 	}
 	if count == 0 {
-		return nil, fmt.Errorf("%s requires a value flag: --value, --string, --int, --float, --bool, --node-path, --vector2, --vector3, --color, --resource, or --array-*", f.label)
+		return nil, fmt.Errorf("%s requires a value flag: --value, --string, --int, --float, --bool, --node-path, --vector2, --vector3, --color, --resource, --aabb, or --array-*", f.label)
 	}
 	if count > 1 {
 		return nil, fmt.Errorf("%s requires exactly one value flag", f.label)
@@ -152,6 +155,19 @@ func (f *typedValueFlags) Value() (any, error) {
 			return nil, fmt.Errorf("%s --color %w", f.label, err)
 		}
 		return map[string]any{"kind": "Color", "value": values}, nil
+	}
+	if *f.aabb != "" {
+		vals, err := parseFloatList(*f.aabb, 6, "aabb")
+		if err != nil {
+			return nil, fmt.Errorf("%s --aabb must be px,py,pz,sx,sy,sz: %w", f.label, err)
+		}
+		return map[string]any{
+			"kind": "AABB",
+			"value": map[string]any{
+				"position": vals[:3],
+				"size":     vals[3:],
+			},
+		}, nil
 	}
 	if *f.arrayVector2 != "" {
 		values, err := parseVectorArray(*f.arrayVector2, 2, "array-vector2")

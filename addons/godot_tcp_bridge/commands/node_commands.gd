@@ -276,7 +276,14 @@ func handle_attach_script(request: Dictionary, context: Dictionary) -> Dictionar
 	var script: Script = ResourceLoader.load(script_path, "", ResourceLoader.CACHE_MODE_REPLACE) as Script
 	if script == null:
 		return context["bridge_error"].call(500, request_id, "SCRIPT_LOAD_FAILED", "Could not load script resource", {"path": script_path})
+	var old_props: Dictionary = {}
+	for p in node.get_property_list():
+		if p["usage"] & PROPERTY_USAGE_SCRIPT_VARIABLE:
+			old_props[p["name"]] = node.get(p["name"])
 	node.set_script(script)
+	for p in node.get_property_list():
+		if (p["usage"] & PROPERTY_USAGE_SCRIPT_VARIABLE) and old_props.has(p["name"]):
+			node.set(p["name"], old_props[p["name"]])
 	context["mark_scene_dirty"].call()
 	return context["bridge_ok"].call(request_id, {
 		"path": context["logical_path"].call(node),

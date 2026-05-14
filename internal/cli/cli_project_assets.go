@@ -150,6 +150,7 @@ func runScriptWrite(ctx context.Context, client *bridge.Client, args []string, s
 	body := fs.String("body", "", "script body")
 	bodyFile := fs.String("body-file", "", "local file containing script body")
 	allowMissingPreloads := fs.Bool("allow-missing-preloads", false, "write script even if preloaded scenes/resources do not exist yet")
+	allowMissingAutoloads := fs.Bool("allow-missing-autoloads", false, "write script even if autoload singletons are not yet recognized by the syntax checker")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -167,7 +168,7 @@ func runScriptWrite(ctx context.Context, client *bridge.Client, args []string, s
 		}
 		bodyText = string(data)
 	}
-	result, err := client.WriteScript(ctx, requestID(), *path, bodyText, *allowMissingPreloads)
+	result, err := client.WriteScript(ctx, requestID(), *path, bodyText, *allowMissingPreloads, *allowMissingAutoloads)
 	if err != nil {
 		return err
 	}
