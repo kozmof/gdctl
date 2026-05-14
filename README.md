@@ -71,13 +71,15 @@ gdctl input action list [--json] [--all]
 gdctl input event add-key --action ACTION --key KEY [--physical=false]
 
 gdctl run start [--scene SCENE | --main] [--clear-logs=false]
-gdctl run status
+gdctl run status [--json]
+gdctl run helper-status [--json]
 gdctl run stop
 gdctl run logs [--json] [--clear] [--source SOURCE] [--latest] [--since-start]
 gdctl run screenshot [--out FILE] [--source game|screen] [--screen N]
 gdctl run input --file input.json [--timeout DURATION] [--summary-probe SOURCE]
 gdctl run wait-probe --source SOURCE (--assert KEY>=VALUE | --assert-key KEY --assert-op OP --assert-value VALUE) [--timeout DURATION] [--json]
 gdctl run probe raycast [--json] [--timeout DURATION]
+gdctl run probe node --path PATH --property NAME [--property NAME] [--json] [--timeout DURATION]
 gdctl run smoke [--scene SCENE | --main] [--input FILE] [--assert SOURCE:KEY>=VALUE | --assert-source SOURCE --assert-key KEY --assert-op OP --assert-value VALUE] [--screenshot OUT] [--timeout DURATION] [--keep-running]
 
 gdctl scene create --path PATH --root TYPE --name NAME [--force]
@@ -174,6 +176,7 @@ gdctl project.setting.get --key application/run/main_scene
 ```bash
 gdctl run start --scene res://signal_harbor/scenes/SignalHarborMain.tscn
 gdctl run status
+gdctl run helper-status
 gdctl run logs
 gdctl run input --file ./smoke-input.json
 gdctl run screenshot --out ./signal-harbor.png
@@ -218,6 +221,15 @@ gdctl run wait-probe --source runtime.game --assert targets_disabled>=1 --timeou
 ```
 
 `run probe raycast` fires a center-screen ray in the running 3D game and reports the hit collider, position, and normal. Requires `GdctlRuntimeBridge` autoload and an active `Camera3D`.
+
+`run probe node` reads one or more properties from a node in the running game tree:
+
+```bash
+gdctl run probe node \
+  --path /root/Main/Player \
+  --property global_position \
+  --json
+```
 
 `run smoke` is a one-shot automated test: start, optionally inject input, wait for a probe assertion, capture a screenshot, then stop:
 

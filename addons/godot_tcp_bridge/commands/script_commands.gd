@@ -123,6 +123,7 @@ func _write_skipping_preload_errors(script_path: String, source: String, request
 		return context["bridge_error"].call(500, request_id, "SCRIPT_WRITE_FAILED", "Could not open script for writing", {"path": script_path})
 	file.store_string(source)
 	file.close()
+	_reload_script_resource(script_path)
 	return context["bridge_ok"].call(request_id, {"path": script_path, "valid": true, "written": true})
 
 
@@ -138,6 +139,10 @@ func _write_and_check(script_path: String, source: String, request_id: String, c
 		return context["bridge_error"].call(500, request_id, "SCRIPT_WRITE_FAILED", "Could not open script for writing", {"path": script_path})
 	file.store_string(source)
 	file.close()
+	_reload_script_resource(script_path)
+	var post_write_error: Dictionary = _syntax_error(script_path, FileAccess.get_file_as_string(script_path), request_id, context)
+	if not post_write_error.is_empty():
+		return post_write_error
 	var result: Dictionary = {
 		"path": script_path,
 		"valid": true,
@@ -145,6 +150,16 @@ func _write_and_check(script_path: String, source: String, request_id: String, c
 	for key in extra.keys():
 		result[key] = extra[key]
 	return context["bridge_ok"].call(request_id, result)
+
+
+func _reload_script_resource(script_path: String) -> void:
+	if Engine.is_editor_hint():
+		var editor_fs := EditorInterface.get_resource_filesystem()
+		if editor_fs != null:
+			editor_fs.update_file(script_path)
+	var loaded := ResourceLoader.load(script_path, "GDScript", ResourceLoader.CACHE_MODE_REPLACE)
+	if loaded is GDScript:
+		(loaded as GDScript).reload()
 
 
 func _syntax_error(script_path: String, source: String, request_id: String, context: Dictionary) -> Dictionary:

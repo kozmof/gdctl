@@ -3418,8 +3418,14 @@ func TestRunStatusCommand(t *testing.T) {
 			t.Fatalf("path = %s", r.URL.Path)
 		}
 		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
-			OK:     true,
-			Result: map[string]any{"running": true, "playing_scene": "main"},
+			OK: true,
+			Result: map[string]any{"running": true, "playing_scene": "main", "runtime_helper": map[string]any{
+				"present":             true,
+				"autoload_configured": true,
+				"path":                "res://addons/godot_tcp_bridge/runtime/runtime_bridge.gd",
+				"last_seen":           "2026-05-14T10:30:00Z",
+				"last_message":        "heartbeat",
+			}},
 		})
 	}))
 	defer server.Close()
@@ -3430,6 +3436,69 @@ func TestRunStatusCommand(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Run status: running (main)") {
 		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "Runtime helper: present") {
+		t.Fatalf("stdout missing helper status:\n%s", stdout.String())
+	}
+}
+
+func TestRunStatusCommandJSONIncludesRuntimeHelper(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/run/status" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"running":       true,
+				"playing_scene": "main",
+				"runtime_helper": map[string]any{
+					"present": true,
+					"path":    "res://addons/godot_tcp_bridge/runtime/runtime_bridge.gd",
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), append(serverArgs(server), "--token", "secret", "run", "status", "--json"), &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var got bridge.RunStatusResult
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("json output invalid: %v\n%s", err, stdout.String())
+	}
+	if !got.RuntimeHelper.Present {
+		t.Fatalf("runtime helper not decoded from json: %#v", got.RuntimeHelper)
+	}
+}
+
+func TestRunHelperStatusCommand(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/run/status" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{"running": true, "runtime_helper": map[string]any{
+				"present":             false,
+				"autoload_configured": true,
+				"path":                "res://addons/godot_tcp_bridge/runtime/runtime_bridge.gd",
+				"error":               "runtime helper has not checked in",
+			}},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), append(serverArgs(server), "--token", "secret", "run", "helper-status"), &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Runtime helper: not present", "Autoload: configured", "Issue: runtime helper has not checked in"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout.String())
+		}
 	}
 }
 
@@ -3980,6 +4049,53 @@ func TestRunProbeRaycastHit(t *testing.T) {
 		t.Fatalf("op = %q", gotEnvelope.Op)
 	}
 	if !strings.Contains(stdout.String(), "Raycast hit:") || !strings.Contains(stdout.String(), "/root/Wall") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRunProbeNode(t *testing.T) {
+	var gotEnvelope bridge.RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/run/probe/node":
+			if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
+				OK:     true,
+				Result: map[string]any{"queued": true, "job_id": "node-1"},
+			})
+		case "/jobs/node-1":
+			_ = json.NewEncoder(w).Encode(bridge.JobResponse{
+				OK: true,
+				Job: bridge.Job{ID: "node-1", Kind: "run.probe.node", Status: "succeeded",
+					Result: map[string]any{
+						"path": "/root/Main/Player",
+						"type": "CharacterBody3D",
+						"properties": map[string]any{
+							"global_position": []any{1.0, 2.0, 3.0},
+						},
+					}},
+			})
+		default:
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args := append(serverArgs(server), "--token", "secret", "run", "probe", "node",
+		"--path", "/root/Main/Player", "--property", "global_position")
+	if err := Run(context.Background(), args, &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "run.probe.node" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["path"] != "/root/Main/Player" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	if !strings.Contains(stdout.String(), "Node probe: /root/Main/Player (CharacterBody3D)") ||
+		!strings.Contains(stdout.String(), "global_position") {
 		t.Fatalf("stdout:\n%s", stdout.String())
 	}
 }

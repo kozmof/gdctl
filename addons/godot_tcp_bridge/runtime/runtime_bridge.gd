@@ -4,14 +4,22 @@ const REQUESTS_DIR := "res://.gdctl_runtime/requests/"
 const RESULTS_DIR := "res://.gdctl_runtime/results/"
 const LOGS_DIR := "res://.gdctl_runtime/logs/"
 const LOG_PATH := "res://.gdctl_runtime/logs/runtime.jsonl"
+const STATUS_PATH := "res://.gdctl_runtime/logs/helper_status.json"
 
 var active: Dictionary = {}
+var heartbeat_elapsed := 0.0
 
 
 func _ready() -> void:
 	_ensure_dir(REQUESTS_DIR)
 	_ensure_dir(RESULTS_DIR)
 	_ensure_dir(LOGS_DIR)
+	info("gdctl_helper", "ready", {
+		"helper_present": 1,
+		"requests_dir": REQUESTS_DIR,
+		"results_dir": RESULTS_DIR,
+	})
+	_write_helper_status("ready")
 
 
 func log_event(level: String, source: String, message: String, detail: Dictionary = {}) -> void:
@@ -53,9 +61,29 @@ func clear_logs() -> void:
 	_remove_file(LOG_PATH)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	heartbeat_elapsed += delta
+	if heartbeat_elapsed >= 1.0:
+		heartbeat_elapsed = 0.0
+		_write_helper_status("heartbeat")
 	_load_requests()
 	_process_requests()
+
+
+func _write_helper_status(message: String) -> void:
+	var file := FileAccess.open(STATUS_PATH, FileAccess.WRITE)
+	if file == null:
+		return
+	file.store_string(JSON.stringify({
+		"time": Time.get_datetime_string_from_system(true),
+		"source": "runtime.gdctl_helper",
+		"message": message,
+		"detail": {
+			"helper_present": 1,
+			"active_requests": active.size(),
+		},
+	}))
+	file.close()
 
 
 func _load_requests() -> void:
@@ -111,6 +139,11 @@ func _process_requests() -> void:
 			continue
 		if kind == "raycast":
 			_capture_raycast(id)
+			_remove_file(String(request.get("path", "")))
+			active.erase(id)
+			continue
+		if kind == "node_probe":
+			_probe_node(id, request)
 			_remove_file(String(request.get("path", "")))
 			active.erase(id)
 			continue
@@ -188,6 +221,35 @@ func _capture_raycast(id: String) -> void:
 		"hit_position": [hit_pos.x, hit_pos.y, hit_pos.z],
 		"hit_normal": [hit_normal.x, hit_normal.y, hit_normal.z],
 		"hit_distance": hit_distance,
+	})
+
+
+func _probe_node(id: String, request: Dictionary) -> void:
+	var path := String(request.get("node_path", ""))
+	if path == "":
+		_write_error(id, "Node probe requires node_path")
+		return
+	var node := get_node_or_null(NodePath(path))
+	if node == null:
+		_write_error(id, "Node not found: " + path)
+		return
+	var properties_value: Variant = request.get("properties", [])
+	if typeof(properties_value) != TYPE_ARRAY:
+		_write_error(id, "Node probe properties must be an array")
+		return
+	var properties: Array = properties_value
+	var values := {}
+	for property_value in properties:
+		var property := String(property_value)
+		if property == "":
+			continue
+		values[property] = _json_safe(node.get(property))
+	_write_result(id, {
+		"ok": true,
+		"source": "game",
+		"path": path,
+		"type": node.get_class(),
+		"properties": values,
 	})
 
 

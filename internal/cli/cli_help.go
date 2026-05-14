@@ -226,8 +226,19 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "status",
-			line: "  gdctl [--host host] [--port port] [--token token] run status",
-			desc: "show whether the editor is currently running a scene",
+			line: "  gdctl [--host host] [--port port] [--token token] run status [--json]",
+			desc: "show whether the editor is running a scene and whether the runtime helper checked in",
+			flags: []helpFlag{
+				{name: "json", usage: "print status as JSON"},
+			},
+		},
+		{
+			sub:  "helper-status",
+			line: "  gdctl [--host host] [--port port] [--token token] run helper-status [--json]",
+			desc: "show gdctl runtime helper/autoload health",
+			flags: []helpFlag{
+				{name: "json", usage: "print helper status as JSON"},
+			},
 		},
 		{
 			sub:  "stop",
@@ -295,6 +306,20 @@ var helpGroups = []helpGroup{
 			},
 			notes: []string{
 				"Requires GdctlRuntimeBridge autoload and an active Camera3D in the running scene.",
+			},
+		},
+		{
+			sub:  "probe node",
+			line: "  gdctl [--host host] [--port port] [--token token] run probe node --path PATH --property NAME [--property NAME] [--json] [--timeout DURATION]",
+			desc: "read properties from a node in the running game tree",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "runtime node path, e.g. /root/Main/Player"},
+				{name: "property", meta: "NAME", usage: "property to read; repeat for multiple properties"},
+				{name: "json", usage: "print result as JSON"},
+				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for node probe result (default 5s)"},
+			},
+			notes: []string{
+				"Requires GdctlRuntimeBridge autoload in the running scene.",
 			},
 		},
 		{

@@ -443,9 +443,14 @@ type RunStartResult struct {
 }
 
 type RunStatusResult struct {
-	Running      bool          `json:"running"`
-	PlayingScene string        `json:"playing_scene,omitempty"`
-	Debugger     DebuggerState `json:"debugger,omitempty"`
+	Running                         bool                `json:"running"`
+	PlayingScene                    string              `json:"playing_scene,omitempty"`
+	Debugger                        DebuggerState       `json:"debugger,omitempty"`
+	RuntimeHelper                   RuntimeHelperStatus `json:"runtime_helper,omitempty"`
+	RuntimeHelperPresent            bool                `json:"runtime_helper_present,omitempty"`
+	RuntimeHelperAutoloadConfigured bool                `json:"runtime_helper_autoload_configured,omitempty"`
+	RuntimeHelperLastSeen           string              `json:"runtime_helper_last_seen,omitempty"`
+	RuntimeHelperError              string              `json:"runtime_helper_error,omitempty"`
 }
 
 type RunStopResult struct {
@@ -470,6 +475,28 @@ type RunInputResult struct {
 	JobID      string `json:"job_id,omitempty"`
 	Steps      int    `json:"steps,omitempty"`
 	DurationMS int    `json:"duration_ms,omitempty"`
+}
+
+type RunProbeNodeResult struct {
+	Queued     bool     `json:"queued,omitempty"`
+	JobID      string   `json:"job_id,omitempty"`
+	Path       string   `json:"path,omitempty"`
+	Properties []string `json:"properties,omitempty"`
+}
+
+type RuntimeHelperStatus struct {
+	AutoloadConfigured bool   `json:"autoload_configured,omitempty"`
+	AutoloadKey        string `json:"autoload_key,omitempty"`
+	Path               string `json:"path,omitempty"`
+	ScriptExists       bool   `json:"script_exists,omitempty"`
+	LogPath            string `json:"log_path,omitempty"`
+	LogExists          bool   `json:"log_exists,omitempty"`
+	StatusPath         string `json:"status_path,omitempty"`
+	StatusExists       bool   `json:"status_exists,omitempty"`
+	Present            bool   `json:"present,omitempty"`
+	LastSeen           string `json:"last_seen,omitempty"`
+	LastMessage        string `json:"last_message,omitempty"`
+	Error              string `json:"error,omitempty"`
 }
 
 type DebuggerFrame struct {

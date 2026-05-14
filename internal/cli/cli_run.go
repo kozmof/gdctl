@@ -22,7 +22,9 @@ func runRun(ctx context.Context, client *bridge.Client, args []string, stdout, s
 	case "start":
 		return runRunStart(ctx, client, args[1:], stdout)
 	case "status":
-		return runRunStatus(ctx, client, stdout)
+		return runRunStatus(ctx, client, args[1:], stdout)
+	case "helper-status":
+		return runRunHelperStatus(ctx, client, args[1:], stdout)
 	case "stop":
 		return runRunStop(ctx, client, stdout)
 	case "logs":
@@ -68,10 +70,22 @@ func runRunStart(ctx context.Context, client *bridge.Client, args []string, stdo
 	return nil
 }
 
-func runRunStatus(ctx context.Context, client *bridge.Client, stdout io.Writer) error {
+func runRunStatus(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("run status", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	jsonOut := fs.Bool("json", false, "print status as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 	result, err := client.RunStatus(ctx, requestID())
 	if err != nil {
 		return err
+	}
+	normalizeRuntimeHelperStatus(&result)
+	if *jsonOut {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(result)
 	}
 	if result.Running {
 		if result.Debugger.Paused {
@@ -130,10 +144,82 @@ func runRunStatus(ctx context.Context, client *bridge.Client, stdout io.Writer) 
 		} else {
 			fmt.Fprintln(stdout, "Run status: running")
 		}
+		printRuntimeHelperSummary(stdout, result.RuntimeHelper)
 		return nil
 	}
 	fmt.Fprintln(stdout, "Run status: stopped")
+	printRuntimeHelperSummary(stdout, result.RuntimeHelper)
 	return nil
+}
+
+func runRunHelperStatus(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("run helper-status", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	jsonOut := fs.Bool("json", false, "print helper status as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	result, err := client.RunStatus(ctx, requestID())
+	if err != nil {
+		return err
+	}
+	normalizeRuntimeHelperStatus(&result)
+	if *jsonOut {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(result.RuntimeHelper)
+	}
+	if result.RuntimeHelper.Present {
+		fmt.Fprintln(stdout, "Runtime helper: present")
+	} else {
+		fmt.Fprintln(stdout, "Runtime helper: not present")
+	}
+	if result.RuntimeHelper.AutoloadConfigured {
+		fmt.Fprintf(stdout, "Autoload: configured (%s)\n", result.RuntimeHelper.Path)
+	} else {
+		fmt.Fprintf(stdout, "Autoload: not configured (%s)\n", result.RuntimeHelper.Path)
+	}
+	if result.RuntimeHelper.LastSeen != "" {
+		fmt.Fprintf(stdout, "Last seen: %s (%s)\n", result.RuntimeHelper.LastSeen, result.RuntimeHelper.LastMessage)
+	}
+	if result.RuntimeHelper.Error != "" {
+		fmt.Fprintf(stdout, "Issue: %s\n", result.RuntimeHelper.Error)
+	}
+	return nil
+}
+
+func normalizeRuntimeHelperStatus(result *bridge.RunStatusResult) {
+	if result.RuntimeHelper.Present == false && result.RuntimeHelperPresent {
+		result.RuntimeHelper.Present = true
+	}
+	if result.RuntimeHelper.AutoloadConfigured == false && result.RuntimeHelperAutoloadConfigured {
+		result.RuntimeHelper.AutoloadConfigured = true
+	}
+	if result.RuntimeHelper.LastSeen == "" {
+		result.RuntimeHelper.LastSeen = result.RuntimeHelperLastSeen
+	}
+	if result.RuntimeHelper.Error == "" {
+		result.RuntimeHelper.Error = result.RuntimeHelperError
+	}
+}
+
+func printRuntimeHelperSummary(stdout io.Writer, helper bridge.RuntimeHelperStatus) {
+	if helper.Path == "" && helper.LastSeen == "" && helper.Error == "" && !helper.Present && !helper.AutoloadConfigured {
+		return
+	}
+	if helper.Present {
+		if helper.LastSeen != "" {
+			fmt.Fprintf(stdout, "Runtime helper: present (last seen %s)\n", helper.LastSeen)
+		} else {
+			fmt.Fprintln(stdout, "Runtime helper: present")
+		}
+		return
+	}
+	if helper.Error != "" {
+		fmt.Fprintf(stdout, "Runtime helper: not present (%s)\n", helper.Error)
+	} else {
+		fmt.Fprintln(stdout, "Runtime helper: not present")
+	}
 }
 
 func runRunInput(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
@@ -455,6 +541,10 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 				if time.Now().After(deadline) {
 					stop()
 					encoded, _ := json.Marshal(lastDetail)
+					helperSummary := smokeHelperFailureSummary(ctx, client)
+					if helperSummary != "" {
+						return fmt.Errorf("Smoke: FAIL — assert %s timed out; last probe: %s; %s", resolvedAssert, encoded, helperSummary)
+					}
 					return fmt.Errorf("Smoke: FAIL — assert %s timed out; last probe: %s", resolvedAssert, encoded)
 				}
 				time.Sleep(500 * time.Millisecond)
@@ -491,16 +581,85 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 	return nil
 }
 
+func smokeHelperFailureSummary(ctx context.Context, client *bridge.Client) string {
+	status, err := client.RunStatus(ctx, requestID())
+	if err != nil {
+		return ""
+	}
+	normalizeRuntimeHelperStatus(&status)
+	if status.RuntimeHelper.Present {
+		return "runtime helper present"
+	}
+	if status.RuntimeHelper.Error != "" {
+		return "runtime helper not present: " + status.RuntimeHelper.Error
+	}
+	return "runtime helper not present"
+}
+
 func runRunProbe(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("run probe requires a subcommand (raycast)")
+		return fmt.Errorf("run probe requires a subcommand (raycast, node)")
 	}
 	switch args[0] {
 	case "raycast":
 		return runRunProbeRaycast(ctx, client, args[1:], stdout)
+	case "node":
+		return runRunProbeNode(ctx, client, args[1:], stdout)
 	default:
 		return fmt.Errorf("unknown run probe subcommand: %s", args[0])
 	}
+}
+
+func runRunProbeNode(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("run probe node", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	path := fs.String("path", "", "runtime node path")
+	var properties stringListFlag
+	fs.Var(&properties, "property", "property to read; repeat for multiple properties")
+	jsonOut := fs.Bool("json", false, "print probe result as JSON")
+	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for probe job")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" {
+		return fmt.Errorf("run probe node requires --path")
+	}
+	if len(properties) == 0 {
+		return fmt.Errorf("run probe node requires at least one --property")
+	}
+	result, err := client.RunProbeNode(ctx, requestID(), *path, []string(properties))
+	if err != nil {
+		return err
+	}
+	if result.JobID == "" {
+		return fmt.Errorf("run probe node did not return a job id")
+	}
+	job, err := waitForJob(ctx, client, result.JobID, *timeout, "run probe node")
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(job.Result)
+	}
+	probePath, _ := job.Result["path"].(string)
+	if probePath == "" {
+		probePath = *path
+	}
+	nodeType, _ := job.Result["type"].(string)
+	if nodeType != "" {
+		fmt.Fprintf(stdout, "Node probe: %s (%s)\n", probePath, nodeType)
+	} else {
+		fmt.Fprintf(stdout, "Node probe: %s\n", probePath)
+	}
+	if props, ok := job.Result["properties"].(map[string]any); ok {
+		for _, property := range properties {
+			encoded, _ := json.Marshal(props[string(property)])
+			fmt.Fprintf(stdout, "  %s: %s\n", property, encoded)
+		}
+	}
+	return nil
 }
 
 func runRunStop(ctx context.Context, client *bridge.Client, stdout io.Writer) error {

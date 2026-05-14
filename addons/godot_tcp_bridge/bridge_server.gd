@@ -11,6 +11,7 @@ const ADDON_BACKUP_ROOT := "res://addons/.godot_tcp_bridge_backup/"
 const RUNTIME_AUTOLOAD_NAME := "GdctlRuntimeBridge"
 const RUNTIME_AUTOLOAD_PATH := "res://addons/godot_tcp_bridge/runtime/runtime_bridge.gd"
 const RUNTIME_LOG_PATH := "res://.gdctl_runtime/logs/runtime.jsonl"
+const RUNTIME_STATUS_PATH := "res://.gdctl_runtime/logs/helper_status.json"
 const TypedValues = preload("res://addons/godot_tcp_bridge/typed_values.gd")
 const CommandRequest = preload("res://addons/godot_tcp_bridge/commands/request.gd")
 const BridgeCommands = preload("res://addons/godot_tcp_bridge/commands/bridge_commands.gd")
@@ -362,6 +363,8 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return _handle_run_input(request)
 	if method == "POST" and path == "/run/probe/raycast":
 		return _handle_run_probe_raycast(request)
+	if method == "POST" and path == "/run/probe/node":
+		return _handle_run_probe_node(request)
 	if method == "POST" and path == "/scene/apply/blueprint":
 		return scene_commands.handle_apply_blueprint(request, _command_context())
 	if method == "POST" and path == "/theme/create":
@@ -450,10 +453,16 @@ func _handle_run_status(request: Dictionary) -> Dictionary:
 	if not _editor_plugin_available():
 		return protocol.bridge_error(503, String(checked["request_id"]), "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {})
 	var editor_interface := editor_plugin.get_editor_interface()
+	var helper_status := _runtime_helper_status()
 	return protocol.bridge_ok(String(checked["request_id"]), {
 		"running": editor_interface.is_playing_scene(),
 		"playing_scene": editor_interface.get_playing_scene(),
 		"debugger": _debugger_state_for_response(),
+		"runtime_helper": helper_status,
+		"runtime_helper_present": bool(helper_status.get("present", false)),
+		"runtime_helper_autoload_configured": bool(helper_status.get("autoload_configured", false)),
+		"runtime_helper_last_seen": String(helper_status.get("last_seen", "")),
+		"runtime_helper_error": String(helper_status.get("error", "")),
 	})
 
 
@@ -571,6 +580,35 @@ func _handle_run_probe_raycast(request: Dictionary) -> Dictionary:
 	})
 
 
+func _handle_run_probe_node(request: Dictionary) -> Dictionary:
+	var checked: Dictionary = command_request.require_body(request, _command_context(), "run.probe.node", "Run probe node requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	if not _editor_plugin_available():
+		return protocol.bridge_error(503, String(checked["request_id"]), "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {})
+	var editor_interface := editor_plugin.get_editor_interface()
+	if not editor_interface.is_playing_scene():
+		return protocol.bridge_error(409, String(checked["request_id"]), "RUN_NOT_PLAYING", "No scene is currently running", {})
+	var params: Dictionary = checked["params"]
+	var path: String = String(params.get("path", ""))
+	if path == "":
+		return protocol.bridge_error(400, String(checked["request_id"]), "RUN_PROBE_NODE_PATH_MISSING", "Run probe node requires path", {})
+	var properties_value: Variant = params.get("properties", [])
+	if typeof(properties_value) != TYPE_ARRAY or (properties_value as Array).is_empty():
+		return protocol.bridge_error(400, String(checked["request_id"]), "RUN_PROBE_NODE_PROPERTIES_MISSING", "Run probe node requires at least one property", {})
+	var job_id: String = String(_queue_job("run.probe.node", {
+		"path": path,
+		"properties": properties_value,
+		"request_id": String(checked["request_id"]),
+	}))
+	return protocol.bridge_ok(String(checked["request_id"]), {
+		"queued": true,
+		"job_id": job_id,
+		"path": path,
+		"properties": properties_value,
+	})
+
+
 func _read_runtime_logs() -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
 	if not FileAccess.file_exists(RUNTIME_LOG_PATH):
@@ -599,6 +637,58 @@ func _read_runtime_logs() -> Array[Dictionary]:
 	return entries
 
 
+func _runtime_helper_status() -> Dictionary:
+	var key := "autoload/%s" % RUNTIME_AUTOLOAD_NAME
+	var expected := "*" + RUNTIME_AUTOLOAD_PATH
+	var configured := ProjectSettings.has_setting(key) and String(ProjectSettings.get_setting(key)) == expected
+	var status := {
+		"autoload_configured": configured,
+		"autoload_key": key,
+		"path": RUNTIME_AUTOLOAD_PATH,
+		"script_exists": FileAccess.file_exists(RUNTIME_AUTOLOAD_PATH),
+		"log_path": RUNTIME_LOG_PATH,
+		"log_exists": FileAccess.file_exists(RUNTIME_LOG_PATH),
+		"status_path": RUNTIME_STATUS_PATH,
+		"status_exists": FileAccess.file_exists(RUNTIME_STATUS_PATH),
+		"present": false,
+		"last_seen": "",
+		"last_message": "",
+		"error": "",
+	}
+	if not bool(status["script_exists"]):
+		status["error"] = "runtime helper script is missing"
+	elif not configured:
+		status["error"] = "runtime helper autoload is not configured"
+	var helper_entry: Dictionary = _read_runtime_helper_status()
+	if helper_entry.is_empty():
+		var latest_time := ""
+		for entry in _read_runtime_logs():
+			var source := String(entry.get("source", ""))
+			if source != "runtime.gdctl_helper":
+				continue
+			var entry_time := String(entry.get("time", ""))
+			if entry_time >= latest_time:
+				latest_time = entry_time
+				helper_entry = entry
+	if not helper_entry.is_empty():
+		var detail: Dictionary = _dictionary_or_empty(helper_entry.get("detail", {}))
+		status["present"] = int(detail.get("helper_present", 0)) == 1
+		status["last_seen"] = String(helper_entry.get("time", ""))
+		status["last_message"] = String(helper_entry.get("message", ""))
+	if status["error"] == "" and not bool(status["present"]):
+		status["error"] = "runtime helper has not checked in"
+	return status
+
+
+func _read_runtime_helper_status() -> Dictionary:
+	if not FileAccess.file_exists(RUNTIME_STATUS_PATH):
+		return {}
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(RUNTIME_STATUS_PATH))
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return {}
+	return parsed
+
+
 func _debugger_state_for_response() -> Dictionary:
 	if debugger_state.is_empty():
 		return {"paused": false}
@@ -608,6 +698,8 @@ func _debugger_state_for_response() -> Dictionary:
 func _clear_runtime_logs() -> void:
 	if FileAccess.file_exists(RUNTIME_LOG_PATH):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(RUNTIME_LOG_PATH))
+	if FileAccess.file_exists(RUNTIME_STATUS_PATH):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(RUNTIME_STATUS_PATH))
 
 
 func _dictionary_or_empty(value: Variant) -> Dictionary:
@@ -758,6 +850,7 @@ func _capabilities() -> Array:
 		"run.screenshot",
 		"run.input",
 		"run.probe.raycast",
+		"run.probe.node",
 		"scene.apply.blueprint",
 		"theme.create",
 		"theme.set-color",

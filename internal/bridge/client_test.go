@@ -905,6 +905,48 @@ func TestClientWriteScriptRequest(t *testing.T) {
 	}
 }
 
+func TestClientRunProbeNodeRequest(t *testing.T) {
+	var gotEnvelope RequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/run/probe/node" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(BridgeResponse[map[string]any]{
+			OK: true,
+			Result: map[string]any{
+				"queued":     true,
+				"job_id":     "probe-1",
+				"path":       "/root/Main/Player",
+				"properties": []string{"global_position"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http"}
+	client := NewClient(cfg)
+	result, err := client.RunProbeNode(context.Background(), "cli-test", "/root/Main/Player", []string{"global_position"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotEnvelope.Op != "run.probe.node" {
+		t.Fatalf("op = %q", gotEnvelope.Op)
+	}
+	if gotEnvelope.Params["path"] != "/root/Main/Player" {
+		t.Fatalf("params = %#v", gotEnvelope.Params)
+	}
+	props, ok := gotEnvelope.Params["properties"].([]any)
+	if !ok || len(props) != 1 || props[0] != "global_position" {
+		t.Fatalf("properties = %#v", gotEnvelope.Params["properties"])
+	}
+	if result.JobID != "probe-1" || !result.Queued {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestClientBridgeError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)

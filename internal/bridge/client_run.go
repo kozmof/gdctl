@@ -178,3 +178,27 @@ func (c *Client) RunInput(ctx context.Context, requestID string, steps []any) (R
 	}
 	return out, nil
 }
+
+func (c *Client) RunProbeNode(ctx context.Context, requestID, path string, properties []string) (RunProbeNodeResult, error) {
+	env := RequestEnvelope{
+		RequestID: requestID,
+		Op:        "run.probe.node",
+		Params: map[string]any{
+			"path":       path,
+			"properties": properties,
+		},
+	}
+	result, err := c.postEnvelope(ctx, "/run/probe/node", env)
+	if err != nil {
+		return RunProbeNodeResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return RunProbeNodeResult{}, err
+	}
+	var out RunProbeNodeResult
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		return RunProbeNodeResult{}, err
+	}
+	return out, nil
+}
