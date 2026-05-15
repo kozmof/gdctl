@@ -61,6 +61,89 @@ func handle_bus_effect_add(request: Dictionary, context: Dictionary) -> Dictiona
 	return context["bridge_ok"].call(request_id, {"bus": bus_name, "applied": true})
 
 
+func handle_playlist_add(request: Dictionary, context: Dictionary) -> Dictionary:
+	var checked: Dictionary = context["request"].require_body(request, context, "audio.playlist-add", "Audio playlist-add requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
+	var bus_name: String = String(params.get("bus", ""))
+	var stream_path: String = String(params.get("stream", ""))
+	if bus_name == "" or stream_path == "":
+		return context["bridge_error"].call(400, request_id, "AUDIO_PLAYLIST_PARAMS_MISSING", "bus and stream are required", {})
+	var idx: int = AudioServer.get_bus_index(bus_name)
+	if idx < 0:
+		return context["bridge_error"].call(404, request_id, "AUDIO_BUS_NOT_FOUND", "Audio bus does not exist", {"bus": bus_name})
+	if not FileAccess.file_exists(stream_path):
+		return context["bridge_error"].call(404, request_id, "AUDIO_STREAM_NOT_FOUND", "Stream file does not exist", {"stream": stream_path})
+	# Find an AudioStreamPlayer on this bus, or note it needs one
+	var scene_root: Node = context["edited_scene_root"].call()
+	if scene_root == null:
+		return context["bridge_error"].call(503, request_id, "NO_EDITED_SCENE", "No scene is currently open in the editor", {})
+	# Find or create AudioStreamPlayer that sends to this bus
+	var player: AudioStreamPlayer = null
+	for child in scene_root.get_children():
+		if child is AudioStreamPlayer and (child as AudioStreamPlayer).bus == bus_name:
+			player = child as AudioStreamPlayer
+			break
+	var playlist: AudioStreamPlaylist = null
+	if player == null:
+		player = AudioStreamPlayer.new()
+		player.name = "AudioStreamPlayer_" + bus_name
+		player.bus = bus_name
+		playlist = AudioStreamPlaylist.new()
+		playlist.loop = true
+		player.stream = playlist
+		scene_root.add_child(player)
+		player.owner = scene_root
+	# Ensure stream is a playlist
+	if not player.stream is AudioStreamPlaylist:
+		playlist = AudioStreamPlaylist.new()
+		playlist.loop = true
+		if player.stream != null:
+			playlist.stream_count = 1
+			playlist.set_list_stream(0, player.stream as AudioStream)
+		player.stream = playlist
+	else:
+		playlist = player.stream as AudioStreamPlaylist
+	var audio_stream: AudioStream = load(stream_path)
+	if audio_stream == null:
+		return context["bridge_error"].call(500, request_id, "AUDIO_STREAM_LOAD_FAILED", "Could not load audio stream", {"stream": stream_path})
+	var new_idx: int = playlist.stream_count
+	playlist.stream_count = new_idx + 1
+	playlist.set_list_stream(new_idx, audio_stream)
+	context["mark_scene_dirty"].call()
+	return context["bridge_ok"].call(request_id, {"bus": bus_name, "stream": stream_path, "stream_count": playlist.stream_count, "added": true})
+
+
+func handle_playlist_autoplay(request: Dictionary, context: Dictionary) -> Dictionary:
+	var checked: Dictionary = context["request"].require_body(request, context, "audio.playlist-autoplay", "Audio playlist-autoplay requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
+	var bus_name: String = String(params.get("bus", ""))
+	var mode: String = String(params.get("mode", "sequential")).to_lower()
+	if bus_name == "":
+		return context["bridge_error"].call(400, request_id, "AUDIO_PLAYLIST_PARAMS_MISSING", "bus is required", {})
+	var scene_root: Node = context["edited_scene_root"].call()
+	if scene_root == null:
+		return context["bridge_error"].call(503, request_id, "NO_EDITED_SCENE", "No scene is currently open in the editor", {})
+	var player: AudioStreamPlayer = null
+	for child in scene_root.get_children():
+		if child is AudioStreamPlayer and (child as AudioStreamPlayer).bus == bus_name:
+			player = child as AudioStreamPlayer
+			break
+	if player == null or not player.stream is AudioStreamPlaylist:
+		return context["bridge_error"].call(404, request_id, "AUDIO_PLAYLIST_NOT_FOUND", "No AudioStreamPlayer with playlist found for bus", {"bus": bus_name})
+	var playlist: AudioStreamPlaylist = player.stream as AudioStreamPlaylist
+	playlist.shuffle = (mode == "random" or mode == "random_no_repeat")
+	playlist.loop = true
+	player.autoplay = true
+	context["mark_scene_dirty"].call()
+	return context["bridge_ok"].call(request_id, {"bus": bus_name, "mode": mode, "shuffle": playlist.shuffle, "applied": true})
+
+
 func handle_listener_make_current(request: Dictionary, context: Dictionary) -> Dictionary:
 	var checked: Dictionary = context["request"].require_body(request, context, "audio.listener-make-current", "Audio listener-make-current requires bearer token")
 	if not bool(checked.get("ok", false)):

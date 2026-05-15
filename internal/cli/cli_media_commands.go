@@ -83,7 +83,7 @@ func runViewportAdd(ctx context.Context, client *bridge.Client, args []string, s
 	parent := fs.String("parent", "", "parent node path (optional)")
 	width := fs.Int("width", 320, "SubViewport width")
 	height := fs.Int("height", 0, "SubViewport height")
-	addCamera := fs.Bool("camera", true, "add a Camera3D child")
+	addCamera := fs.Bool("add-camera", true, "add a Camera3D child")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -619,5 +619,45 @@ func runAudioBusEffectAdd(ctx context.Context, client *bridge.Client, args []str
 		return err
 	}
 	fmt.Fprintf(stdout, "Audio effect added: %s on %s\n", *effectType, result.Bus)
+	return nil
+}
+
+func runAudioPlaylistAdd(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("audio playlist-add", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	bus := fs.String("bus", "", "audio bus name")
+	stream := fs.String("stream", "", "stream file path (res://...)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *bus == "" || *stream == "" {
+		return fmt.Errorf("audio playlist-add requires --bus and --stream")
+	}
+	result, err := client.AudioPlaylistAdd(ctx, requestID(), *bus, *stream)
+	if err != nil {
+		return err
+	}
+	count, _ := result["stream_count"].(float64)
+	fmt.Fprintf(stdout, "Audio playlist stream added: %s (bus: %s, total: %d)\n", *stream, *bus, int(count))
+	return nil
+}
+
+func runAudioPlaylistAutoplay(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("audio playlist-autoplay", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	bus := fs.String("bus", "", "audio bus name")
+	mode := fs.String("mode", "sequential", "playlist mode: sequential, random, random_no_repeat")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *bus == "" {
+		return fmt.Errorf("audio playlist-autoplay requires --bus")
+	}
+	result, err := client.AudioPlaylistAutoplay(ctx, requestID(), *bus, *mode)
+	if err != nil {
+		return err
+	}
+	_ = result
+	fmt.Fprintf(stdout, "Audio playlist autoplay set: bus=%s mode=%s\n", *bus, *mode)
 	return nil
 }

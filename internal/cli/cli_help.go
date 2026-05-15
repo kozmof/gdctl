@@ -376,6 +376,7 @@ var helpGroups = []helpGroup{
 				{name: "assert-op", meta: "OP", usage: "predicate operator for split assertion form"},
 				{name: "assert-value", meta: "VALUE", usage: "predicate value for split assertion form"},
 				{name: "screenshot", meta: "FILE", usage: "capture game viewport to this PNG path"},
+				{name: "screenshot-viewport", meta: "PATH", usage: "SubViewport node path to screenshot instead of main viewport"},
 				{name: "timeout", meta: "DURATION", usage: "total time limit for the smoke run (default 30s)"},
 				{name: "keep-running", usage: "do not stop the scene after the test"},
 			},
@@ -383,6 +384,15 @@ var helpGroups = []helpGroup{
 				"Exits with code 0 on pass, 1 on failure.",
 				"Quote --assert expressions containing > or < in shells, or use the split assertion flags.",
 				"Prints 'Smoke: PASS' or 'Smoke: FAIL — <reason>'.",
+			},
+		},
+		{
+			sub:  "profile",
+			line: "  gdctl [--host host] [--port port] [--token token] run profile --metric METRICS --duration DURATION",
+			desc: "sample runtime performance metrics while the game is running",
+			flags: []helpFlag{
+				{name: "metric", meta: "METRICS", usage: "comma-separated metrics: fps,draw_calls,physics_time,memory_usage"},
+				{name: "duration", meta: "DURATION", usage: "sampling duration, e.g. 10s (default 5s)"},
 			},
 		},
 	}},
@@ -1036,6 +1046,51 @@ var helpGroups = []helpGroup{
 				{name: "animation", meta: "NAME", usage: "animation name to play (defaults to current)"},
 			},
 		},
+		{
+			sub:  "tree add-state",
+			line: "  gdctl [--host host] [--port port] [--token token] animation tree add-state --tree PATH --name NAME --animation ANIM",
+			desc: "add an animation state to an AnimationNodeStateMachine",
+			flags: []helpFlag{
+				{name: "tree", meta: "PATH", usage: "AnimationTree node path"},
+				{name: "name", meta: "NAME", usage: "state name"},
+				{name: "animation", meta: "ANIM", usage: "animation resource name"},
+			},
+		},
+		{
+			sub:  "tree add-transition",
+			line: "  gdctl [--host host] [--port port] [--token token] animation tree add-transition --tree PATH --from STATE --to STATE --condition COND",
+			desc: "add a transition between two states in an AnimationNodeStateMachine",
+			flags: []helpFlag{
+				{name: "tree", meta: "PATH", usage: "AnimationTree node path"},
+				{name: "from", meta: "STATE", usage: "source state name"},
+				{name: "to", meta: "STATE", usage: "destination state name"},
+				{name: "condition", meta: "COND", usage: "advance condition expression"},
+			},
+		},
+		{
+			sub:  "tree blend-space-2d-add",
+			line: "  gdctl [--host host] [--port port] [--token token] animation tree blend-space-2d-add --tree PATH --state STATE --blend-x PARAM --blend-y PARAM",
+			desc: "replace a state with an AnimationNodeBlendSpace2D node",
+			flags: []helpFlag{
+				{name: "tree", meta: "PATH", usage: "AnimationTree node path"},
+				{name: "state", meta: "STATE", usage: "state name to replace"},
+				{name: "blend-x", meta: "PARAM", usage: "blend parameter name for X axis"},
+				{name: "blend-y", meta: "PARAM", usage: "blend parameter name for Y axis"},
+			},
+		},
+		{
+			sub:  "tree set-param",
+			line: "  gdctl [--host host] [--port port] [--token token] animation tree set-param --tree PATH --param PARAM (--vector2 X,Y | --float N | --bool B | --int N)",
+			desc: "set a runtime parameter on an AnimationTree",
+			flags: []helpFlag{
+				{name: "tree", meta: "PATH", usage: "AnimationTree node path"},
+				{name: "param", meta: "PARAM", usage: "parameter path, e.g. parameters/playback"},
+				{name: "vector2", meta: "X,Y", usage: "set parameter to a Vector2 value"},
+				{name: "float", meta: "N", usage: "set parameter to a float value"},
+				{name: "bool", meta: "B", usage: "set parameter to a bool value (true/false)"},
+				{name: "int", meta: "N", usage: "set parameter to an integer value"},
+			},
+		},
 	}},
 	{name: "tilemap", cmds: []helpCmd{
 		{
@@ -1136,6 +1191,284 @@ var helpGroups = []helpGroup{
 			desc: "make an AudioListener3D or AudioListener2D the active listener",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "AudioListener3D or AudioListener2D node path"},
+			},
+		},
+		{
+			sub:  "playlist-add",
+			line: "  gdctl [--host host] [--port port] [--token token] audio playlist-add --bus BUS --stream PATH",
+			desc: "add a stream to an AudioStreamPlaylist on the named bus",
+			flags: []helpFlag{
+				{name: "bus", meta: "BUS", usage: "audio bus name (e.g. Music)"},
+				{name: "stream", meta: "PATH", usage: "stream resource path (res://*.ogg)"},
+			},
+		},
+		{
+			sub:  "playlist-autoplay",
+			line: "  gdctl [--host host] [--port port] [--token token] audio playlist-autoplay --bus BUS --mode MODE",
+			desc: "configure autoplay and shuffle on a bus playlist",
+			flags: []helpFlag{
+				{name: "bus", meta: "BUS", usage: "audio bus name"},
+				{name: "mode", meta: "MODE", usage: "playback mode: sequential or random_no_repeat"},
+			},
+		},
+	}},
+	{name: "softbody", cmds: []helpCmd{
+		{
+			sub:  "pin-point",
+			line: "  gdctl [--host host] [--port port] [--token token] softbody pin-point --path PATH --point N",
+			desc: "pin a vertex of a SoftBody3D to prevent it from simulating",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "SoftBody3D node path"},
+				{name: "point", meta: "N", usage: "vertex index to pin"},
+			},
+		},
+		{
+			sub:  "unpin-point",
+			line: "  gdctl [--host host] [--port port] [--token token] softbody unpin-point --path PATH --point N",
+			desc: "unpin a previously pinned SoftBody3D vertex",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "SoftBody3D node path"},
+				{name: "point", meta: "N", usage: "vertex index to unpin"},
+			},
+		},
+	}},
+	{name: "lod", cmds: []helpCmd{
+		{
+			sub:  "set",
+			line: "  gdctl [--host host] [--port port] [--token token] lod set --path PATH --begin N --end N",
+			desc: "set LOD visibility range on a GeometryInstance3D node",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "node path"},
+				{name: "begin", meta: "N", usage: "distance at which the node begins to fade in"},
+				{name: "end", meta: "N", usage: "distance at which the node is fully hidden"},
+			},
+		},
+		{
+			sub:  "set-many",
+			line: "  gdctl [--host host] [--port port] [--token token] lod set-many --file FILE",
+			desc: "set LOD ranges on multiple nodes from a JSON file",
+			flags: []helpFlag{
+				{name: "file", meta: "FILE", usage: `JSON array: [{"path":"/root/Node","begin":20.0,"end":40.0},...]`},
+			},
+		},
+	}},
+	{name: "terrain", cmds: []helpCmd{
+		{
+			sub:  "heightmap-import",
+			line: "  gdctl [--host host] [--port port] [--token token] terrain heightmap-import --path PATH --texture TEX --min-height N --max-height N",
+			desc: "import a heightmap image into a HeightMapShape3D node",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "HeightMapShape3D node path"},
+				{name: "texture", meta: "TEX", usage: "heightmap image resource path (res://)"},
+				{name: "min-height", meta: "N", usage: "minimum height value in the heightmap"},
+				{name: "max-height", meta: "N", usage: "maximum height value in the heightmap"},
+			},
+		},
+	}},
+	{name: "lightmap", cmds: []helpCmd{
+		{
+			sub:  "bake",
+			line: "  gdctl [--host host] [--port port] [--token token] lightmap bake --path PATH",
+			desc: "trigger a LightmapGI bake (returns immediately; bake runs asynchronously)",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "LightmapGI node path"},
+			},
+		},
+	}},
+	{name: "voxelgi", cmds: []helpCmd{
+		{
+			sub:  "bake",
+			line: "  gdctl [--host host] [--port port] [--token token] voxelgi bake --path PATH",
+			desc: "trigger a VoxelGI bake",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "VoxelGI node path"},
+			},
+		},
+	}},
+	{name: "reflection-probe", cmds: []helpCmd{
+		{
+			sub:  "bake",
+			line: "  gdctl [--host host] [--port port] [--token token] reflection-probe bake --path PATH",
+			desc: "attempt to bake a ReflectionProbe (not supported via GDScript; returns status)",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "ReflectionProbe node path"},
+			},
+		},
+	}},
+	{name: "window", cmds: []helpCmd{
+		{
+			sub:  "create",
+			line: "  gdctl [--host host] [--port port] [--token token] window create [--title TITLE] [--width W] [--height H] [--position X,Y]",
+			desc: "create a new floating Window node in the scene",
+			flags: []helpFlag{
+				{name: "title", meta: "TITLE", usage: "window title (default Window)"},
+				{name: "width", meta: "W", usage: "window width in pixels (default 640)"},
+				{name: "height", meta: "H", usage: "window height in pixels (default 480)"},
+				{name: "position", meta: "X,Y", usage: "screen position (default 0,0)"},
+			},
+		},
+		{
+			sub:  "assign-viewport",
+			line: "  gdctl [--host host] [--port port] [--token token] window assign-viewport --window-id ID --viewport PATH",
+			desc: "reparent a SubViewport node into a Window",
+			flags: []helpFlag{
+				{name: "window-id", meta: "ID", usage: "window ID returned by window create"},
+				{name: "viewport", meta: "PATH", usage: "SubViewport node path to assign"},
+			},
+		},
+	}},
+	{name: "graph-edit", cmds: []helpCmd{
+		{
+			sub:  "node-add",
+			line: "  gdctl [--host host] [--port port] [--token token] graph-edit node-add --path GRAPH --name NAME [--position X,Y]",
+			desc: "add a GraphNode to a GraphEdit control",
+			flags: []helpFlag{
+				{name: "path", meta: "GRAPH", usage: "GraphEdit node path"},
+				{name: "name", meta: "NAME", usage: "node name and title"},
+				{name: "position", meta: "X,Y", usage: "node position offset in the graph (default 0,0)"},
+			},
+		},
+		{
+			sub:  "connection-add",
+			line: "  gdctl [--host host] [--port port] [--token token] graph-edit connection-add --graph GRAPH --from NODE --from-port N --to NODE --to-port N",
+			desc: "connect two GraphNodes in a GraphEdit",
+			flags: []helpFlag{
+				{name: "graph", meta: "GRAPH", usage: "GraphEdit node path"},
+				{name: "from", meta: "NODE", usage: "source GraphNode name"},
+				{name: "from-port", meta: "N", usage: "output port index on source"},
+				{name: "to", meta: "NODE", usage: "destination GraphNode name"},
+				{name: "to-port", meta: "N", usage: "input port index on destination"},
+			},
+		},
+		{
+			sub:  "node-remove",
+			line: "  gdctl [--host host] [--port port] [--token token] graph-edit node-remove --path GRAPH --name NAME",
+			desc: "remove a GraphNode from a GraphEdit",
+			flags: []helpFlag{
+				{name: "path", meta: "GRAPH", usage: "GraphEdit node path"},
+				{name: "name", meta: "NAME", usage: "GraphNode name to remove"},
+			},
+		},
+	}},
+	{name: "accessibility", cmds: []helpCmd{
+		{
+			sub:  "tts-speak",
+			line: "  gdctl [--host host] [--port port] [--token token] accessibility tts-speak --text TEXT [--interrupt]",
+			desc: "speak text via the OS text-to-speech engine",
+			flags: []helpFlag{
+				{name: "text", meta: "TEXT", usage: "text to speak"},
+				{name: "interrupt", usage: "interrupt any currently speaking text"},
+			},
+		},
+		{
+			sub:  "tts-configure",
+			line: "  gdctl [--host host] [--port port] [--token token] accessibility tts-configure [--pitch N] [--rate N] [--voice VOICE]",
+			desc: "configure TTS voice parameters for subsequent tts-speak calls",
+			flags: []helpFlag{
+				{name: "pitch", meta: "N", usage: "voice pitch multiplier (default 1.0)"},
+				{name: "rate", meta: "N", usage: "speech rate multiplier (default 1.0)"},
+				{name: "voice", meta: "VOICE", usage: "voice identifier string"},
+			},
+		},
+		{
+			sub:  "tts-stop",
+			line: "  gdctl [--host host] [--port port] [--token token] accessibility tts-stop",
+			desc: "stop any currently playing TTS speech",
+		},
+	}},
+	{name: "i18n", cmds: []helpCmd{
+		{
+			sub:  "locale-set",
+			line: "  gdctl [--host host] [--port port] [--token token] i18n locale-set --locale LOCALE",
+			desc: "set the active locale in TranslationServer",
+			flags: []helpFlag{
+				{name: "locale", meta: "LOCALE", usage: "locale code, e.g. en, ja, fr"},
+			},
+		},
+		{
+			sub:  "string-add",
+			line: "  gdctl [--host host] [--port port] [--token token] i18n string-add --key KEY --locale LOCALE --text TEXT",
+			desc: "add or update a translation string at runtime",
+			flags: []helpFlag{
+				{name: "key", meta: "KEY", usage: "translation key"},
+				{name: "locale", meta: "LOCALE", usage: "locale code"},
+				{name: "text", meta: "TEXT", usage: "translated string"},
+			},
+		},
+	}},
+	{name: "csg", cmds: []helpCmd{
+		{
+			sub:  "node-add",
+			line: "  gdctl [--host host] [--port port] [--token token] csg node-add --parent PATH --type TYPE --name NAME",
+			desc: "add a CSG node (thin wrapper over node add)",
+			flags: []helpFlag{
+				{name: "parent", meta: "PATH", usage: "parent node path"},
+				{name: "type", meta: "TYPE", usage: "CSG node type: CSGBox3D, CSGSphere3D, CSGCylinder3D, CSGTorus3D, CSGMesh3D, CSGCombiner3D"},
+				{name: "name", meta: "NAME", usage: "node name"},
+			},
+		},
+		{
+			sub:  "operation-set",
+			line: "  gdctl [--host host] [--port port] [--token token] csg operation-set --path PATH --operation OP",
+			desc: "set the CSG boolean operation on a CSG node",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "CSG node path"},
+				{name: "operation", meta: "OP", usage: "operation: union, intersection, or subtraction"},
+			},
+		},
+		{
+			sub:  "size-set",
+			line: "  gdctl [--host host] [--port port] [--token token] csg size-set --path PATH --size X,Y,Z",
+			desc: "set the size of a CSGBox3D node",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "CSGBox3D node path"},
+				{name: "size", meta: "X,Y,Z", usage: "size vector"},
+			},
+		},
+	}},
+	{name: "decal", cmds: []helpCmd{
+		{
+			sub:  "add",
+			line: "  gdctl [--host host] [--port port] [--token token] decal add --parent PATH --texture TEX --size X,Y,Z",
+			desc: "add a Decal node to a parent",
+			flags: []helpFlag{
+				{name: "parent", meta: "PATH", usage: "parent node path"},
+				{name: "texture", meta: "TEX", usage: "albedo texture resource path (res://)"},
+				{name: "size", meta: "X,Y,Z", usage: "decal size in 3D space"},
+			},
+		},
+		{
+			sub:  "set-normal-fade",
+			line: "  gdctl [--host host] [--port port] [--token token] decal set-normal-fade --path PATH --fade N",
+			desc: "set the normal fade factor on a Decal node",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "Decal node path"},
+				{name: "fade", meta: "N", usage: "normal fade value (0.0–1.0)"},
+			},
+		},
+	}},
+	{name: "fog-volume", cmds: []helpCmd{
+		{
+			sub:  "add",
+			line: "  gdctl [--host host] [--port port] [--token token] fog-volume add --parent PATH --shape SHAPE --size X,Y,Z --density N",
+			desc: "add a FogVolume node with a FogMaterial to a parent",
+			flags: []helpFlag{
+				{name: "parent", meta: "PATH", usage: "parent node path"},
+				{name: "shape", meta: "SHAPE", usage: "volume shape: box, ellipsoid, cone, cylinder, or world"},
+				{name: "size", meta: "X,Y,Z", usage: "volume extents"},
+				{name: "density", meta: "N", usage: "fog density"},
+			},
+		},
+	}},
+	{name: "occluder", cmds: []helpCmd{
+		{
+			sub:  "add",
+			line: "  gdctl [--host host] [--port port] [--token token] occluder add --parent PATH --shape SHAPE --size X,Y,Z",
+			desc: "add an OccluderInstance3D node to a parent",
+			flags: []helpFlag{
+				{name: "parent", meta: "PATH", usage: "parent node path"},
+				{name: "shape", meta: "SHAPE", usage: "occluder shape: box, sphere, or quad"},
+				{name: "size", meta: "X,Y,Z", usage: "occluder extents"},
 			},
 		},
 	}},

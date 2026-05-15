@@ -229,21 +229,6 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return runThemeSetConstant(ctx, client, rest[2:], stdout)
 			}
 		}
-	case "animation":
-		if len(rest) >= 2 {
-			switch rest[1] {
-			case "create":
-				return runAnimationCreate(ctx, client, rest[2:], stdout)
-			case "track-add":
-				return runAnimationTrackAdd(ctx, client, rest[2:], stdout)
-			case "keyframe-add":
-				return runAnimationKeyframeAdd(ctx, client, rest[2:], stdout)
-			case "length-set":
-				return runAnimationLengthSet(ctx, client, rest[2:], stdout)
-			case "player-play":
-				return runAnimationPlayerPlay(ctx, client, rest[2:], stdout)
-			}
-		}
 	case "tilemap":
 		if len(rest) >= 2 {
 			switch rest[1] {
@@ -270,8 +255,57 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				return runAudioBusEffectAdd(ctx, client, rest[2:], stdout)
 			case "listener-make-current":
 				return runAudioListenerMakeCurrent(ctx, client, rest[2:], stdout)
+			case "playlist-add":
+				return runAudioPlaylistAdd(ctx, client, rest[2:], stdout)
+			case "playlist-autoplay":
+				return runAudioPlaylistAutoplay(ctx, client, rest[2:], stdout)
 			}
 		}
+	case "animation":
+		if len(rest) >= 2 {
+			switch rest[1] {
+			case "create":
+				return runAnimationCreate(ctx, client, rest[2:], stdout)
+			case "track-add":
+				return runAnimationTrackAdd(ctx, client, rest[2:], stdout)
+			case "keyframe-add":
+				return runAnimationKeyframeAdd(ctx, client, rest[2:], stdout)
+			case "length-set":
+				return runAnimationLengthSet(ctx, client, rest[2:], stdout)
+			case "player-play":
+				return runAnimationPlayerPlay(ctx, client, rest[2:], stdout)
+			case "tree":
+				return runAnimationTree(ctx, client, rest[2:], stdout)
+			}
+		}
+	case "softbody":
+		return runSoftBody(ctx, client, rest[1:], stdout)
+	case "lod":
+		return runLOD(ctx, client, rest[1:], stdout)
+	case "terrain":
+		return runTerrain(ctx, client, rest[1:], stdout)
+	case "lightmap":
+		return runLightmap(ctx, client, rest[1:], stdout)
+	case "voxelgi":
+		return runVoxelGI(ctx, client, rest[1:], stdout)
+	case "reflection-probe":
+		return runReflectionProbe(ctx, client, rest[1:], stdout)
+	case "window":
+		return runWindow(ctx, client, rest[1:], stdout)
+	case "graph-edit":
+		return runGraphEdit(ctx, client, rest[1:], stdout)
+	case "accessibility":
+		return runAccessibility(ctx, client, rest[1:], stdout)
+	case "i18n":
+		return runI18n(ctx, client, rest[1:], stdout)
+	case "csg":
+		return runCSG(ctx, client, rest[1:], stdout)
+	case "decal":
+		return runDecal(ctx, client, rest[1:], stdout)
+	case "fog-volume":
+		return runFogVolume(ctx, client, rest[1:], stdout)
+	case "occluder":
+		return runOccluder(ctx, client, rest[1:], stdout)
 	case "help":
 		return runHelp(rest[1:], stdout)
 	}
@@ -367,6 +401,12 @@ func printBridgeInfo(stdout io.Writer, ping bridge.PingResponse) {
 
 func requestID() string {
 	return "cli-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+}
+
+func newFlagSet(name string) *flag.FlagSet {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	return fs
 }
 
 func yesNo(value bool) string {

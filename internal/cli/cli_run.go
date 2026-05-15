@@ -43,6 +43,8 @@ func runRun(ctx context.Context, client *bridge.Client, args []string, stdout, s
 		return runRunInstantiate(ctx, client, args[1:], stdout)
 	case "scene-reload":
 		return runRunSceneReload(ctx, client, args[1:], stdout)
+	case "profile":
+		return runRunProfile(ctx, client, args[1:], stdout)
 	default:
 		return fmt.Errorf("unknown run command: %s", strings.Join(args, " "))
 	}
@@ -439,6 +441,7 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 	assertOp := fs.String("assert-op", "", "predicate operator for split assertion form: >= <= == != > <")
 	assertValue := fs.String("assert-value", "", "predicate value for split assertion form")
 	screenshotOut := fs.String("screenshot", "", "save game viewport screenshot to this path")
+	screenshotViewport := fs.String("screenshot-viewport", "", "SubViewport path for screenshot (empty = main viewport)")
 	timeout := fs.Duration("timeout", 30*time.Second, "overall smoke timeout")
 	keepRunning := fs.Bool("keep-running", false, "do not stop the run after smoke completes")
 	if err := fs.Parse(args); err != nil {
@@ -447,6 +450,10 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 	if *scenePath != "" && *main {
 		return fmt.Errorf("run smoke requires at most one of --scene or --main")
 	}
+
+	// stop any in-progress run before starting smoke to prevent Godot crash
+	_, _ = client.RunStop(ctx, requestID())
+	time.Sleep(300 * time.Millisecond)
 
 	// start
 	startResult, err := client.RunStart(ctx, requestID(), *scenePath, *main, true)
@@ -559,7 +566,11 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 
 	// screenshot
 	if *screenshotOut != "" {
-		ssResult, err := client.RunScreenshot(ctx, requestID(), "game", 0, "")
+		vpPath := ""
+		if *screenshotViewport != "" {
+			vpPath = *screenshotViewport
+		}
+		ssResult, err := client.RunScreenshot(ctx, requestID(), "game", 0, vpPath)
 		if err != nil {
 			stop()
 			return fmt.Errorf("smoke screenshot: %w", err)

@@ -62,6 +62,8 @@ func process(context: Dictionary) -> void:
 		_run_run_instantiate_job(job_id, context)
 	elif String(job.get("kind", "")) == "run.scene-reload":
 		_run_run_scene_reload_job(job_id, context)
+	elif String(job.get("kind", "")) == "run.profile":
+		_run_run_profile_job(job_id, context)
 	else:
 		_finish_error(job_id, "JOB_KIND_UNKNOWN", "Unknown job kind", {"kind": job.get("kind", "")}, context)
 
@@ -591,6 +593,67 @@ func _run_run_scene_reload_job(job_id: String, context: Dictionary) -> void:
 	if Time.get_ticks_msec() - started_ticks > RUNTIME_INPUT_TIMEOUT_MS:
 		_remove_runtime_file(RUNTIME_REQUESTS + job_id + ".json")
 		_finish_error(job_id, "RUN_SCENE_RELOAD_HELPER_TIMEOUT", "Runtime helper did not complete scene reload. Make sure GdctlRuntimeBridge autoload is active.", {"request_id": job_id}, context)
+		return
+	job["status"] = "running"
+	job["updated_at"] = Time.get_datetime_string_from_system(true)
+	jobs[job_id] = job
+	pending_jobs.append(job_id)
+
+
+func _run_run_profile_job(job_id: String, context: Dictionary) -> void:
+	var job: Dictionary = jobs[job_id]
+	var detail: Dictionary = job.get("detail", {})
+	if not bool(detail.get("requested", false)):
+		var dir_err := _ensure_runtime_dirs()
+		if dir_err != OK:
+			_finish_error(job_id, "RUN_PROFILE_REQUEST_FAILED", "Could not create runtime exchange directory", {"error": error_string(dir_err)}, context)
+			return
+		var request_path := RUNTIME_REQUESTS + job_id + ".json"
+		var metrics: Array = Array(detail.get("metrics", ["fps"]))
+		var duration_ms: float = float(detail.get("duration_ms", 5000))
+		var request := {
+			"id": job_id,
+			"kind": "profile",
+			"frames": 1,
+			"metrics": metrics,
+			"duration_ms": duration_ms,
+			"created_at": Time.get_datetime_string_from_system(true),
+		}
+		var file := FileAccess.open(request_path, FileAccess.WRITE)
+		if file == null:
+			_finish_error(job_id, "RUN_PROFILE_REQUEST_FAILED", "Could not write runtime profile request", {"path": request_path}, context)
+			return
+		file.store_string(JSON.stringify(request))
+		file.close()
+		detail["requested"] = true
+		detail["started_ticks"] = Time.get_ticks_msec()
+		job["detail"] = detail
+		job["status"] = "running"
+		job["updated_at"] = Time.get_datetime_string_from_system(true)
+		jobs[job_id] = job
+		pending_jobs.append(job_id)
+		return
+	var result_path := RUNTIME_RESULTS + job_id + ".json"
+	if FileAccess.file_exists(result_path):
+		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(result_path))
+		_remove_runtime_file(result_path)
+		_remove_runtime_file(RUNTIME_REQUESTS + job_id + ".json")
+		if typeof(parsed) != TYPE_DICTIONARY:
+			_finish_error(job_id, "RUN_PROFILE_RESULT_INVALID", "Runtime profile result is invalid JSON", {"path": result_path}, context)
+			return
+		var result: Dictionary = parsed
+		if not bool(result.get("ok", false)):
+			_finish_error(job_id, "RUN_PROFILE_FAILED", String(result.get("error", "Runtime helper failed to profile")), {"path": result_path}, context)
+			return
+		_finish_ok(job_id, result, context)
+		return
+	var started_ticks: int = int(detail.get("started_ticks", Time.get_ticks_msec()))
+	var duration_ms: float = float(detail.get("duration_ms", 5000))
+	# Allow duration + 5 seconds for result to appear
+	var timeout_ms: int = int(duration_ms) + 5000
+	if Time.get_ticks_msec() - started_ticks > timeout_ms:
+		_remove_runtime_file(RUNTIME_REQUESTS + job_id + ".json")
+		_finish_error(job_id, "RUN_PROFILE_HELPER_TIMEOUT", "Runtime helper did not return profile results. Make sure GdctlRuntimeBridge autoload is active.", {"request_id": job_id}, context)
 		return
 	job["status"] = "running"
 	job["updated_at"] = Time.get_datetime_string_from_system(true)

@@ -157,6 +157,14 @@ func _process_requests() -> void:
 			_remove_file(String(request.get("path", "")))
 			active.erase(id)
 			continue
+		if kind == "profile":
+			var done := _process_profile(id, request)
+			if done:
+				_remove_file(String(request.get("path", "")))
+				active.erase(id)
+			else:
+				active[id] = request
+			continue
 		_capture(id, request.get("request", {}))
 		_remove_file(String(request.get("path", "")))
 		active.erase(id)
@@ -415,6 +423,58 @@ func _execute_mouse_button_step(step: Dictionary) -> Dictionary:
 		_send_mouse_button(button, false)
 		return {"ok": true}
 	return {"ok": false, "error": "Unsupported mouse button action: " + action}
+
+
+func _process_profile(id: String, active_request: Dictionary) -> bool:
+	var request_data: Dictionary = active_request.get("request", {})
+	var duration_ms: float = float(request_data.get("duration_ms", 5000))
+	var metrics: Array = Array(request_data.get("metrics", ["fps"]))
+	var started_ticks: int = int(active_request.get("started_ticks", Time.get_ticks_msec()))
+	var now: int = Time.get_ticks_msec()
+	var elapsed_ms: float = float(now - started_ticks)
+	if not active_request.has("samples"):
+		active_request["samples"] = []
+		active_request["last_sample_ticks"] = now
+	var last_sample: int = int(active_request.get("last_sample_ticks", now))
+	if now - last_sample >= 500:
+		var sample: Dictionary = {}
+		for metric in metrics:
+			match str(metric):
+				"fps":
+					sample["fps"] = Performance.get_monitor(Performance.TIME_FPS)
+				"draw_calls":
+					sample["draw_calls"] = Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)
+				"physics_time":
+					sample["physics_time"] = Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS)
+				"memory_usage":
+					sample["memory_usage"] = Performance.get_monitor(Performance.MEMORY_STATIC)
+		active_request["samples"].append(sample)
+		active_request["last_sample_ticks"] = now
+	if elapsed_ms < duration_ms:
+		return false
+	var samples: Array = active_request["samples"]
+	var result: Dictionary = {"ok": true, "source": "game", "duration_ms": elapsed_ms, "sample_count": samples.size()}
+	if samples.is_empty():
+		_write_result(id, result)
+		return true
+	for metric in metrics:
+		var key: String = str(metric)
+		var vals: Array = []
+		for s in samples:
+			if s.has(key):
+				vals.append(float(s[key]))
+		if vals.is_empty():
+			continue
+		var total: float = 0.0
+		var min_val: float = vals[0]
+		for v in vals:
+			total += v
+			if v < min_val:
+				min_val = v
+		result[key + "_avg"] = total / float(vals.size())
+		result[key + "_min"] = min_val
+	_write_result(id, result)
+	return true
 
 
 func _send_key(keycode: int, pressed: bool) -> void:

@@ -103,6 +103,71 @@ func handle_camera_assign(request: Dictionary, context: Dictionary) -> Dictionar
 	})
 
 
+func handle_window_create(request: Dictionary, context: Dictionary) -> Dictionary:
+	var checked: Dictionary = context["request"].require_body(request, context, "window.create", "Window create requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
+	var title: String = String(params.get("title", "Window"))
+	var width: int = int(params.get("width", 640))
+	var height: int = int(params.get("height", 480))
+	var pos_x: int = int(params.get("position_x", 0))
+	var pos_y: int = int(params.get("position_y", 0))
+	var scene_root: Node = context["edited_scene_root"].call()
+	if scene_root == null:
+		return context["bridge_error"].call(503, request_id, "NO_EDITED_SCENE", "No scene is currently open in the editor", {})
+	var win := Window.new()
+	win.title = title
+	win.size = Vector2i(width, height)
+	win.position = Vector2i(pos_x, pos_y)
+	win.name = title.replace(" ", "_")
+	scene_root.add_child(win)
+	win.owner = scene_root
+	win.show()
+	context["mark_scene_dirty"].call()
+	var win_path: String = context["logical_path"].call(win)
+	var win_id: int = win.get_window_id()
+	return context["bridge_ok"].call(request_id, {"path": win_path, "window_id": win_id, "title": title, "width": width, "height": height, "created": true})
+
+
+func handle_window_assign_viewport(request: Dictionary, context: Dictionary) -> Dictionary:
+	var checked: Dictionary = context["request"].require_body(request, context, "window.assign-viewport", "Window assign-viewport requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
+	var window_id: int = int(params.get("window_id", -1))
+	var viewport_path: String = String(params.get("viewport_path", ""))
+	if window_id < 0 or viewport_path == "":
+		return context["bridge_error"].call(400, request_id, "WINDOW_ASSIGN_PARAMS_MISSING", "window_id and viewport_path are required", {})
+	var scene_root: Node = context["edited_scene_root"].call()
+	if scene_root == null:
+		return context["bridge_error"].call(503, request_id, "NO_EDITED_SCENE", "No scene is currently open in the editor", {})
+	# Find the Window node by its window_id
+	var win_node: Window = null
+	for child in scene_root.get_children():
+		if child is Window and (child as Window).get_window_id() == window_id:
+			win_node = child as Window
+			break
+	if win_node == null:
+		return context["bridge_error"].call(404, request_id, "WINDOW_NOT_FOUND", "Window with given ID not found in scene root children", {"window_id": window_id})
+	var vp_node: Node = context["node_by_path"].call(viewport_path)
+	if vp_node == null:
+		return context["bridge_error"].call(404, request_id, "VIEWPORT_NOT_FOUND", "SubViewport node not found", {"path": viewport_path})
+	if not vp_node is SubViewport:
+		return context["bridge_error"].call(400, request_id, "VIEWPORT_NODE_INVALID", "Node is not a SubViewport", {"path": viewport_path})
+	# Reparent the SubViewport into the Window
+	var vp: SubViewport = vp_node as SubViewport
+	var old_parent: Node = vp.get_parent()
+	if old_parent != null:
+		old_parent.remove_child(vp)
+	win_node.add_child(vp)
+	vp.owner = scene_root
+	context["mark_scene_dirty"].call()
+	return context["bridge_ok"].call(request_id, {"window_id": window_id, "viewport_path": viewport_path, "assigned": true})
+
+
 func handle_screenshot(request: Dictionary, context: Dictionary) -> Dictionary:
 	var checked: Dictionary = context["request"].require_body(request, context, "viewport.screenshot", "Viewport screenshot requires bearer token")
 	if not bool(checked.get("ok", false)):

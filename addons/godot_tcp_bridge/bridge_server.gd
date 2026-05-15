@@ -36,6 +36,17 @@ const AnimationCommands = preload("res://addons/godot_tcp_bridge/commands/animat
 const TilemapCommands = preload("res://addons/godot_tcp_bridge/commands/tilemap_commands.gd")
 const AudioCommands = preload("res://addons/godot_tcp_bridge/commands/audio_commands.gd")
 const InputCommands = preload("res://addons/godot_tcp_bridge/commands/input_commands.gd")
+const AnimationTreeCommands = preload("res://addons/godot_tcp_bridge/commands/animation_tree_commands.gd")
+const SoftBodyCommands = preload("res://addons/godot_tcp_bridge/commands/softbody_commands.gd")
+const LodCommands = preload("res://addons/godot_tcp_bridge/commands/lod_commands.gd")
+const TerrainCommands = preload("res://addons/godot_tcp_bridge/commands/terrain_commands.gd")
+const LightingCommands = preload("res://addons/godot_tcp_bridge/commands/lighting_commands.gd")
+const GraphEditCommands = preload("res://addons/godot_tcp_bridge/commands/graph_edit_commands.gd")
+const AccessibilityCommands = preload("res://addons/godot_tcp_bridge/commands/accessibility_commands.gd")
+const I18nCommands = preload("res://addons/godot_tcp_bridge/commands/i18n_commands.gd")
+const DecalCommands = preload("res://addons/godot_tcp_bridge/commands/decal_commands.gd")
+const FogCommands = preload("res://addons/godot_tcp_bridge/commands/fog_commands.gd")
+const OccluderCommands = preload("res://addons/godot_tcp_bridge/commands/occluder_commands.gd")
 
 class RuntimeLogCapture extends Logger:
 	var log_buffer
@@ -87,6 +98,17 @@ var animation_commands = AnimationCommands.new()
 var tilemap_commands = TilemapCommands.new()
 var audio_commands = AudioCommands.new()
 var input_commands = InputCommands.new()
+var animation_tree_commands = AnimationTreeCommands.new()
+var softbody_commands = SoftBodyCommands.new()
+var lod_commands = LodCommands.new()
+var terrain_commands = TerrainCommands.new()
+var lighting_commands = LightingCommands.new()
+var graph_edit_commands = GraphEditCommands.new()
+var accessibility_commands = AccessibilityCommands.new()
+var i18n_commands = I18nCommands.new()
+var decal_commands = DecalCommands.new()
+var fog_commands = FogCommands.new()
+var occluder_commands = OccluderCommands.new()
 var jobs = Jobs.new()
 var tcp_server := TCPServer.new()
 var clients: Array[Dictionary] = []
@@ -415,6 +437,64 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return _handle_run_instantiate(request)
 	if method == "POST" and path == "/run/scene-reload":
 		return _handle_run_scene_reload(request)
+	if method == "POST" and path == "/run/profile":
+		return _handle_run_profile(request)
+	if method == "POST" and path == "/animation-tree/add-state":
+		return animation_tree_commands.handle_add_state(request, _command_context())
+	if method == "POST" and path == "/animation-tree/add-transition":
+		return animation_tree_commands.handle_add_transition(request, _command_context())
+	if method == "POST" and path == "/animation-tree/blend-space-2d-add":
+		return animation_tree_commands.handle_blend_space_2d_add(request, _command_context())
+	if method == "POST" and path == "/animation-tree/set-param":
+		return animation_tree_commands.handle_set_param(request, _command_context())
+	if method == "POST" and path == "/softbody/pin-point":
+		return softbody_commands.handle_pin_point(request, _command_context())
+	if method == "POST" and path == "/softbody/unpin-point":
+		return softbody_commands.handle_unpin_point(request, _command_context())
+	if method == "POST" and path == "/lod/set":
+		return lod_commands.handle_set(request, _command_context())
+	if method == "POST" and path == "/lod/set-many":
+		return lod_commands.handle_set_many(request, _command_context())
+	if method == "POST" and path == "/terrain/heightmap-import":
+		return terrain_commands.handle_heightmap_import(request, _command_context())
+	if method == "POST" and path == "/lightmap/bake":
+		return lighting_commands.handle_lightmap_bake(request, _command_context())
+	if method == "POST" and path == "/voxelgi/bake":
+		return lighting_commands.handle_voxelgi_bake(request, _command_context())
+	if method == "POST" and path == "/reflection-probe/bake":
+		return lighting_commands.handle_reflection_probe_bake(request, _command_context())
+	if method == "POST" and path == "/window/create":
+		return viewport_commands.handle_window_create(request, _command_context())
+	if method == "POST" and path == "/window/assign-viewport":
+		return viewport_commands.handle_window_assign_viewport(request, _command_context())
+	if method == "POST" and path == "/graph-edit/node-add":
+		return graph_edit_commands.handle_node_add(request, _command_context())
+	if method == "POST" and path == "/graph-edit/connection-add":
+		return graph_edit_commands.handle_connection_add(request, _command_context())
+	if method == "POST" and path == "/graph-edit/node-remove":
+		return graph_edit_commands.handle_node_remove(request, _command_context())
+	if method == "POST" and path == "/accessibility/tts-speak":
+		return accessibility_commands.handle_tts_speak(request, _command_context())
+	if method == "POST" and path == "/accessibility/tts-configure":
+		return accessibility_commands.handle_tts_configure(request, _command_context())
+	if method == "POST" and path == "/accessibility/tts-stop":
+		return accessibility_commands.handle_tts_stop(request, _command_context())
+	if method == "POST" and path == "/i18n/locale-set":
+		return i18n_commands.handle_locale_set(request, _command_context())
+	if method == "POST" and path == "/i18n/string-add":
+		return i18n_commands.handle_string_add(request, _command_context())
+	if method == "POST" and path == "/audio/playlist-add":
+		return audio_commands.handle_playlist_add(request, _command_context())
+	if method == "POST" and path == "/audio/playlist-autoplay":
+		return audio_commands.handle_playlist_autoplay(request, _command_context())
+	if method == "POST" and path == "/decal/add":
+		return decal_commands.handle_add(request, _command_context())
+	if method == "POST" and path == "/decal/set-normal-fade":
+		return decal_commands.handle_set_normal_fade(request, _command_context())
+	if method == "POST" and path == "/fog-volume/add":
+		return fog_commands.handle_add(request, _command_context())
+	if method == "POST" and path == "/occluder/add":
+		return occluder_commands.handle_add(request, _command_context())
 	return protocol.bridge_error(404, "", "UNKNOWN_ENDPOINT", "Unknown bridge endpoint", {"method": method, "path": path})
 
 
@@ -665,6 +745,38 @@ func _handle_run_scene_reload(request: Dictionary) -> Dictionary:
 	return protocol.bridge_ok(String(checked["request_id"]), {
 		"queued": true,
 		"job_id": job_id,
+	})
+
+
+func _handle_run_profile(request: Dictionary) -> Dictionary:
+	var checked: Dictionary = command_request.require_body(request, _command_context(), "run.profile", "Run profile requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	if not _editor_plugin_available():
+		return protocol.bridge_error(503, String(checked["request_id"]), "EDITOR_PLUGIN_UNAVAILABLE", "Editor plugin is unavailable", {})
+	var editor_interface := editor_plugin.get_editor_interface()
+	if not editor_interface.is_playing_scene():
+		return protocol.bridge_error(409, String(checked["request_id"]), "RUN_NOT_PLAYING", "No scene is currently running", {})
+	var params: Dictionary = checked["params"]
+	var metrics_raw: String = String(params.get("metrics", "fps"))
+	var metrics: Array = []
+	for m in metrics_raw.split(","):
+		var trimmed := m.strip_edges()
+		if trimmed != "":
+			metrics.append(trimmed)
+	if metrics.is_empty():
+		metrics = ["fps"]
+	var duration_ms: float = float(params.get("duration_ms", 5000))
+	var job_id: String = String(_queue_job("run.profile", {
+		"metrics": metrics,
+		"duration_ms": duration_ms,
+		"request_id": String(checked["request_id"]),
+	}))
+	return protocol.bridge_ok(String(checked["request_id"]), {
+		"queued": true,
+		"job_id": job_id,
+		"metrics": metrics,
+		"duration_ms": duration_ms,
 	})
 
 
