@@ -378,6 +378,8 @@ func runPing(ctx context.Context, client *bridge.Client, stdout io.Writer) error
 	fmt.Fprintf(stdout, "Engine: %s %s\n", ping.Engine, ping.EngineVersion)
 	fmt.Fprintf(stdout, "Project: %s\n", ping.ProjectName)
 	fmt.Fprintf(stdout, "Plugin: %s\n", ping.PluginVersion)
+	fmt.Fprintln(stdout)
+	fmt.Fprintln(stdout, "Run 'gdctl help' to see all available commands.")
 	return nil
 }
 
