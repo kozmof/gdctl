@@ -4,3 +4,6 @@
 .godot-bridge-token
 
 examples/
+
+gdctl
+.claude/
