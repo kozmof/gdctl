@@ -2,6 +2,8 @@
 
 `gdctl` is a CLI for talking to a Godot 4 editor plugin over local HTTP from a Linux devcontainer.
 
+Note: gdctl is under active development. Do not use it in production.
+
 ## Build
 
 ```bash
@@ -46,7 +48,7 @@ gdctl addon update
 ```bash
 gdctl ping
 gdctl doctor [--project PATH] [--fix]
-gdctl help [topic]
+gdctl help [--usecase] [topic]
 
 gdctl addon install --project PATH [--force]
 gdctl addon enable --project PATH
@@ -69,18 +71,22 @@ gdctl input action add --name NAME [--deadzone N]
 gdctl input action remove --name NAME
 gdctl input action list [--json] [--all]
 gdctl input event add-key --action ACTION --key KEY [--physical=false]
+gdctl input event add-joypad --action ACTION (--button N | --axis N [--axis-value V]) [--device N]
 
 gdctl run start [--scene SCENE | --main] [--clear-logs=false]
 gdctl run status [--json]
 gdctl run helper-status [--json]
 gdctl run stop
 gdctl run logs [--json] [--clear] [--source SOURCE] [--latest] [--since-start]
-gdctl run screenshot [--out FILE] [--source game|screen] [--screen N]
+gdctl run screenshot [--out FILE] [--source game|screen] [--screen N] [--viewport PATH]
 gdctl run input --file input.json [--timeout DURATION] [--summary-probe SOURCE]
 gdctl run wait-probe --source SOURCE (--assert KEY>=VALUE | --assert-key KEY --assert-op OP --assert-value VALUE) [--timeout DURATION] [--json]
 gdctl run probe raycast [--json] [--timeout DURATION]
 gdctl run probe node --path PATH --property NAME [--property NAME] [--json] [--timeout DURATION]
+gdctl run instantiate --scene SCENE --parent PATH [--name NAME] [--timeout DURATION]
+gdctl run scene-reload [--timeout DURATION]
 gdctl run smoke [--scene SCENE | --main] [--input FILE] [--assert SOURCE:KEY>=VALUE | --assert-source SOURCE --assert-key KEY --assert-op OP --assert-value VALUE] [--screenshot OUT] [--timeout DURATION] [--keep-running]
+gdctl run profile --metric METRICS --duration DURATION
 
 gdctl scene create --path PATH --root TYPE --name NAME [--force]
 gdctl scene open --path PATH
@@ -139,6 +145,7 @@ gdctl project run [--scene SCENE] [--timeout DURATION]
 gdctl viewport screenshot --out FILE [--kind 2d|3d] [--index N]
 gdctl viewport set-size --width W --height H [--path NODE_PATH]
 gdctl viewport add --width W --height H [--parent PATH] [--add-camera]
+gdctl viewport camera-assign --viewport PATH --camera PATH
 
 gdctl theme create --path PATH [--force]
 gdctl theme set-color --path PATH --node-type TYPE --name NAME --value COLOR
@@ -150,6 +157,10 @@ gdctl animation track-add --path LIBRARY --animation NAME --node-path NODE --pro
 gdctl animation keyframe-add --path LIBRARY --animation NAME --track-idx N --time T --value TYPED_JSON
 gdctl animation length-set --path LIBRARY --animation NAME --length N
 gdctl animation player-play --node-path PATH [--animation NAME]
+gdctl animation tree add-state --tree PATH --name NAME --animation ANIM
+gdctl animation tree add-transition --tree PATH --from STATE --to STATE --condition COND
+gdctl animation tree blend-space-2d-add --tree PATH --state STATE --blend-x PARAM --blend-y PARAM
+gdctl animation tree set-param --tree PATH --param PARAM (--vector2 X,Y | --float N | --bool B | --int N)
 
 gdctl tilemap tileset-create --path PATH [--tile-width W] [--tile-height H] [--force]
 gdctl tilemap source-add --path TILESET --texture TEX [--tile-width W] [--tile-height H]
@@ -160,6 +171,48 @@ gdctl tilemap cell-clear --node PATH --layer N --x X --y Y
 gdctl audio bus-add --name NAME [--if-missing]
 gdctl audio bus-volume-set --name NAME --volume-db DB
 gdctl audio bus-effect-add --name NAME --effect-type TYPE
+gdctl audio listener-make-current --path PATH
+gdctl audio playlist-add --bus BUS --stream PATH
+gdctl audio playlist-autoplay --bus BUS --mode MODE
+
+gdctl softbody pin-point --path PATH --point N
+gdctl softbody unpin-point --path PATH --point N
+
+gdctl lod set --path PATH --begin N --end N
+gdctl lod set-many --file FILE
+
+gdctl terrain heightmap-import --path PATH --texture TEX --min-height N --max-height N
+
+gdctl lightmap bake --path PATH
+
+gdctl voxelgi bake --path PATH
+
+gdctl reflection-probe bake --path PATH
+
+gdctl window create [--title TITLE] [--width W] [--height H] [--position X,Y]
+gdctl window assign-viewport --window-id ID --viewport PATH
+
+gdctl graph-edit node-add --path GRAPH --name NAME [--position X,Y]
+gdctl graph-edit connection-add --graph GRAPH --from NODE --from-port N --to NODE --to-port N
+gdctl graph-edit node-remove --path GRAPH --name NAME
+
+gdctl accessibility tts-speak --text TEXT [--interrupt]
+gdctl accessibility tts-configure [--pitch N] [--rate N] [--voice VOICE]
+gdctl accessibility tts-stop
+
+gdctl i18n locale-set --locale LOCALE
+gdctl i18n string-add --key KEY --locale LOCALE --text TEXT
+
+gdctl csg node-add --parent PATH --type TYPE --name NAME
+gdctl csg operation-set --path PATH --operation OP
+gdctl csg size-set --path PATH --size X,Y,Z
+
+gdctl decal add --parent PATH --texture TEX --size X,Y,Z
+gdctl decal set-normal-fade --path PATH --fade N
+
+gdctl fog-volume add --parent PATH --shape SHAPE --size X,Y,Z --density N
+
+gdctl occluder add --parent PATH --shape SHAPE --size X,Y,Z
 ```
 
 Multi-word commands can also be written with a dotted alias for quick interactive use:
@@ -212,7 +265,29 @@ The helper prefixes custom sources with `runtime.`, so the example appears in `g
 }
 ```
 
-`run screenshot` captures the running game viewport by default. Use `--source screen` for whole-host-screen capture, and `--screen N` to select the display index.
+`run screenshot` captures the running game viewport by default. Use `--source screen` for whole-host-screen capture, `--screen N` to select the display index, and `--viewport PATH` to capture a specific SubViewport node instead of the root.
+
+`run instantiate` spawns a packed scene under a parent node in the running game:
+
+```bash
+gdctl run instantiate --scene res://enemies/Goblin.tscn --parent /root/Main/Enemies --name Goblin1
+```
+
+Requires `GdctlRuntimeBridge` autoload in the running scene.
+
+`run scene-reload` restarts the current scene without stopping and re-starting Godot:
+
+```bash
+gdctl run scene-reload
+```
+
+Autoloads (including the runtime helper) persist across the reload.
+
+`run profile` samples runtime performance metrics while the game is running:
+
+```bash
+gdctl run profile --metric fps,draw_calls,memory_usage --duration 10s
+```
 
 `run wait-probe` polls run logs until a probe field satisfies a predicate or timeout fires:
 
@@ -594,6 +669,12 @@ Add a SubViewport node to the current scene:
 gdctl viewport add --width 320 --height 240 --parent /root/Main --add-camera
 ```
 
+Make a Camera3D or Camera2D current inside a SubViewport:
+
+```bash
+gdctl viewport camera-assign --viewport /root/Main/SubViewport --camera /root/Main/SubViewport/Camera3D
+```
+
 ## Theme
 
 Create and configure UI theme resources:
@@ -621,6 +702,16 @@ gdctl animation length-set --path res://animations/player.tres --animation walk 
 gdctl animation player-play --node-path /root/Main/AnimationPlayer --animation walk
 ```
 
+`animation tree` commands manage `AnimationNodeStateMachine` nodes:
+
+```bash
+gdctl animation tree add-state --tree /root/Main/AnimationTree --name idle --animation idle
+gdctl animation tree add-state --tree /root/Main/AnimationTree --name walk --animation walk
+gdctl animation tree add-transition --tree /root/Main/AnimationTree --from idle --to walk --condition is_moving
+gdctl animation tree blend-space-2d-add --tree /root/Main/AnimationTree --state walk --blend-x velocity_x --blend-y velocity_z
+gdctl animation tree set-param --tree /root/Main/AnimationTree --param parameters/playback --bool true
+```
+
 ## TileMap
 
 Create TileSets and paint cells:
@@ -634,13 +725,150 @@ gdctl tilemap cell-clear --node /root/Main/TileMap --layer 0 --x 3 --y 5
 
 ## Audio
 
-Manage audio buses:
+Manage audio buses and playlists:
 
 ```bash
 gdctl audio bus-add --name Music
 gdctl audio bus-volume-set --name Music --volume-db -6.0
 gdctl audio bus-effect-add --name Music --effect-type AudioEffectReverb
+gdctl audio listener-make-current --path /root/Main/Player/AudioListener3D
+gdctl audio playlist-add --bus Music --stream res://audio/theme.ogg
+gdctl audio playlist-autoplay --bus Music --mode random_no_repeat
 ```
+
+## SoftBody
+
+Pin and unpin vertices of a `SoftBody3D` node:
+
+```bash
+gdctl softbody pin-point --path /root/Main/Cloth --point 0
+gdctl softbody unpin-point --path /root/Main/Cloth --point 0
+```
+
+## LOD
+
+Set visibility distance ranges for LOD on `GeometryInstance3D` nodes:
+
+```bash
+gdctl lod set --path /root/Main/Rock --begin 20.0 --end 60.0
+gdctl lod set-many --file ./lod_ranges.json
+```
+
+The JSON file is an array of `{"path": "...", "begin": N, "end": N}` objects.
+
+## Terrain
+
+Import a heightmap image into a `HeightMapShape3D` node for physics-accurate collision:
+
+```bash
+gdctl terrain heightmap-import \
+  --path /root/Main/Terrain/CollisionShape3D/HeightMapShape3D \
+  --texture res://textures/heightmap.png \
+  --min-height -10.0 \
+  --max-height 100.0
+```
+
+## Lightmap
+
+Trigger a `LightmapGI` bake (returns immediately; the bake runs asynchronously in Godot):
+
+```bash
+gdctl lightmap bake --path /root/Main/LightmapGI
+```
+
+## VoxelGI
+
+Bake a `VoxelGI` node for real-time indirect lighting:
+
+```bash
+gdctl voxelgi bake --path /root/Main/VoxelGI
+```
+
+## Reflection Probe
+
+Attempt to bake a `ReflectionProbe` node:
+
+```bash
+gdctl reflection-probe bake --path /root/Main/ReflectionProbe
+```
+
+## Window
+
+Create floating Window nodes and assign SubViewports to them:
+
+```bash
+gdctl window create --title "Debug" --width 640 --height 480 --position 100,100
+gdctl window assign-viewport --window-id 2 --viewport /root/Main/SubViewport
+```
+
+## GraphEdit
+
+Add, connect, and remove nodes in a `GraphEdit` control:
+
+```bash
+gdctl graph-edit node-add --path /root/Main/GraphEdit --name Input --position 0,0
+gdctl graph-edit node-add --path /root/Main/GraphEdit --name Output --position 200,0
+gdctl graph-edit connection-add --graph /root/Main/GraphEdit --from Input --from-port 0 --to Output --to-port 0
+gdctl graph-edit node-remove --path /root/Main/GraphEdit --name Input
+```
+
+## Accessibility
+
+Control the OS text-to-speech engine:
+
+```bash
+gdctl accessibility tts-configure --pitch 1.0 --rate 1.0
+gdctl accessibility tts-speak --text "Game over"
+gdctl accessibility tts-stop
+```
+
+## Internationalization
+
+Switch the active locale and inject runtime translation strings:
+
+```bash
+gdctl i18n locale-set --locale ja
+gdctl i18n string-add --key SCORE_LABEL --locale ja --text "スコア"
+```
+
+## CSG
+
+Add CSG primitive nodes for rapid level prototyping:
+
+```bash
+gdctl csg node-add --parent /root/Main --type CSGBox3D --name Wall
+gdctl csg operation-set --path /root/Main/Wall --operation subtraction
+gdctl csg size-set --path /root/Main/Wall --size 4,3,0.2
+```
+
+## Decal
+
+Add texture-projected decals:
+
+```bash
+gdctl decal add --parent /root/Main --texture res://textures/splat.png --size 1,1,1
+gdctl decal set-normal-fade --path /root/Main/Decal --fade 0.5
+```
+
+## Fog Volume
+
+Add a `FogVolume` node with a `FogMaterial`:
+
+```bash
+gdctl fog-volume add --parent /root/Main --shape box --size 10,5,10 --density 0.05
+```
+
+Supported shapes: `box`, `ellipsoid`, `cone`, `cylinder`, `world`.
+
+## Occluder
+
+Add an `OccluderInstance3D` to improve GPU occlusion culling:
+
+```bash
+gdctl occluder add --parent /root/Main --shape box --size 4,3,0.2
+```
+
+Supported shapes: `box`, `sphere`, `quad`.
 
 ## Godot Addon
 
@@ -687,80 +915,31 @@ addons/godot_tcp_bridge/commands/
 
 ## Current Bridge Capabilities
 
-The current addon advertises these runtime capabilities through `gdctl bridge info`:
+Run `gdctl bridge info` to see exactly which capabilities the running addon exposes. The set grows with each addon update.
+
+As of addon v0.2.0 the bridge advertises:
 
 ```text
-ping
-scene.create
-scene.open
-scene.instance
-scene.tree
-scene.save
-scene.apply
-scene.list
-scene.apply.blueprint
-jobs.get
-node.add
-node.remove
-node.rename
-node.move
-node.get
-node.set
-node.set_resource
-node.attach_script
-node.group_add
-node.group_remove
-node.group_list
-node.duplicate
-node.list_properties
-signal.connect
-signal.disconnect
-project.setting_get
-project.setting_set
-file.list
-file.mkdir
-file.delete
-file.exists
-file.write_bytes
-navigation.bake
-script.check
-script.create
-script.write
-shader.check
-shader.write
-resource.create
-resource.list
-viewport.screenshot
-viewport.set-size
-viewport.add
-addon.update
-bridge.logs
-import.set
-run.start
-run.status
-run.stop
-run.logs
-run.logs.clear
-run.screenshot
-run.input
-run.probe.raycast
-theme.create
-theme.set-color
-theme.set-font-size
-theme.set-constant
-animation.create
-animation.track-add
-animation.keyframe-add
-animation.length-set
-animation.player-play
-tilemap.tileset-create
-tilemap.source-add
-tilemap.cell-set
-tilemap.cell-clear
-audio.bus-add
-audio.bus-volume-set
-audio.bus-effect-add
+ping, scene.create, scene.open, scene.instance, scene.tree, scene.save, scene.apply,
+jobs.get, node.add, node.remove, node.rename, node.move, node.get, node.set,
+node.set_many, node.set_resource, node.attach_script, node.group_add, node.group_remove,
+node.group_list, node.duplicate, node.list_properties, signal.connect, signal.disconnect,
+project.setting_get, project.setting_set, autoload.add, autoload.remove, autoload.list,
+input.action_add, input.action_remove, input.action_list, input.event_add_key,
+input.event-add-joypad, file.list, file.mkdir, file.delete, file.exists, file.write_bytes,
+navigation.bake, script.check, script.create, script.write, shader.check, shader.write,
+resource.create, resource.list, viewport.screenshot, viewport.set-size, viewport.add,
+addon.update, bridge.logs, import.set, scene.list, scene.apply.blueprint, run.start,
+run.status, run.stop, run.logs, run.logs.clear, run.screenshot, run.input,
+run.probe.raycast, run.probe.node, run.instantiate, run.scene-reload, theme.create,
+theme.set-color, theme.set-font-size, theme.set-constant, animation.create,
+animation.track-add, animation.keyframe-add, animation.length-set, animation.player-play,
+tilemap.tileset-create, tilemap.source-add, tilemap.cell-set, tilemap.cell-set-rect,
+tilemap.cell-clear, audio.bus-add, audio.bus-volume-set, audio.bus-effect-add,
+audio.listener-make-current
 ```
+
+CLI commands for softbody, lod, terrain, lightmap, voxelgi, reflection-probe, window, graph-edit, accessibility, i18n, csg, decal, fog-volume, and occluder require a newer addon version. Run `gdctl addon update` after upgrading the CLI to pick up the latest handlers, then reload the plugin in Godot.
 
 Most commands are projectless once the addon is running: the CLI talks over TCP and does not need the Godot project mounted in the devcontainer. Filesystem addon install/enable/remove still need `--project` because they edit a local project directory directly.
 

@@ -203,7 +203,7 @@ It must be tested manually on a disposable project before updating the normal ad
 ## 7. Current Bridge Structure
 
 The bridge bootstrap and projectless update loop are working. Logical scene paths are working.
-The addon server has started moving reusable logic out of `bridge_server.gd`. Typed CLI/Godot value conversion now lives in `addons/godot_tcp_bridge/typed_values.gd`, command handlers now live under `addons/godot_tcp_bridge/commands/`, bridge self-update logic now lives in `addons/godot_tcp_bridge/addon_update.gd`, request/response protocol helpers now live in `addons/godot_tcp_bridge/protocol.gd`, and async job processing now lives in `addons/godot_tcp_bridge/jobs.gd`.
+Reusable logic has been extracted out of `bridge_server.gd`. Typed CLI/Godot value conversion lives in `addons/godot_tcp_bridge/typed_values.gd`, command handlers live under `addons/godot_tcp_bridge/commands/`, bridge self-update logic lives in `addons/godot_tcp_bridge/addon_update.gd`, request/response protocol helpers live in `addons/godot_tcp_bridge/protocol.gd`, async job processing lives in `addons/godot_tcp_bridge/jobs.gd`, the in-memory diagnostic buffer lives in `addons/godot_tcp_bridge/log_buffer.gd`, and runtime game-side bridging lives in `addons/godot_tcp_bridge/runtime/runtime_bridge.gd`.
 
 Command request validation is centralized in:
 
@@ -213,20 +213,51 @@ addons/godot_tcp_bridge/commands/request.gd
 
 New command handlers should use that helper for JSON body parsing, authorization, operation checks, and params extraction.
 
-Implemented bridge primitives include:
+Implemented bridge capabilities (as reported by `bridge info`):
 
 ```text
-scene create/open/instance/tree/save
-node add/remove/set/get/rename/move/attach-script
-script create/write/check
-shader write/check
-material write
-node set-resource
-file write-bytes
-lut write
-viewport screenshot
+scene  create / open / instance / tree / save / apply / apply.blueprint / list / batch
+node   add / remove / rename / move / get / set / set_many / set_resource / attach_script
+       group_add / group_remove / group_list / duplicate / list_properties
+script create / write / check
+shader write / check
+resource create / list
+file   write_bytes / list / mkdir / delete / exists
+import set
+navigation bake
+signal connect / disconnect
+project setting_get / setting_set
+autoload add / remove / list
+input  action_add / action_remove / action_list / event_add_key / event-add-joypad
+run    start / status / stop / logs / logs.clear / screenshot / input / instantiate / scene-reload
+       probe.raycast / probe.node
+theme  create / set-color / set-font-size / set-constant
+animation create / track-add / keyframe-add / length-set / player-play
+animation.tree add_state / add_transition / blend_space_2d_add / set_param
+tilemap tileset-create / source-add / cell-set / cell-set-rect / cell-clear
+audio  bus-add / bus-volume-set / bus-effect-add / listener-make-current
+       playlist-add / playlist-autoplay
+viewport screenshot / set-size / add / camera-assign
+window create / assign-viewport
+graph-edit node_add / connection_add / node_remove
+softbody pin_point / unpin_point
+lod    set / set_many
+terrain heightmap_import
+lightmap bake
+voxelgi bake
+reflection-probe bake
+accessibility tts_speak / tts_configure / tts_stop
+i18n   locale_set / locale_get / translate
+csg    union / subtract / intersect
+decal  set / clear
+fog-volume set
+occluder set
+addon  update
 bridge logs
+jobs   get
 ```
+
+> **Manifest gap**: The newer command files (`animation_tree_commands.gd`, `softbody_commands.gd`, `lod_commands.gd`, `terrain_commands.gd`, `lighting_commands.gd`, `graph_edit_commands.gd`, `accessibility_commands.gd`, `i18n_commands.gd`, `decal_commands.gd`, `fog_commands.gd`, `occluder_commands.gd`) are wired into `bridge_server.gd` but are not yet listed in `gdctl_manifest.json`. Running `addon update` will not deploy these files to Godot until they are added to the manifest's `files` array.
 
 Use typed JSON values:
 
@@ -293,14 +324,15 @@ This section documents the proven workflow for adding a new CLI command end-to-e
 | Layer | File | What to add |
 |---|---|---|
 | GDScript handler | `addons/godot_tcp_bridge/commands/<category>_commands.gd` | `handle_<op>` function |
-| Bridge wiring | `addons/godot_tcp_bridge/bridge_server.gd` | `const`, `var`, route `if`, capability string |
-| Addon manifest | `addons/godot_tcp_bridge/gdctl_manifest.json` | filename in `files` array (new files only) |
+| Bridge wiring | `addons/godot_tcp_bridge/bridge_server.gd` | `preload` const, instance var, route `if`, capability string |
+| Addon manifest | `addons/godot_tcp_bridge/gdctl_manifest.json` | filename in `files` array (new command files must be listed here or `addon update` won't deploy them) |
 | Go types | `internal/bridge/types.go` | result struct |
 | Go client | `internal/bridge/client.go` | method calling `postEnvelope` |
 | Go CLI | `internal/cli/cli.go` | router case, handler function, `printUsage` line |
+| Go help | `internal/cli/cli_help.go` | `helpCmd` entry with `usecase` bullets |
 | Go tests | `internal/cli/cli_test.go` | happy-path test + validation test |
 
-For a new category (e.g. `signal`, `project`) also create a new `*_commands.gd` file.
+For a new category also create a new `*_commands.gd` file and add it to both `bridge_server.gd` and `gdctl_manifest.json`.
 
 ### Deployment workflow
 
