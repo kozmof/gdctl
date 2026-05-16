@@ -275,6 +275,34 @@ func runSceneBatchOperation(ctx context.Context, client *bridge.Client, idx int,
 	return nil
 }
 
+// withScene handles the open→fn→save lifecycle for commands that accept --scene.
+// When scenePath is empty fn runs directly with no scene management.
+// When dryRun is true the save step is skipped (the scene was opened but not mutated).
+func withScene(ctx context.Context, client *bridge.Client, scenePath string, dryRun bool, timeout time.Duration, stdout io.Writer, fn func() error) error {
+	if scenePath == "" {
+		return fn()
+	}
+	sceneMu.Lock()
+	defer sceneMu.Unlock()
+	openedPath, _, err := openSceneAndWait(ctx, client, scenePath, timeout)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Scene opened: %s\n", openedPath)
+	if err := fn(); err != nil {
+		return err
+	}
+	if dryRun {
+		return nil
+	}
+	savedPath, err := saveSceneAndWait(ctx, client, timeout)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Scene saved: %s\n", savedPath)
+	return nil
+}
+
 func openSceneAndWait(ctx context.Context, client *bridge.Client, path string, timeout time.Duration) (string, string, error) {
 	result, err := client.OpenScene(ctx, requestID(), path)
 	if err != nil {
@@ -314,29 +342,6 @@ func saveSceneAndWait(ctx context.Context, client *bridge.Client, timeout time.D
 	return pathValue, nil
 }
 
-func waitForJob(ctx context.Context, client *bridge.Client, jobID string, timeout time.Duration, label string) (bridge.Job, error) {
-	deadline := time.Now().Add(timeout)
-	for {
-		job, err := client.Job(ctx, jobID)
-		if err != nil {
-			return bridge.Job{}, err
-		}
-		switch job.Status {
-		case "succeeded":
-			return job, nil
-		case "failed":
-			if job.Error != nil {
-				return bridge.Job{}, job.Error
-			}
-			return bridge.Job{}, fmt.Errorf("%s job failed", label)
-		}
-		if time.Now().After(deadline) {
-			return bridge.Job{}, fmt.Errorf("%s timed out waiting for job %s", label, jobID)
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-}
-
 func runNodeAdd(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("node add", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -358,33 +363,19 @@ func runNodeAdd(ctx context.Context, client *bridge.Client, args []string, stdou
 	if err != nil {
 		return err
 	}
-	if *scenePath != "" {
-		sceneMu.Lock()
-		defer sceneMu.Unlock()
-		openedPath, _, err := openSceneAndWait(ctx, client, *scenePath, *timeout)
+	return withScene(ctx, client, *scenePath, *dryRun, *timeout, stdout, func() error {
+		result, err := client.AddNode(ctx, requestID(), *parent, *nodeType, *name, props, *dryRun)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "Scene opened: %s\n", openedPath)
-	}
-	result, err := client.AddNode(ctx, requestID(), *parent, *nodeType, *name, props, *dryRun)
-	if err != nil {
-		return err
-	}
-	nodePath, _ := result["path"].(string)
-	if *dryRun {
-		fmt.Fprintf(stdout, "Dry run ok: %s\n", nodePath)
+		nodePath, _ := result["path"].(string)
+		if *dryRun {
+			fmt.Fprintf(stdout, "Dry run ok: %s\n", nodePath)
+			return nil
+		}
+		fmt.Fprintf(stdout, "Added node: %s\n", nodePath)
 		return nil
-	}
-	fmt.Fprintf(stdout, "Added node: %s\n", nodePath)
-	if *scenePath != "" {
-		savedPath, err := saveSceneAndWait(ctx, client, *timeout)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(stdout, "Scene saved: %s\n", savedPath)
-	}
-	return nil
+	})
 }
 
 func runNodeRemove(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
@@ -400,33 +391,19 @@ func runNodeRemove(ctx context.Context, client *bridge.Client, args []string, st
 	if *path == "" {
 		return fmt.Errorf("node remove requires --path")
 	}
-	if *scenePath != "" {
-		sceneMu.Lock()
-		defer sceneMu.Unlock()
-		openedPath, _, err := openSceneAndWait(ctx, client, *scenePath, *timeout)
+	return withScene(ctx, client, *scenePath, *dryRun, *timeout, stdout, func() error {
+		result, err := client.RemoveNode(ctx, requestID(), *path, *dryRun)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "Scene opened: %s\n", openedPath)
-	}
-	result, err := client.RemoveNode(ctx, requestID(), *path, *dryRun)
-	if err != nil {
-		return err
-	}
-	removed, _ := result["path"].(string)
-	if *dryRun {
-		fmt.Fprintf(stdout, "Dry run ok: %s\n", removed)
+		removed, _ := result["path"].(string)
+		if *dryRun {
+			fmt.Fprintf(stdout, "Dry run ok: %s\n", removed)
+			return nil
+		}
+		fmt.Fprintf(stdout, "Removed node: %s\n", removed)
 		return nil
-	}
-	fmt.Fprintf(stdout, "Removed node: %s\n", removed)
-	if *scenePath != "" {
-		savedPath, err := saveSceneAndWait(ctx, client, *timeout)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(stdout, "Scene saved: %s\n", savedPath)
-	}
-	return nil
+	})
 }
 
 func runNodeRename(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
@@ -443,33 +420,19 @@ func runNodeRename(ctx context.Context, client *bridge.Client, args []string, st
 	if *path == "" || *name == "" {
 		return fmt.Errorf("node rename requires --path and --name")
 	}
-	if *scenePath != "" {
-		sceneMu.Lock()
-		defer sceneMu.Unlock()
-		openedPath, _, err := openSceneAndWait(ctx, client, *scenePath, *timeout)
+	return withScene(ctx, client, *scenePath, *dryRun, *timeout, stdout, func() error {
+		result, err := client.RenameNode(ctx, requestID(), *path, *name, *dryRun)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "Scene opened: %s\n", openedPath)
-	}
-	result, err := client.RenameNode(ctx, requestID(), *path, *name, *dryRun)
-	if err != nil {
-		return err
-	}
-	newPath, _ := result["path"].(string)
-	if *dryRun {
-		fmt.Fprintf(stdout, "Dry run ok: %s\n", newPath)
+		newPath, _ := result["path"].(string)
+		if *dryRun {
+			fmt.Fprintf(stdout, "Dry run ok: %s\n", newPath)
+			return nil
+		}
+		fmt.Fprintf(stdout, "Renamed node: %s\n", newPath)
 		return nil
-	}
-	fmt.Fprintf(stdout, "Renamed node: %s\n", newPath)
-	if *scenePath != "" {
-		savedPath, err := saveSceneAndWait(ctx, client, *timeout)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(stdout, "Scene saved: %s\n", savedPath)
-	}
-	return nil
+	})
 }
 
 func runNodeMove(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
@@ -487,33 +450,19 @@ func runNodeMove(ctx context.Context, client *bridge.Client, args []string, stdo
 	if *path == "" || *parent == "" {
 		return fmt.Errorf("node move requires --path and --parent")
 	}
-	if *scenePath != "" {
-		sceneMu.Lock()
-		defer sceneMu.Unlock()
-		openedPath, _, err := openSceneAndWait(ctx, client, *scenePath, *timeout)
+	return withScene(ctx, client, *scenePath, *dryRun, *timeout, stdout, func() error {
+		result, err := client.MoveNode(ctx, requestID(), *path, *parent, *index, *dryRun)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "Scene opened: %s\n", openedPath)
-	}
-	result, err := client.MoveNode(ctx, requestID(), *path, *parent, *index, *dryRun)
-	if err != nil {
-		return err
-	}
-	newPath, _ := result["path"].(string)
-	if *dryRun {
-		fmt.Fprintf(stdout, "Dry run ok: %s\n", newPath)
+		newPath, _ := result["path"].(string)
+		if *dryRun {
+			fmt.Fprintf(stdout, "Dry run ok: %s\n", newPath)
+			return nil
+		}
+		fmt.Fprintf(stdout, "Moved node: %s\n", newPath)
 		return nil
-	}
-	fmt.Fprintf(stdout, "Moved node: %s\n", newPath)
-	if *scenePath != "" {
-		savedPath, err := saveSceneAndWait(ctx, client, *timeout)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(stdout, "Scene saved: %s\n", savedPath)
-	}
-	return nil
+	})
 }
 
 func runNodeGet(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
@@ -589,28 +538,14 @@ func runNodeSet(ctx context.Context, client *bridge.Client, args []string, stdou
 			return err
 		}
 	}
-	if *scenePath != "" {
-		sceneMu.Lock()
-		defer sceneMu.Unlock()
-		openedPath, _, err := openSceneAndWait(ctx, client, *scenePath, *timeout)
+	return withScene(ctx, client, *scenePath, false, *timeout, stdout, func() error {
+		result, err := client.SetNodeProperty(ctx, requestID(), *path, resolvedProp, resolvedValue)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "Scene opened: %s\n", openedPath)
-	}
-	result, err := client.SetNodeProperty(ctx, requestID(), *path, resolvedProp, resolvedValue)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(stdout, "Set %s on %s\n", result.Property, result.Path)
-	if *scenePath != "" {
-		savedPath, err := saveSceneAndWait(ctx, client, *timeout)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(stdout, "Scene saved: %s\n", savedPath)
-	}
-	return nil
+		fmt.Fprintf(stdout, "Set %s on %s\n", result.Property, result.Path)
+		return nil
+	})
 }
 
 func runNodeSetMany(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
@@ -630,28 +565,14 @@ func runNodeSetMany(ctx context.Context, client *bridge.Client, args []string, s
 	if err != nil {
 		return err
 	}
-	if *scenePath != "" {
-		sceneMu.Lock()
-		defer sceneMu.Unlock()
-		openedPath, _, err := openSceneAndWait(ctx, client, *scenePath, *timeout)
+	return withScene(ctx, client, *scenePath, false, *timeout, stdout, func() error {
+		result, err := client.SetNodeProperties(ctx, requestID(), *path, properties)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "Scene opened: %s\n", openedPath)
-	}
-	result, err := client.SetNodeProperties(ctx, requestID(), *path, properties)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(stdout, "Set %d properties on %s\n", result.Updated, result.Path)
-	if *scenePath != "" {
-		savedPath, err := saveSceneAndWait(ctx, client, *timeout)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(stdout, "Scene saved: %s\n", savedPath)
-	}
-	return nil
+		fmt.Fprintf(stdout, "Set %d properties on %s\n", result.Updated, result.Path)
+		return nil
+	})
 }
 
 func readSetManyPropertiesFile(filePath string) (map[string]any, error) {
@@ -688,28 +609,14 @@ func runNodeSetResource(ctx context.Context, client *bridge.Client, args []strin
 	if *path == "" || *property == "" || *resourcePath == "" {
 		return fmt.Errorf("node set-resource requires --path, --property, and --resource")
 	}
-	if *scenePath != "" {
-		sceneMu.Lock()
-		defer sceneMu.Unlock()
-		openedPath, _, err := openSceneAndWait(ctx, client, *scenePath, *timeout)
+	return withScene(ctx, client, *scenePath, false, *timeout, stdout, func() error {
+		result, err := client.SetNodeResource(ctx, requestID(), *path, *property, *resourcePath)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "Scene opened: %s\n", openedPath)
-	}
-	result, err := client.SetNodeResource(ctx, requestID(), *path, *property, *resourcePath)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(stdout, "Set %s on %s to %s\n", result.Property, result.Path, result.Resource)
-	if *scenePath != "" {
-		savedPath, err := saveSceneAndWait(ctx, client, *timeout)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(stdout, "Scene saved: %s\n", savedPath)
-	}
-	return nil
+		fmt.Fprintf(stdout, "Set %s on %s to %s\n", result.Property, result.Path, result.Resource)
+		return nil
+	})
 }
 
 func runNodeAttachScript(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
@@ -725,28 +632,14 @@ func runNodeAttachScript(ctx context.Context, client *bridge.Client, args []stri
 	if *path == "" || *scriptPath == "" {
 		return fmt.Errorf("node attach-script requires --path and --script")
 	}
-	if *scenePath != "" {
-		sceneMu.Lock()
-		defer sceneMu.Unlock()
-		openedPath, _, err := openSceneAndWait(ctx, client, *scenePath, *timeout)
+	return withScene(ctx, client, *scenePath, false, *timeout, stdout, func() error {
+		result, err := client.AttachScript(ctx, requestID(), *path, *scriptPath)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "Scene opened: %s\n", openedPath)
-	}
-	result, err := client.AttachScript(ctx, requestID(), *path, *scriptPath)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(stdout, "Attached script: %s -> %s\n", result.Script, result.Path)
-	if *scenePath != "" {
-		savedPath, err := saveSceneAndWait(ctx, client, *timeout)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(stdout, "Scene saved: %s\n", savedPath)
-	}
-	return nil
+		fmt.Fprintf(stdout, "Attached script: %s -> %s\n", result.Script, result.Path)
+		return nil
+	})
 }
 
 func runNodeGroupAdd(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {

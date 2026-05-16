@@ -2,7 +2,6 @@ package bridge
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 )
 
@@ -103,19 +102,7 @@ func (c *Client) RunProfile(ctx context.Context, requestID string, metrics []str
 		Op:        "run.profile",
 		Params:    map[string]any{"metrics": strings.Join(metrics, ","), "duration_ms": durationMS},
 	}
-	result, err := c.postEnvelope(ctx, "/run/profile", env)
-	if err != nil {
-		return RunProfileResult{}, err
-	}
-	encoded, err := json.Marshal(result)
-	if err != nil {
-		return RunProfileResult{}, err
-	}
-	var out RunProfileResult
-	if err := json.Unmarshal(encoded, &out); err != nil {
-		return RunProfileResult{}, err
-	}
-	return out, nil
+	return callPost[RunProfileResult](ctx, c, "/run/profile", env)
 }
 
 // Terrain command

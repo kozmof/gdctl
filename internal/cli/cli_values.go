@@ -63,151 +63,140 @@ func newTypedValueFlags(fs *flag.FlagSet, label string) *typedValueFlags {
 }
 
 func (f *typedValueFlags) Value() (any, error) {
-	values := []struct {
+	type entry struct {
 		name  string
-		value string
-	}{
-		{"value", *f.valueText},
-		{"string", *f.stringValue},
-		{"int", *f.intValue},
-		{"float", *f.floatValue},
-		{"bool", *f.boolValue},
-		{"node-path", *f.nodePath},
-		{"vector2", *f.vector2},
-		{"vector3", *f.vector3},
-		{"color", *f.color},
-		{"resource", *f.resource},
-		{"aabb", *f.aabb},
-		{"array-vector2", *f.arrayVector2},
-		{"array-vector3", *f.arrayVector3},
-		{"array-string", *f.arrayString},
-		{"array-int", *f.arrayInt},
-		{"array-float", *f.arrayFloat},
-		{"array-bool", *f.arrayBool},
+		raw   string
+		parse func(string) (any, error)
 	}
-	count := 0
-	for _, item := range values {
-		if item.value != "" {
-			count++
+	entries := []entry{
+		{"value", *f.valueText, func(s string) (any, error) {
+			var v any
+			if err := json.Unmarshal([]byte(s), &v); err != nil {
+				return nil, fmt.Errorf("%s --value must be typed JSON: %w", f.label, err)
+			}
+			return v, nil
+		}},
+		{"string", *f.stringValue, func(s string) (any, error) {
+			return map[string]any{"kind": "String", "value": s}, nil
+		}},
+		{"int", *f.intValue, func(s string) (any, error) {
+			v, err := strconv.Atoi(s)
+			if err != nil {
+				return nil, fmt.Errorf("%s --int must be an integer: %w", f.label, err)
+			}
+			return map[string]any{"kind": "int", "value": v}, nil
+		}},
+		{"float", *f.floatValue, func(s string) (any, error) {
+			v, err := strconv.ParseFloat(s, 64)
+			if err != nil {
+				return nil, fmt.Errorf("%s --float must be a number: %w", f.label, err)
+			}
+			return map[string]any{"kind": "float", "value": v}, nil
+		}},
+		{"bool", *f.boolValue, func(s string) (any, error) {
+			v, err := strconv.ParseBool(s)
+			if err != nil {
+				return nil, fmt.Errorf("%s --bool must be true or false: %w", f.label, err)
+			}
+			return map[string]any{"kind": "bool", "value": v}, nil
+		}},
+		{"node-path", *f.nodePath, func(s string) (any, error) {
+			return map[string]any{"kind": "NodePath", "value": s}, nil
+		}},
+		{"vector2", *f.vector2, func(s string) (any, error) {
+			vals, err := parseFloatList(s, 2, "vector2")
+			if err != nil {
+				return nil, fmt.Errorf("%s --vector2 %w", f.label, err)
+			}
+			return map[string]any{"kind": "Vector2", "value": vals}, nil
+		}},
+		{"vector3", *f.vector3, func(s string) (any, error) {
+			vals, err := parseFloatList(s, 3, "vector3")
+			if err != nil {
+				return nil, fmt.Errorf("%s --vector3 %w", f.label, err)
+			}
+			return map[string]any{"kind": "Vector3", "value": vals}, nil
+		}},
+		{"color", *f.color, func(s string) (any, error) {
+			parts := strings.Split(s, ",")
+			if len(parts) != 3 && len(parts) != 4 {
+				return nil, fmt.Errorf("%s --color must be r,g,b or r,g,b,a", f.label)
+			}
+			vals, err := parseFloatList(s, len(parts), "color")
+			if err != nil {
+				return nil, fmt.Errorf("%s --color %w", f.label, err)
+			}
+			return map[string]any{"kind": "Color", "value": vals}, nil
+		}},
+		{"resource", *f.resource, func(s string) (any, error) {
+			return map[string]any{"kind": "Resource", "value": s}, nil
+		}},
+		{"aabb", *f.aabb, func(s string) (any, error) {
+			vals, err := parseFloatList(s, 6, "aabb")
+			if err != nil {
+				return nil, fmt.Errorf("%s --aabb must be px,py,pz,sx,sy,sz: %w", f.label, err)
+			}
+			return map[string]any{
+				"kind": "AABB",
+				"value": map[string]any{
+					"position": vals[:3],
+					"size":     vals[3:],
+				},
+			}, nil
+		}},
+		{"array-vector2", *f.arrayVector2, func(s string) (any, error) {
+			vals, err := parseVectorArray(s, 2, "array-vector2")
+			if err != nil {
+				return nil, fmt.Errorf("%s --array-vector2 %w", f.label, err)
+			}
+			return map[string]any{"kind": "Array[Vector2]", "value": vals}, nil
+		}},
+		{"array-vector3", *f.arrayVector3, func(s string) (any, error) {
+			vals, err := parseVectorArray(s, 3, "array-vector3")
+			if err != nil {
+				return nil, fmt.Errorf("%s --array-vector3 %w", f.label, err)
+			}
+			return map[string]any{"kind": "Array[Vector3]", "value": vals}, nil
+		}},
+		{"array-string", *f.arrayString, func(s string) (any, error) {
+			return map[string]any{"kind": "Array[String]", "value": parseStringArray(s)}, nil
+		}},
+		{"array-int", *f.arrayInt, func(s string) (any, error) {
+			vals, err := parseIntArray(s)
+			if err != nil {
+				return nil, fmt.Errorf("%s --array-int %w", f.label, err)
+			}
+			return map[string]any{"kind": "Array[int]", "value": vals}, nil
+		}},
+		{"array-float", *f.arrayFloat, func(s string) (any, error) {
+			vals, err := parseFloatArray(s)
+			if err != nil {
+				return nil, fmt.Errorf("%s --array-float %w", f.label, err)
+			}
+			return map[string]any{"kind": "Array[float]", "value": vals}, nil
+		}},
+		{"array-bool", *f.arrayBool, func(s string) (any, error) {
+			vals, err := parseBoolArray(s)
+			if err != nil {
+				return nil, fmt.Errorf("%s --array-bool %w", f.label, err)
+			}
+			return map[string]any{"kind": "Array[bool]", "value": vals}, nil
+		}},
+	}
+
+	var active []entry
+	for _, e := range entries {
+		if e.raw != "" {
+			active = append(active, e)
 		}
 	}
-	if count == 0 {
+	if len(active) == 0 {
 		return nil, fmt.Errorf("%s requires a value flag: --value, --string, --int, --float, --bool, --node-path, --vector2, --vector3, --color, --resource, --aabb, or --array-*", f.label)
 	}
-	if count > 1 {
+	if len(active) > 1 {
 		return nil, fmt.Errorf("%s requires exactly one value flag", f.label)
 	}
-	if *f.valueText != "" {
-		var value any
-		if err := json.Unmarshal([]byte(*f.valueText), &value); err != nil {
-			return nil, fmt.Errorf("%s --value must be typed JSON: %w", f.label, err)
-		}
-		return value, nil
-	}
-	if *f.stringValue != "" {
-		return map[string]any{"kind": "String", "value": *f.stringValue}, nil
-	}
-	if *f.intValue != "" {
-		v, err := strconv.Atoi(*f.intValue)
-		if err != nil {
-			return nil, fmt.Errorf("%s --int must be an integer: %w", f.label, err)
-		}
-		return map[string]any{"kind": "int", "value": v}, nil
-	}
-	if *f.floatValue != "" {
-		v, err := strconv.ParseFloat(*f.floatValue, 64)
-		if err != nil {
-			return nil, fmt.Errorf("%s --float must be a number: %w", f.label, err)
-		}
-		return map[string]any{"kind": "float", "value": v}, nil
-	}
-	if *f.boolValue != "" {
-		v, err := strconv.ParseBool(*f.boolValue)
-		if err != nil {
-			return nil, fmt.Errorf("%s --bool must be true or false: %w", f.label, err)
-		}
-		return map[string]any{"kind": "bool", "value": v}, nil
-	}
-	if *f.nodePath != "" {
-		return map[string]any{"kind": "NodePath", "value": *f.nodePath}, nil
-	}
-	if *f.vector2 != "" {
-		values, err := parseFloatList(*f.vector2, 2, "vector2")
-		if err != nil {
-			return nil, fmt.Errorf("%s --vector2 %w", f.label, err)
-		}
-		return map[string]any{"kind": "Vector2", "value": values}, nil
-	}
-	if *f.vector3 != "" {
-		values, err := parseFloatList(*f.vector3, 3, "vector3")
-		if err != nil {
-			return nil, fmt.Errorf("%s --vector3 %w", f.label, err)
-		}
-		return map[string]any{"kind": "Vector3", "value": values}, nil
-	}
-	if *f.color != "" {
-		parts := strings.Split(*f.color, ",")
-		if len(parts) != 3 && len(parts) != 4 {
-			return nil, fmt.Errorf("%s --color must be r,g,b or r,g,b,a", f.label)
-		}
-		values, err := parseFloatList(*f.color, len(parts), "color")
-		if err != nil {
-			return nil, fmt.Errorf("%s --color %w", f.label, err)
-		}
-		return map[string]any{"kind": "Color", "value": values}, nil
-	}
-	if *f.aabb != "" {
-		vals, err := parseFloatList(*f.aabb, 6, "aabb")
-		if err != nil {
-			return nil, fmt.Errorf("%s --aabb must be px,py,pz,sx,sy,sz: %w", f.label, err)
-		}
-		return map[string]any{
-			"kind": "AABB",
-			"value": map[string]any{
-				"position": vals[:3],
-				"size":     vals[3:],
-			},
-		}, nil
-	}
-	if *f.arrayVector2 != "" {
-		values, err := parseVectorArray(*f.arrayVector2, 2, "array-vector2")
-		if err != nil {
-			return nil, fmt.Errorf("%s --array-vector2 %w", f.label, err)
-		}
-		return map[string]any{"kind": "Array[Vector2]", "value": values}, nil
-	}
-	if *f.arrayVector3 != "" {
-		values, err := parseVectorArray(*f.arrayVector3, 3, "array-vector3")
-		if err != nil {
-			return nil, fmt.Errorf("%s --array-vector3 %w", f.label, err)
-		}
-		return map[string]any{"kind": "Array[Vector3]", "value": values}, nil
-	}
-	if *f.arrayString != "" {
-		return map[string]any{"kind": "Array[String]", "value": parseStringArray(*f.arrayString)}, nil
-	}
-	if *f.arrayInt != "" {
-		values, err := parseIntArray(*f.arrayInt)
-		if err != nil {
-			return nil, fmt.Errorf("%s --array-int %w", f.label, err)
-		}
-		return map[string]any{"kind": "Array[int]", "value": values}, nil
-	}
-	if *f.arrayFloat != "" {
-		values, err := parseFloatArray(*f.arrayFloat)
-		if err != nil {
-			return nil, fmt.Errorf("%s --array-float %w", f.label, err)
-		}
-		return map[string]any{"kind": "Array[float]", "value": values}, nil
-	}
-	if *f.arrayBool != "" {
-		values, err := parseBoolArray(*f.arrayBool)
-		if err != nil {
-			return nil, fmt.Errorf("%s --array-bool %w", f.label, err)
-		}
-		return map[string]any{"kind": "Array[bool]", "value": values}, nil
-	}
-	return map[string]any{"kind": "Resource", "value": *f.resource}, nil
+	return active[0].parse(active[0].raw)
 }
 
 func parseVectorArray(value string, want int, label string) ([][]float64, error) {
@@ -297,36 +286,28 @@ func parseFloatList(value string, want int, label string) ([]float64, error) {
 	return out, nil
 }
 
-func parseNameJSONPairs(values []string) (map[string]any, error) {
+func parseNameJSONPairsLabeled(values []string, flag string) (map[string]any, error) {
 	out := map[string]any{}
 	for _, value := range values {
 		name, jsonVal, ok := strings.Cut(value, "=")
 		if !ok || name == "" || jsonVal == "" {
-			return nil, fmt.Errorf("--prop must use name=JSON_VALUE")
+			return nil, fmt.Errorf("--%s must use name=JSON_VALUE", flag)
 		}
 		var decoded any
 		if err := json.Unmarshal([]byte(jsonVal), &decoded); err != nil {
-			return nil, fmt.Errorf("--prop %s value must be typed JSON: %w", name, err)
+			return nil, fmt.Errorf("--%s %s value must be typed JSON: %w", flag, name, err)
 		}
 		out[name] = decoded
 	}
 	return out, nil
 }
 
+func parseNameJSONPairs(values []string) (map[string]any, error) {
+	return parseNameJSONPairsLabeled(values, "prop")
+}
+
 func parseNameRawJSONPairs(values []string) (map[string]any, error) {
-	out := map[string]any{}
-	for _, value := range values {
-		name, jsonVal, ok := strings.Cut(value, "=")
-		if !ok || name == "" || jsonVal == "" {
-			return nil, fmt.Errorf("--param must use name=JSON_VALUE")
-		}
-		var decoded any
-		if err := json.Unmarshal([]byte(jsonVal), &decoded); err != nil {
-			return nil, fmt.Errorf("--param %s value must be JSON: %w", name, err)
-		}
-		out[name] = decoded
-	}
-	return out, nil
+	return parseNameJSONPairsLabeled(values, "param")
 }
 
 func parseNameResourcePairs(values []string) (map[string]string, error) {

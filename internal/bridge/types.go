@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -58,11 +59,11 @@ func (e *BridgeError) Error() string {
 	if hint, _ := e.Detail["hint"].(string); hint != "" {
 		suffix = append(suffix, "hint: "+hint)
 	}
+	if debugger := formatDebuggerContext(e.Detail["debugger"]); debugger != "" {
+		suffix = append(suffix, debugger)
+	}
 	if len(suffix) > 0 {
 		base += " (" + strings.Join(suffix, ": ") + ")"
-	}
-	if debugger := formatDebuggerContext(e.Detail["debugger"]); debugger != "" {
-		base += " (" + debugger + ")"
 	}
 	if source := formatSourceContext(e.Detail["source"]); source != "" {
 		base += "\n" + source
@@ -451,6 +452,26 @@ type RunStatusResult struct {
 	RuntimeHelperAutoloadConfigured bool                `json:"runtime_helper_autoload_configured,omitempty"`
 	RuntimeHelperLastSeen           string              `json:"runtime_helper_last_seen,omitempty"`
 	RuntimeHelperError              string              `json:"runtime_helper_error,omitempty"`
+}
+
+func (r *RunStatusResult) UnmarshalJSON(data []byte) error {
+	type plain RunStatusResult
+	if err := json.Unmarshal(data, (*plain)(r)); err != nil {
+		return err
+	}
+	if !r.RuntimeHelper.Present && r.RuntimeHelperPresent {
+		r.RuntimeHelper.Present = true
+	}
+	if !r.RuntimeHelper.AutoloadConfigured && r.RuntimeHelperAutoloadConfigured {
+		r.RuntimeHelper.AutoloadConfigured = true
+	}
+	if r.RuntimeHelper.LastSeen == "" {
+		r.RuntimeHelper.LastSeen = r.RuntimeHelperLastSeen
+	}
+	if r.RuntimeHelper.Error == "" {
+		r.RuntimeHelper.Error = r.RuntimeHelperError
+	}
+	return nil
 }
 
 type RunStopResult struct {

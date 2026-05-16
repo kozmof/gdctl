@@ -88,6 +88,21 @@ func (c *Client) postEnvelope(ctx context.Context, path string, env RequestEnvel
 	return out.Result, nil
 }
 
+func callPost[T any](ctx context.Context, c *Client, path string, env RequestEnvelope) (T, error) {
+	result, err := c.postEnvelope(ctx, path, env)
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	var out T
+	return out, json.Unmarshal(encoded, &out)
+}
+
 func decodeResponse(resp *http.Response, target any) error {
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {

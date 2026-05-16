@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -87,7 +88,6 @@ func runRunStatus(ctx context.Context, client *bridge.Client, args []string, std
 	if err != nil {
 		return err
 	}
-	normalizeRuntimeHelperStatus(&result)
 	if *jsonOut {
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
@@ -169,7 +169,6 @@ func runRunHelperStatus(ctx context.Context, client *bridge.Client, args []strin
 	if err != nil {
 		return err
 	}
-	normalizeRuntimeHelperStatus(&result)
 	if *jsonOut {
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
@@ -192,21 +191,6 @@ func runRunHelperStatus(ctx context.Context, client *bridge.Client, args []strin
 		fmt.Fprintf(stdout, "Issue: %s\n", result.RuntimeHelper.Error)
 	}
 	return nil
-}
-
-func normalizeRuntimeHelperStatus(result *bridge.RunStatusResult) {
-	if result.RuntimeHelper.Present == false && result.RuntimeHelperPresent {
-		result.RuntimeHelper.Present = true
-	}
-	if result.RuntimeHelper.AutoloadConfigured == false && result.RuntimeHelperAutoloadConfigured {
-		result.RuntimeHelper.AutoloadConfigured = true
-	}
-	if result.RuntimeHelper.LastSeen == "" {
-		result.RuntimeHelper.LastSeen = result.RuntimeHelperLastSeen
-	}
-	if result.RuntimeHelper.Error == "" {
-		result.RuntimeHelper.Error = result.RuntimeHelperError
-	}
 }
 
 func printRuntimeHelperSummary(stdout io.Writer, helper bridge.RuntimeHelperStatus) {
@@ -343,7 +327,11 @@ func runRunWaitProbe(ctx context.Context, client *bridge.Client, args []string, 
 			}
 			return fmt.Errorf("run wait-probe timed out after %s; no probe entries from %s", *timeout, *source)
 		}
-		time.Sleep(500 * time.Millisecond)
+		select {
+		case <-time.After(500 * time.Millisecond):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 }
 
@@ -471,30 +459,27 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 			_, _ = client.RunStop(ctx, requestID())
 		}
 	}
+	defer stop()
 
 	// input
 	if *inputFile != "" {
 		content, err := os.ReadFile(*inputFile)
 		if err != nil {
-			stop()
 			return fmt.Errorf("smoke input read: %w", err)
 		}
 		var payload struct {
 			Steps []any `json:"steps"`
 		}
 		if err := json.Unmarshal(content, &payload); err != nil {
-			stop()
 			return fmt.Errorf("smoke input parse: %w", err)
 		}
 		if len(payload.Steps) > 0 {
 			res, err := client.RunInput(ctx, requestID(), payload.Steps)
 			if err != nil {
-				stop()
 				return fmt.Errorf("smoke input: %w", err)
 			}
 			if res.JobID != "" {
 				if _, err := waitForJob(ctx, client, res.JobID, *timeout, "smoke input"); err != nil {
-					stop()
 					return fmt.Errorf("smoke input: %w", err)
 				}
 			}
@@ -506,16 +491,13 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 	resolvedAssert := *assertExpr
 	if *assertSource != "" || *assertKey != "" || *assertOp != "" || *assertValue != "" {
 		if *assertExpr != "" {
-			stop()
 			return fmt.Errorf("--assert cannot be combined with --assert-source/--assert-key/--assert-op/--assert-value")
 		}
 		predicate, err := resolveAssertPredicate("", *assertKey, *assertOp, *assertValue)
 		if err != nil {
-			stop()
 			return err
 		}
 		if *assertSource == "" {
-			stop()
 			return fmt.Errorf("--assert-source is required with split smoke assertions")
 		}
 		resolvedAssert = *assertSource + ":" + predicate
@@ -524,12 +506,10 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 		// parse SOURCE:KEY>=VALUE
 		probeSource, predicate, found := strings.Cut(resolvedAssert, ":")
 		if !found {
-			stop()
 			return fmt.Errorf("smoke --assert must be SOURCE:KEY>=VALUE")
 		}
 		key, op, rawVal, err := parseAssertExpr(predicate)
 		if err != nil {
-			stop()
 			return err
 		}
 		deadline := time.Now().Add(*timeout)
@@ -538,7 +518,6 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 		for !matched {
 			entries, err := client.RunLogs(ctx)
 			if err != nil {
-				stop()
 				return fmt.Errorf("smoke assert: %w", err)
 			}
 			filtered := filterLogEntries(entries, probeSource, true, false)
@@ -550,7 +529,6 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 			}
 			if !matched {
 				if time.Now().After(deadline) {
-					stop()
 					encoded, _ := json.Marshal(lastDetail)
 					helperSummary := smokeHelperFailureSummary(ctx, client)
 					if helperSummary != "" {
@@ -558,7 +536,11 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 					}
 					return fmt.Errorf("Smoke: FAIL — assert %s timed out; last probe: %s", resolvedAssert, encoded)
 				}
-				time.Sleep(500 * time.Millisecond)
+				select {
+				case <-time.After(500 * time.Millisecond):
+				case <-ctx.Done():
+					return ctx.Err()
+				}
 			}
 		}
 		fmt.Fprintf(stdout, "Smoke assert: %s ok\n", resolvedAssert)
@@ -572,17 +554,14 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 		}
 		ssResult, err := client.RunScreenshot(ctx, requestID(), "game", 0, vpPath)
 		if err != nil {
-			stop()
 			return fmt.Errorf("smoke screenshot: %w", err)
 		}
 		if ssResult.JobID != "" {
 			job, err := waitForJob(ctx, client, ssResult.JobID, *timeout, "smoke screenshot")
 			if err != nil {
-				stop()
 				return fmt.Errorf("smoke screenshot: %w", err)
 			}
 			if err := writeScreenshotJob(*screenshotOut, job); err != nil {
-				stop()
 				return fmt.Errorf("smoke screenshot write: %w", err)
 			}
 			w := intFromJobResult(job.Result["width"])
@@ -591,7 +570,6 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 		}
 	}
 
-	stop()
 	fmt.Fprintln(stdout, "Smoke: PASS")
 	return nil
 }
@@ -601,7 +579,6 @@ func smokeHelperFailureSummary(ctx context.Context, client *bridge.Client) strin
 	if err != nil {
 		return ""
 	}
-	normalizeRuntimeHelperStatus(&status)
 	if status.RuntimeHelper.Present {
 		return "runtime helper present"
 	}
@@ -761,24 +738,16 @@ func filterLogEntries(entries []bridge.LogEntry, source string, latest, sinceSta
 		entries = filtered
 	}
 	if latest {
-		seen := make(map[string]int)
-		for i, e := range entries {
-			seen[e.Source] = i
-		}
-		order := make([]int, 0, len(seen))
-		for _, idx := range seen {
-			order = append(order, idx)
-		}
-		// sort by original position
-		for i := 1; i < len(order); i++ {
-			for j := i; j > 0 && order[j] < order[j-1]; j-- {
-				order[j], order[j-1] = order[j-1], order[j]
+		seen := make(map[string]bool)
+		out := make([]bridge.LogEntry, 0, len(entries))
+		for i := len(entries) - 1; i >= 0; i-- {
+			e := entries[i]
+			if !seen[e.Source] {
+				seen[e.Source] = true
+				out = append(out, e)
 			}
 		}
-		out := make([]bridge.LogEntry, len(order))
-		for i, idx := range order {
-			out[i] = entries[idx]
-		}
+		slices.Reverse(out)
 		entries = out
 	}
 	return entries
@@ -897,4 +866,31 @@ func runRunSceneReload(ctx context.Context, client *bridge.Client, args []string
 	}
 	fmt.Fprintln(stdout, "Scene reloaded")
 	return nil
+}
+
+func waitForJob(ctx context.Context, client *bridge.Client, jobID string, timeout time.Duration, label string) (bridge.Job, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		job, err := client.Job(ctx, jobID)
+		if err != nil {
+			return bridge.Job{}, err
+		}
+		switch job.Status {
+		case "succeeded":
+			return job, nil
+		case "failed":
+			if job.Error != nil {
+				return bridge.Job{}, job.Error
+			}
+			return bridge.Job{}, fmt.Errorf("%s job failed", label)
+		}
+		if time.Now().After(deadline) {
+			return bridge.Job{}, fmt.Errorf("%s timed out waiting for job %s", label, jobID)
+		}
+		select {
+		case <-time.After(100 * time.Millisecond):
+		case <-ctx.Done():
+			return bridge.Job{}, ctx.Err()
+		}
+	}
 }
