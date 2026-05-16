@@ -30,6 +30,18 @@ func (c *Client) WriteScript(ctx context.Context, requestID, path, body string, 
 	return callPost[ScriptWriteResult](ctx, c, "/script/write", env)
 }
 
+func (c *Client) TestGDScript(ctx context.Context, requestID, path, dir string) (GDScriptTestQueuedResult, error) {
+	params := map[string]any{}
+	if path != "" {
+		params["path"] = path
+	}
+	if dir != "" {
+		params["dir"] = dir
+	}
+	env := RequestEnvelope{RequestID: requestID, Op: "test.gdscript", Params: params}
+	return callPost[GDScriptTestQueuedResult](ctx, c, "/test/gdscript", env)
+}
+
 func (c *Client) CheckShader(ctx context.Context, requestID, path string) (ShaderCheckResult, error) {
 	env := RequestEnvelope{RequestID: requestID, Op: "shader.check", Params: map[string]any{"path": path}}
 	return callPost[ShaderCheckResult](ctx, c, "/shader/check", env)

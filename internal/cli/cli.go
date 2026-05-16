@@ -55,6 +55,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return runInputMap(ctx, client, rest[1:], stdout)
 	case "run":
 		return runRun(ctx, client, rest[1:], stdout, stderr)
+	case "test":
+		return runTest(ctx, client, rest[1:], stdout)
 	case "scene":
 		if len(rest) >= 2 {
 			switch rest[1] {

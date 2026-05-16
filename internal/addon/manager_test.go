@@ -228,6 +228,8 @@ func TestEmbeddedAddonManifestIncludesCommandDirectory(t *testing.T) {
 		"commands/resource_commands.gd",
 		"commands/file_commands.gd",
 		"commands/viewport_commands.gd",
+		"commands/test_commands.gd",
+		"testing/test_case.gd",
 	}
 	for _, path := range required {
 		if !manifestFiles[path] {

@@ -64,6 +64,8 @@ func process(context: Dictionary) -> void:
 		_run_run_scene_reload_job(job_id, context)
 	elif String(job.get("kind", "")) == "run.profile":
 		_run_run_profile_job(job_id, context)
+	elif String(job.get("kind", "")) == "test.gdscript":
+		_run_gdscript_test_job(job_id, context)
 	else:
 		_finish_error(job_id, "JOB_KIND_UNKNOWN", "Unknown job kind", {"kind": job.get("kind", "")}, context)
 
@@ -659,6 +661,198 @@ func _run_run_profile_job(job_id: String, context: Dictionary) -> void:
 	job["updated_at"] = Time.get_datetime_string_from_system(true)
 	jobs[job_id] = job
 	pending_jobs.append(job_id)
+
+
+
+func _run_gdscript_test_job(job_id: String, context: Dictionary) -> void:
+	var job: Dictionary = jobs[job_id]
+	var detail: Dictionary = job.get("detail", {})
+	var path: String = String(detail.get("path", ""))
+	var dir: String = String(detail.get("dir", ""))
+	var files: Array[String] = []
+	if path != "":
+		if not FileAccess.file_exists(path):
+			_finish_error(job_id, "TEST_NOT_FOUND", "Test script does not exist", {"path": path}, context)
+			return
+		files.append(path)
+	else:
+		var discovered: Dictionary = _discover_gdscript_tests(dir)
+		if not bool(discovered.get("ok", false)):
+			_finish_error(job_id, String(discovered.get("code", "TEST_DISCOVERY_FAILED")), String(discovered.get("message", "Could not discover tests")), Dictionary(discovered.get("detail", {})), context)
+			return
+		var discovered_files: Array = discovered.get("files", [])
+		for discovered_file in discovered_files:
+			files.append(String(discovered_file))
+	if files.is_empty():
+		_finish_error(job_id, "TESTS_NOT_FOUND", "No GDScript test files found", {"path": path, "dir": dir}, context)
+		return
+
+	var started := Time.get_ticks_msec()
+	var suite := {
+		"passed": true,
+		"total": 0,
+		"passed_count": 0,
+		"failed_count": 0,
+		"duration_ms": 0,
+		"files": [],
+	}
+	for file_path in files:
+		var file_result: Dictionary = _run_gdscript_test_file(file_path)
+		suite["files"].append(file_result)
+		suite["total"] = int(suite["total"]) + int(file_result.get("total", 0))
+		suite["passed_count"] = int(suite["passed_count"]) + int(file_result.get("passed_count", 0))
+		suite["failed_count"] = int(suite["failed_count"]) + int(file_result.get("failed_count", 0))
+		if not bool(file_result.get("passed", false)):
+			suite["passed"] = false
+	suite["duration_ms"] = Time.get_ticks_msec() - started
+	if int(suite["total"]) == 0:
+		_finish_error(job_id, "TESTS_NOT_FOUND", "No GDScript test methods found", {"path": path, "dir": dir, "files": files}, context)
+		return
+	_finish_ok(job_id, suite, context)
+
+
+func _discover_gdscript_tests(dir_path: String) -> Dictionary:
+	if dir_path == "" or not dir_path.begins_with("res://"):
+		return {"ok": false, "code": "TEST_DIR_INVALID", "message": "Test dir must be a res:// path", "detail": {"dir": dir_path}}
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return {"ok": false, "code": "TEST_DIR_NOT_FOUND", "message": "Test dir does not exist", "detail": {"dir": dir_path}}
+	var files: Array[String] = []
+	_collect_gdscript_test_files(dir_path.trim_suffix("/"), files)
+	files.sort()
+	return {"ok": true, "files": files}
+
+
+func _collect_gdscript_test_files(dir_path: String, files: Array[String]) -> void:
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return
+	dir.list_dir_begin()
+	var name := dir.get_next()
+	while name != "":
+		if name == "." or name == "..":
+			name = dir.get_next()
+			continue
+		var child_path := dir_path + "/" + name
+		if dir.current_is_dir():
+			_collect_gdscript_test_files(child_path, files)
+		elif name.begins_with("test_") and name.ends_with(".gd"):
+			files.append(child_path)
+		name = dir.get_next()
+	dir.list_dir_end()
+
+
+func _run_gdscript_test_file(path: String) -> Dictionary:
+	var started := Time.get_ticks_msec()
+	var result := {
+		"path": path,
+		"passed": true,
+		"total": 0,
+		"passed_count": 0,
+		"failed_count": 0,
+		"duration_ms": 0,
+		"tests": [],
+	}
+	var script := ResourceLoader.load(path, "GDScript", ResourceLoader.CACHE_MODE_REPLACE)
+	if not (script is GDScript):
+		return _gdscript_file_load_error(result, started, "TEST_SCRIPT_LOAD_FAILED", "Could not load test script", {})
+	var reload_err: Error = (script as GDScript).reload()
+	if reload_err != OK:
+		return _gdscript_file_load_error(result, started, "TEST_SCRIPT_INVALID", "Test script did not pass Godot syntax check", {"error": error_string(reload_err)})
+	var instance: Object = (script as GDScript).new()
+	if instance == null:
+		return _gdscript_file_load_error(result, started, "TEST_SCRIPT_INSTANTIATE_FAILED", "Could not instantiate test script", {})
+	if not instance.has_method("_gdctl_begin_test") or not instance.has_method("_gdctl_end_test"):
+		return _gdscript_file_load_error(result, started, "TEST_CASE_INVALID", "Test script must extend res://addons/godot_tcp_bridge/testing/test_case.gd", {})
+	var methods := _gdscript_test_methods(instance)
+	if methods.is_empty():
+		result["duration_ms"] = Time.get_ticks_msec() - started
+		return result
+	var before_all_result: Dictionary = _run_gdscript_hook(instance, "before_all")
+	if not before_all_result.is_empty():
+		result["tests"].append(before_all_result)
+		result["total"] = int(result["total"]) + 1
+		result["failed_count"] = int(result["failed_count"]) + 1
+		result["passed"] = false
+		result["duration_ms"] = Time.get_ticks_msec() - started
+		return result
+	for method in methods:
+		var test_result: Dictionary = _run_gdscript_test_method(instance, method)
+		result["tests"].append(test_result)
+		result["total"] = int(result["total"]) + 1
+		if String(test_result.get("status", "")) == "passed":
+			result["passed_count"] = int(result["passed_count"]) + 1
+		else:
+			result["failed_count"] = int(result["failed_count"]) + 1
+			result["passed"] = false
+	var after_all_result: Dictionary = _run_gdscript_hook(instance, "after_all")
+	if not after_all_result.is_empty():
+		result["tests"].append(after_all_result)
+		result["total"] = int(result["total"]) + 1
+		result["failed_count"] = int(result["failed_count"]) + 1
+		result["passed"] = false
+	result["duration_ms"] = Time.get_ticks_msec() - started
+	return result
+
+
+func _gdscript_file_load_error(result: Dictionary, started: int, code: String, message: String, detail: Dictionary) -> Dictionary:
+	var failure := {"message": message, "code": code}
+	for key in detail.keys():
+		failure[key] = detail[key]
+	result["passed"] = false
+	result["total"] = 1
+	result["failed_count"] = 1
+	result["duration_ms"] = Time.get_ticks_msec() - started
+	result["tests"] = [{"name": "<load>", "status": "failed", "duration_ms": int(result["duration_ms"]), "failures": [failure]}]
+	return result
+
+
+func _gdscript_test_methods(instance: Object) -> Array[String]:
+	var methods: Array[String] = []
+	for method in instance.get_method_list():
+		var name := String(method.get("name", ""))
+		var args: Array = method.get("args", [])
+		if name.begins_with("test_") and args.is_empty():
+			methods.append(name)
+	methods.sort()
+	return methods
+
+
+func _run_gdscript_test_method(instance: Object, method: String) -> Dictionary:
+	var started := Time.get_ticks_msec()
+	instance.call("_gdctl_begin_test", method)
+	_call_optional(instance, "before_each")
+	instance.call(method)
+	_call_optional(instance, "after_each")
+	var failures: Array = instance.call("_gdctl_end_test")
+	return {
+		"name": method,
+		"status": "passed" if failures.is_empty() else "failed",
+		"duration_ms": Time.get_ticks_msec() - started,
+		"failures": failures,
+	}
+
+
+func _run_gdscript_hook(instance: Object, method: String) -> Dictionary:
+	if not instance.has_method(method):
+		return {}
+	var started := Time.get_ticks_msec()
+	instance.call("_gdctl_begin_test", method)
+	instance.call(method)
+	var failures: Array = instance.call("_gdctl_end_test")
+	if failures.is_empty():
+		return {}
+	return {
+		"name": method,
+		"status": "failed",
+		"duration_ms": Time.get_ticks_msec() - started,
+		"failures": failures,
+	}
+
+
+func _call_optional(instance: Object, method: String) -> void:
+	if instance.has_method(method):
+		instance.call(method)
 
 
 func _ensure_runtime_dirs() -> Error:

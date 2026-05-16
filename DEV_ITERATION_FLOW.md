@@ -231,6 +231,7 @@ autoload add / remove / list
 input  action_add / action_remove / action_list / event_add_key / event-add-joypad
 run    start / status / stop / logs / logs.clear / screenshot / input / instantiate / scene-reload
        probe.raycast / probe.node
+test   gdscript
 theme  create / set-color / set-font-size / set-constant
 animation create / track-add / keyframe-add / length-set / player-play
 animation.tree add_state / add_transition / blend_space_2d_add / set_param
@@ -255,6 +256,7 @@ occluder set
 addon  update
 bridge logs
 jobs   get
+test   gdscript
 ```
 
 > **Manifest gap**: The newer command files (`animation_tree_commands.gd`, `softbody_commands.gd`, `lod_commands.gd`, `terrain_commands.gd`, `lighting_commands.gd`, `graph_edit_commands.gd`, `accessibility_commands.gd`, `i18n_commands.gd`, `decal_commands.gd`, `fog_commands.gd`, `occluder_commands.gd`) are wired into `bridge_server.gd` but are not yet listed in `gdctl_manifest.json`. Running `addon update` will not deploy these files to Godot until they are added to the manifest's `files` array.

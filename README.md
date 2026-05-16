@@ -88,6 +88,8 @@ gdctl run scene-reload [--timeout DURATION]
 gdctl run smoke [--scene SCENE | --main] [--input FILE] [--assert SOURCE:KEY>=VALUE | --assert-source SOURCE --assert-key KEY --assert-op OP --assert-value VALUE] [--screenshot OUT] [--timeout DURATION] [--keep-running]
 gdctl run profile --metric METRICS --duration DURATION
 
+gdctl test gdscript (--path PATH | --dir DIR) [--timeout DURATION] [--json]
+
 gdctl scene create --path PATH --root TYPE --name NAME [--force]
 gdctl scene open --path PATH
 gdctl scene instance --parent PATH --scene SCENE --name NAME
@@ -552,6 +554,29 @@ gdctl node attach-script \
 
 Use `--allow-missing-preloads` during iterative authoring when preloaded scenes will be created shortly after. `node attach-script` syntax-checks the target script again before attaching it.
 
+## GDScript Unit Tests
+
+`gdctl test gdscript` runs editor-side GDScript unit tests through the bridge without launching the game scene. Test scripts should extend `res://addons/godot_tcp_bridge/testing/test_case.gd`, and zero-argument methods named `test_*` are executed in sorted order. Optional hooks are `before_all`, `after_all`, `before_each`, and `after_each`.
+
+```gdscript
+extends "res://addons/godot_tcp_bridge/testing/test_case.gd"
+
+func test_addition() -> void:
+	assert_eq(1 + 1, 2)
+
+func test_truth() -> void:
+	assert_true(true)
+```
+
+Run one file or recursively discover `test_*.gd` files under a directory:
+
+```bash
+gdctl test gdscript --path res://tests/test_math.gd
+gdctl test gdscript --dir res://tests --json
+```
+
+Available assertion helpers are `assert_true`, `assert_false`, `assert_eq`, `assert_ne`, and `fail`. The command exits non-zero when tests fail, no tests are found, or the bridge job fails.
+
 ## Shader Workflow
 
 ```bash
@@ -931,7 +956,8 @@ navigation.bake, script.check, script.create, script.write, shader.check, shader
 resource.create, resource.list, viewport.screenshot, viewport.set-size, viewport.add,
 addon.update, bridge.logs, import.set, scene.list, scene.apply.blueprint, run.start,
 run.status, run.stop, run.logs, run.logs.clear, run.screenshot, run.input,
-run.probe.raycast, run.probe.node, run.instantiate, run.scene-reload, theme.create,
+run.probe.raycast, run.probe.node, run.instantiate, run.scene-reload, test.gdscript,
+theme.create,
 theme.set-color, theme.set-font-size, theme.set-constant, animation.create,
 animation.track-add, animation.keyframe-add, animation.length-set, animation.player-play,
 tilemap.tileset-create, tilemap.source-add, tilemap.cell-set, tilemap.cell-set-rect,

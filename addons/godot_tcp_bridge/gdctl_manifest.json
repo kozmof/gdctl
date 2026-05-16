@@ -24,6 +24,8 @@
     "commands/animation_commands.gd",
     "commands/tilemap_commands.gd",
     "commands/audio_commands.gd",
+    "commands/test_commands.gd",
+    "testing/test_case.gd",
     "runtime/runtime_bridge.gd",
     "addon_update.gd",
     "jobs.gd",

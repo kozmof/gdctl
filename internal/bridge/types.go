@@ -256,6 +256,47 @@ type ScriptWriteResult struct {
 	Written bool   `json:"written"`
 }
 
+type GDScriptTestQueuedResult struct {
+	Queued bool   `json:"queued,omitempty"`
+	JobID  string `json:"job_id,omitempty"`
+	Path   string `json:"path,omitempty"`
+	Dir    string `json:"dir,omitempty"`
+}
+
+type GDScriptTestResult struct {
+	Passed      bool               `json:"passed"`
+	Total       int                `json:"total"`
+	PassedCount int                `json:"passed_count"`
+	FailedCount int                `json:"failed_count"`
+	DurationMS  int                `json:"duration_ms"`
+	Files       []GDScriptTestFile `json:"files"`
+}
+
+type GDScriptTestFile struct {
+	Path        string             `json:"path"`
+	Passed      bool               `json:"passed"`
+	Total       int                `json:"total"`
+	PassedCount int                `json:"passed_count"`
+	FailedCount int                `json:"failed_count"`
+	DurationMS  int                `json:"duration_ms"`
+	Tests       []GDScriptTestCase `json:"tests"`
+}
+
+type GDScriptTestCase struct {
+	Name       string                `json:"name"`
+	Status     string                `json:"status"`
+	DurationMS int                   `json:"duration_ms"`
+	Failures   []GDScriptTestFailure `json:"failures"`
+}
+
+type GDScriptTestFailure struct {
+	Test    string         `json:"test,omitempty"`
+	Message string         `json:"message"`
+	Code    string         `json:"code,omitempty"`
+	Error   string         `json:"error,omitempty"`
+	Detail  map[string]any `json:"detail,omitempty"`
+}
+
 type ShaderCheckResult struct {
 	Path  string `json:"path"`
 	Valid bool   `json:"valid"`

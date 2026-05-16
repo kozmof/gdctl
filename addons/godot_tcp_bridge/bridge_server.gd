@@ -47,6 +47,7 @@ const I18nCommands = preload("res://addons/godot_tcp_bridge/commands/i18n_comman
 const DecalCommands = preload("res://addons/godot_tcp_bridge/commands/decal_commands.gd")
 const FogCommands = preload("res://addons/godot_tcp_bridge/commands/fog_commands.gd")
 const OccluderCommands = preload("res://addons/godot_tcp_bridge/commands/occluder_commands.gd")
+const TestCommands = preload("res://addons/godot_tcp_bridge/commands/test_commands.gd")
 
 class RuntimeLogCapture extends Logger:
 	var log_buffer
@@ -109,6 +110,7 @@ var i18n_commands = I18nCommands.new()
 var decal_commands = DecalCommands.new()
 var fog_commands = FogCommands.new()
 var occluder_commands = OccluderCommands.new()
+var test_commands = TestCommands.new()
 var jobs = Jobs.new()
 var tcp_server := TCPServer.new()
 var clients: Array[Dictionary] = []
@@ -439,6 +441,8 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return _handle_run_scene_reload(request)
 	if method == "POST" and path == "/run/profile":
 		return _handle_run_profile(request)
+	if method == "POST" and path == "/test/gdscript":
+		return test_commands.handle_gdscript(request, _command_context())
 	if method == "POST" and path == "/animation-tree/add-state":
 		return animation_tree_commands.handle_add_state(request, _command_context())
 	if method == "POST" and path == "/animation-tree/add-transition":
@@ -1047,6 +1051,7 @@ func _capabilities() -> Array:
 		"input.event-add-joypad",
 		"run.instantiate",
 		"run.scene-reload",
+		"test.gdscript",
 	]
 
 
