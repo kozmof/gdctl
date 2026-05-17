@@ -103,6 +103,49 @@ func handle_event_add_key(request: Dictionary, context: Dictionary) -> Dictionar
 	return context["bridge_ok"].call(request_id, _action_payload(action, {"event_added": true, "key": key_name, "physical": physical}))
 
 
+func handle_event_add_mouse_button(request: Dictionary, context: Dictionary) -> Dictionary:
+	var checked: Dictionary = context["request"].require_body(request, context, "input.event_add_mouse_button", "Input mouse button event add requires bearer token")
+	if not bool(checked.get("ok", false)):
+		return checked["error_response"]
+	var params: Dictionary = checked["params"]
+	var request_id: String = String(checked["request_id"])
+	var action: String = String(params.get("action", ""))
+	var button_name: String = String(params.get("button", ""))
+	var valid_error: String = _validate_action(action)
+	if valid_error != "":
+		return context["bridge_error"].call(400, request_id, "INPUT_ACTION_INVALID", valid_error, {"action": action})
+	if button_name == "":
+		return context["bridge_error"].call(400, request_id, "INPUT_MOUSE_BUTTON_INVALID", "button is required (use left, right, or middle)", {})
+	var button: int = _mouse_button_from_name(button_name)
+	if button == 0:
+		return context["bridge_error"].call(400, request_id, "INPUT_MOUSE_BUTTON_INVALID", "Unknown mouse button name (use left, right, or middle)", {"button": button_name})
+	if not InputMap.has_action(action):
+		InputMap.add_action(action)
+	for old_event: InputEvent in InputMap.action_get_events(action):
+		if old_event is InputEventMouseButton:
+			var old_btn := old_event as InputEventMouseButton
+			if int(old_btn.button_index) == button:
+				return context["bridge_ok"].call(request_id, _action_payload(action, {"event_added": false, "button": button_name}))
+	var event := InputEventMouseButton.new()
+	event.button_index = button
+	InputMap.action_add_event(action, event)
+	var save_result: Dictionary = _save_action(action)
+	if not bool(save_result.get("ok", false)):
+		return context["bridge_error"].call(500, request_id, "INPUT_SAVE_FAILED", String(save_result.get("error", "Failed to save input map")), {})
+	return context["bridge_ok"].call(request_id, _action_payload(action, {"event_added": true, "button": button_name}))
+
+
+func _mouse_button_from_name(name: String) -> int:
+	match name.to_lower():
+		"left", "1":
+			return MOUSE_BUTTON_LEFT
+		"right", "2":
+			return MOUSE_BUTTON_RIGHT
+		"middle", "3":
+			return MOUSE_BUTTON_MIDDLE
+	return 0
+
+
 func handle_event_add_joypad(request: Dictionary, context: Dictionary) -> Dictionary:
 	var checked: Dictionary = context["request"].require_body(request, context, "input.event_add_joypad", "Input joypad event add requires bearer token")
 	if not bool(checked.get("ok", false)):
@@ -187,6 +230,18 @@ func _event_payload(event: InputEvent) -> Dictionary:
 			"keycode": keycode,
 			"key": OS.get_keycode_string(keycode),
 			"physical": physical,
+		}
+	if event is InputEventMouseButton:
+		var btn_event := event as InputEventMouseButton
+		var btn_name := ""
+		match int(btn_event.button_index):
+			MOUSE_BUTTON_LEFT: btn_name = "left"
+			MOUSE_BUTTON_RIGHT: btn_name = "right"
+			MOUSE_BUTTON_MIDDLE: btn_name = "middle"
+		return {
+			"type": "mouse_button",
+			"button": int(btn_event.button_index),
+			"button_name": btn_name,
 		}
 	if event is InputEventJoypadButton:
 		var btn_event := event as InputEventJoypadButton

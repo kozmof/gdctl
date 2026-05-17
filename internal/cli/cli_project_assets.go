@@ -373,13 +373,15 @@ func runInputMap(ctx context.Context, client *bridge.Client, args []string, stdo
 		}
 	case "event":
 		if len(args) < 2 {
-			return fmt.Errorf("input event requires a subcommand (add-key, add-joypad)")
+			return fmt.Errorf("input event requires a subcommand (add-key, add-joypad, add-mouse-button)")
 		}
 		switch args[1] {
 		case "add-key":
 			return runInputEventAddKey(ctx, client, args[2:], stdout)
 		case "add-joypad":
 			return runInputEventAddJoypad(ctx, client, args[2:], stdout)
+		case "add-mouse-button":
+			return runInputEventAddMouseButton(ctx, client, args[2:], stdout)
 		default:
 			return fmt.Errorf("unknown input event subcommand: %s", args[1])
 		}
@@ -512,6 +514,34 @@ func runInputEventAddJoypad(ctx context.Context, client *bridge.Client, args []s
 		return err
 	}
 	fmt.Fprintf(stdout, "Joypad event added to action: %s\n", result.Action)
+	return nil
+}
+
+func runInputEventAddMouseButton(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("input event add-mouse-button", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	action := fs.String("action", "", "input action name")
+	button := fs.String("button", "", "mouse button: left, right, or middle")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *action == "" || *button == "" {
+		return fmt.Errorf("input event add-mouse-button requires --action and --button")
+	}
+	switch strings.ToLower(*button) {
+	case "left", "right", "middle":
+	default:
+		return fmt.Errorf("input event add-mouse-button --button must be left, right, or middle")
+	}
+	result, err := client.InputEventAddMouseButton(ctx, requestID(), *action, *button)
+	if err != nil {
+		return err
+	}
+	if result.EventAdded {
+		fmt.Fprintf(stdout, "Input mouse button added: %s -> %s\n", result.Action, *button)
+	} else {
+		fmt.Fprintf(stdout, "Input mouse button already present: %s -> %s\n", result.Action, *button)
+	}
 	return nil
 }
 

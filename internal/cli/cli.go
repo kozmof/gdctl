@@ -302,6 +302,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return runI18n(ctx, client, rest[1:], stdout)
 	case "csg":
 		return runCSG(ctx, client, rest[1:], stdout)
+	case "environment":
+		return runEnvironment(ctx, client, rest[1:], stdout)
 	case "decal":
 		return runDecal(ctx, client, rest[1:], stdout)
 	case "fog-volume":

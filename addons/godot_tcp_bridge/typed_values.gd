@@ -6,7 +6,7 @@ func decode(encoded: Variant) -> Dictionary:
 	if typeof(encoded) != TYPE_DICTIONARY:
 		return {"ok": false, "error": "Value must be an object with kind and value fields"}
 	var encoded_dict: Dictionary = encoded
-	var kind: String = String(encoded_dict.get("kind", "")).to_lower()
+	var kind: String = String(encoded_dict.get("kind", encoded_dict.get("type", ""))).to_lower()
 	var raw: Variant = encoded_dict.get("value", null)
 	if kind.begins_with("array[") and kind.ends_with("]"):
 		return _decode_typed_array(kind.substr(6, kind.length() - 7), raw)

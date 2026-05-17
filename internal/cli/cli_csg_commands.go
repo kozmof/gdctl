@@ -30,17 +30,25 @@ func runCSGNodeAdd(ctx context.Context, client *bridge.Client, args []string, st
 	parent := fs.String("parent", "", "parent node path")
 	csgType := fs.String("type", "CSGBox3D", "CSG node type: CSGBox3D, CSGSphere3D, CSGCylinder3D, CSGCombiner3D")
 	name := fs.String("name", "", "node name")
+	noCollision := fs.Bool("no-collision", false, "skip setting use_collision=true (omit for non-physics CSG)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *parent == "" {
 		return fmt.Errorf("csg node-add requires --parent")
 	}
-	nodeArgs := []string{"--parent", *parent, "--type", *csgType}
-	if *name != "" {
-		nodeArgs = append(nodeArgs, "--name", *name)
+	props := map[string]any{}
+	if !*noCollision {
+		props["use_collision"] = map[string]any{"kind": "bool", "value": true}
 	}
-	return runNodeAdd(ctx, client, nodeArgs, stdout)
+	nodeName := *name
+	result, err := client.AddNode(ctx, requestID(), *parent, *csgType, nodeName, props, false)
+	if err != nil {
+		return err
+	}
+	nodePath, _ := result["path"].(string)
+	fmt.Fprintf(stdout, "Added node: %s\n", nodePath)
+	return nil
 }
 
 func runCSGOperationSet(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {

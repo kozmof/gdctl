@@ -321,6 +321,19 @@ var helpGroups = []helpGroup{
 				"Use --device -1 to match any connected controller.",
 			},
 		},
+		{
+			sub:  "event add-mouse-button",
+			line: "  gdctl [--host host] [--port port] [--token token] input event add-mouse-button --action ACTION --button left|right|middle",
+			desc: "add a mouse button event to an input action",
+			flags: []helpFlag{
+				{name: "action", meta: "ACTION", usage: "input action name"},
+				{name: "button", meta: "BUTTON", usage: "mouse button: left, right, or middle"},
+			},
+			usecase: []string{
+				"Bind left-click to a 'fire' action for a first-person shooter.",
+				"Assign right-click to an 'aim' action without opening the Godot editor.",
+			},
+		},
 	}},
 	{name: "run", cmds: []helpCmd{
 		{
@@ -1945,16 +1958,18 @@ var helpGroups = []helpGroup{
 	{name: "csg", cmds: []helpCmd{
 		{
 			sub:  "node-add",
-			line: "  gdctl [--host host] [--port port] [--token token] csg node-add --parent PATH --type TYPE --name NAME",
-			desc: "add a CSG node (thin wrapper over node add)",
+			line: "  gdctl [--host host] [--port port] [--token token] csg node-add --parent PATH --type TYPE --name NAME [--no-collision]",
+			desc: "add a CSG node with use_collision=true by default",
 			flags: []helpFlag{
 				{name: "parent", meta: "PATH", usage: "parent node path"},
 				{name: "type", meta: "TYPE", usage: "CSG node type: CSGBox3D, CSGSphere3D, CSGCylinder3D, CSGTorus3D, CSGMesh3D, CSGCombiner3D"},
 				{name: "name", meta: "NAME", usage: "node name"},
+				{name: "no-collision", usage: "skip setting use_collision=true (omit for non-physics CSG)"},
 			},
 			usecase: []string{
 				"Add a CSG primitive (box, sphere, cylinder) for rapid level prototyping.",
 				"Block out level geometry with CSG shapes before replacing with real meshes.",
+				"Use --no-collision for decorative CSG that doesn't need a physics body.",
 			},
 		},
 		{
@@ -1981,6 +1996,23 @@ var helpGroups = []helpGroup{
 			usecase: []string{
 				"Resize a CSGBox3D without opening the inspector.",
 				"Adjust blocking geometry dimensions from a script.",
+			},
+		},
+	}},
+	{name: "environment", cmds: []helpCmd{
+		{
+			sub:  "set-background",
+			line: "  gdctl [--host host] [--port port] [--token token] environment set-background --path PATH --mode color|sky|clear [--color R,G,B[,A]]",
+			desc: "set the background mode and color on a WorldEnvironment node",
+			flags: []helpFlag{
+				{name: "path", meta: "PATH", usage: "WorldEnvironment node path in the open scene"},
+				{name: "mode", meta: "MODE", usage: "background mode: color, sky, clear, canvas, keep, or camera_feed (default color)"},
+				{name: "color", meta: "R,G,B[,A]", usage: "background color in 0.0–1.0 per channel; required when --mode color"},
+			},
+			usecase: []string{
+				"Set a solid sky color without manually creating an Environment resource.",
+				"Switch between sky, solid color, and transparent background in one command.",
+				"Configure WorldEnvironment background during automated scene setup scripts.",
 			},
 		},
 	}},

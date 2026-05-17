@@ -385,7 +385,55 @@ func _execute_input_step(step: Dictionary) -> Dictionary:
 		event.relative = relative
 		Input.parse_input_event(event)
 		return {"ok": true}
+	if step_type == "action":
+		return _execute_action_step(step)
 	return {"ok": false, "error": "Unsupported input step type: " + step_type}
+
+
+func _execute_action_step(step: Dictionary) -> Dictionary:
+	var action_name := String(step.get("action", ""))
+	if action_name == "":
+		return {"ok": false, "error": "action step requires 'action' field"}
+	if not InputMap.has_action(action_name):
+		return {"ok": false, "error": "Unknown InputMap action: " + action_name}
+	var pressed: bool = bool(step.get("pressed", true))
+	var default_mode := "tap" if pressed else "release"
+	var mode := String(step.get("mode", default_mode))
+	var duration := float(step.get("duration_ms", 50))
+	for event: InputEvent in InputMap.action_get_events(action_name):
+		if event is InputEventKey:
+			var key_event := event as InputEventKey
+			var keycode: int = key_event.physical_keycode
+			if keycode == KEY_NONE:
+				keycode = key_event.keycode
+			if keycode == KEY_NONE:
+				continue
+			if mode == "tap":
+				_send_key(keycode, true)
+				return {"ok": true, "wait_ms": duration, "pending_release": {"kind": "key", "keycode": keycode}}
+			if mode == "press":
+				_send_key(keycode, true)
+				return {"ok": true}
+			if mode == "release":
+				_send_key(keycode, false)
+				return {"ok": true}
+			return {"ok": false, "error": "Unsupported action mode: " + mode}
+		if event is InputEventMouseButton:
+			var btn_event := event as InputEventMouseButton
+			var button: int = int(btn_event.button_index)
+			if button == 0:
+				continue
+			if mode == "tap":
+				_send_mouse_button(button, true)
+				return {"ok": true, "wait_ms": duration, "pending_release": {"kind": "mouse_button", "button": button}}
+			if mode == "press":
+				_send_mouse_button(button, true)
+				return {"ok": true}
+			if mode == "release":
+				_send_mouse_button(button, false)
+				return {"ok": true}
+			return {"ok": false, "error": "Unsupported action mode: " + mode}
+	return {"ok": false, "error": "No usable key or mouse button binding for action: " + action_name}
 
 
 func _execute_key_step(step: Dictionary) -> Dictionary:

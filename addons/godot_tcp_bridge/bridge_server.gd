@@ -435,6 +435,8 @@ func _handle_request(request: Dictionary) -> Dictionary:
 		return audio_commands.handle_listener_make_current(request, _command_context())
 	if method == "POST" and path == "/input/event-add-joypad":
 		return input_commands.handle_event_add_joypad(request, _command_context())
+	if method == "POST" and path == "/input/event-add-mouse-button":
+		return input_commands.handle_event_add_mouse_button(request, _command_context())
 	if method == "POST" and path == "/run/instantiate":
 		return _handle_run_instantiate(request)
 	if method == "POST" and path == "/run/scene-reload":
@@ -997,6 +999,7 @@ func _capabilities() -> Array:
 		"input.action_remove",
 		"input.action_list",
 		"input.event_add_key",
+		"input.event_add_mouse_button",
 		"node.duplicate",
 		"node.list_properties",
 		"file.list",

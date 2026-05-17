@@ -39,6 +39,11 @@ func (c *Client) InputEventAddKey(ctx context.Context, requestID, action, key st
 	return callPost[InputActionResult](ctx, c, "/input/event-add-key", env)
 }
 
+func (c *Client) InputEventAddMouseButton(ctx context.Context, requestID, action, button string) (InputActionResult, error) {
+	env := RequestEnvelope{RequestID: requestID, Op: "input.event_add_mouse_button", Params: map[string]any{"action": action, "button": button}}
+	return callPost[InputActionResult](ctx, c, "/input/event-add-mouse-button", env)
+}
+
 func (c *Client) InputEventAddJoypad(ctx context.Context, requestID, action string, button, axis int, axisValue float64, device int) (InputActionResult, error) {
 	params := map[string]any{"action": action, "button": button, "axis": axis}
 	if axisValue != 0 {
