@@ -240,6 +240,7 @@ func TestEmbeddedAddonManifestIncludesCommandDirectory(t *testing.T) {
 		"testing/test_command_node_scene_viewport.gd",
 		"testing/test_command_ui_data_tools.gd",
 		"testing/test_command_3d_environment.gd",
+		"testing/test_runtime_bridge_input.gd",
 		"testing/test_command_request.gd",
 	}
 	for _, path := range required {

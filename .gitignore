@@ -7,3 +7,6 @@ examples/
 
 gdctl
 .claude/
+generated/
+screenshots/
+

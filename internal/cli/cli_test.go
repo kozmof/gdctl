@@ -3744,7 +3744,7 @@ func TestRunInputSummaryProbe(t *testing.T) {
 	}))
 	defer server.Close()
 	f := filepath.Join(t.TempDir(), "input.json")
-	if err := os.WriteFile(f, []byte(`{"steps":[{"action":"key","key":"ui_accept"}]}`), 0o644); err != nil {
+	if err := os.WriteFile(f, []byte(`{"steps":[{"type":"key","key":"ui_accept"}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer

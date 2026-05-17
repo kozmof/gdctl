@@ -380,7 +380,11 @@ func _execute_input_step(step: Dictionary) -> Dictionary:
 	if step_type == "mouse_button":
 		return _execute_mouse_button_step(step)
 	if step_type == "mouse_motion":
-		var relative := _array_to_vector2(step.get("relative", [0, 0]))
+		if not step.has("relative"):
+			return {"ok": false, "error": "mouse_motion requires relative: [x, y]"}
+		if not _is_vector2_array(step["relative"]):
+			return {"ok": false, "error": "mouse_motion relative must be [x, y]"}
+		var relative := _array_to_vector2(step["relative"])
 		var event := InputEventMouseMotion.new()
 		event.relative = relative
 		Input.parse_input_event(event)
@@ -550,6 +554,14 @@ func _mouse_button(button: String) -> int:
 			return MOUSE_BUTTON_MIDDLE
 	return 0
 
+
+func _is_vector2_array(raw: Variant) -> bool:
+	if typeof(raw) != TYPE_ARRAY:
+		return false
+	var items: Array = raw
+	if items.size() != 2:
+		return false
+	return (typeof(items[0]) == TYPE_INT or typeof(items[0]) == TYPE_FLOAT) and (typeof(items[1]) == TYPE_INT or typeof(items[1]) == TYPE_FLOAT)
 
 func _array_to_vector2(raw: Variant) -> Vector2:
 	if typeof(raw) != TYPE_ARRAY:

@@ -38,8 +38,8 @@ func makeJobServerAt(path string, jobResult map[string]any) *httptest.Server {
 
 func TestRunProbeNodeJSON(t *testing.T) {
 	server := makeJobServerAt("/run/probe/node", map[string]any{
-		"path": "/root/Player",
-		"type": "CharacterBody3D",
+		"path":       "/root/Player",
+		"type":       "CharacterBody3D",
 		"properties": map[string]any{"speed": float64(10)},
 	})
 	defer server.Close()
@@ -183,7 +183,7 @@ func TestRunWaitProbeMatchFoundJSON(t *testing.T) {
 
 func TestRunSmokeWithInputFile(t *testing.T) {
 	tmpFile := writeTempJSONFile(t, map[string]any{
-		"steps": []any{map[string]any{"type": "wait", "duration": 0.1}},
+		"steps": []any{map[string]any{"type": "wait", "ms": 100}},
 	})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

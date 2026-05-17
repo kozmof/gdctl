@@ -237,6 +237,9 @@ func runRunInput(ctx context.Context, client *bridge.Client, args []string, stdo
 	if len(payload.Steps) == 0 {
 		return fmt.Errorf("run input file requires at least one step")
 	}
+	if err := validateRunInputSteps(payload.Steps); err != nil {
+		return err
+	}
 	result, err := client.RunInput(ctx, requestID(), payload.Steps)
 	if err != nil {
 		return err
@@ -268,6 +271,125 @@ func runRunInput(ctx context.Context, client *bridge.Client, args []string, stdo
 		}
 	}
 	return nil
+}
+
+func validateRunInputSteps(steps []any) error {
+	for i, raw := range steps {
+		step, ok := raw.(map[string]any)
+		if !ok {
+			return fmt.Errorf("run input step %d must be an object", i)
+		}
+		typ, ok := runInputString(step, "type")
+		if !ok || typ == "" {
+			return fmt.Errorf("run input step %d requires type", i)
+		}
+		switch typ {
+		case "wait":
+			if _, err := runInputNumber(step, "ms", true); err != nil {
+				return fmt.Errorf("run input step %d wait %w", i, err)
+			}
+		case "key":
+			key, ok := runInputString(step, "key")
+			if !ok || key == "" {
+				return fmt.Errorf("run input step %d key requires key", i)
+			}
+			if err := validateRunInputMode(step, "action", fmt.Sprintf("run input step %d key action", i)); err != nil {
+				return err
+			}
+			if _, err := runInputNumber(step, "duration_ms", false); err != nil {
+				return fmt.Errorf("run input step %d key %w", i, err)
+			}
+		case "mouse_button":
+			button, ok := runInputString(step, "button")
+			if !ok || button == "" {
+				return fmt.Errorf("run input step %d mouse_button requires button", i)
+			}
+			switch strings.ToLower(button) {
+			case "left", "right", "middle", "1", "2", "3":
+			default:
+				return fmt.Errorf("run input step %d mouse_button button must be left, right, middle, 1, 2, or 3", i)
+			}
+			if err := validateRunInputMode(step, "action", fmt.Sprintf("run input step %d mouse_button action", i)); err != nil {
+				return err
+			}
+			if _, err := runInputNumber(step, "duration_ms", false); err != nil {
+				return fmt.Errorf("run input step %d mouse_button %w", i, err)
+			}
+		case "mouse_motion":
+			if _, hasDX := step["dx"]; hasDX {
+				if _, hasDY := step["dy"]; hasDY {
+					return fmt.Errorf("run input step %d mouse_motion requires relative: [x, y]; got dx/dy", i)
+				}
+			}
+			relative, ok := step["relative"]
+			if !ok {
+				return fmt.Errorf("run input step %d mouse_motion requires relative: [x, y]", i)
+			}
+			items, ok := relative.([]any)
+			if !ok || len(items) != 2 {
+				return fmt.Errorf("run input step %d mouse_motion relative must be [x, y]", i)
+			}
+			for j, item := range items {
+				if _, ok := item.(float64); !ok {
+					return fmt.Errorf("run input step %d mouse_motion relative[%d] must be numeric", i, j)
+				}
+			}
+		case "action":
+			action, ok := runInputString(step, "action")
+			if !ok || action == "" {
+				return fmt.Errorf("run input step %d action requires action", i)
+			}
+			if err := validateRunInputMode(step, "mode", fmt.Sprintf("run input step %d action mode", i)); err != nil {
+				return err
+			}
+			if _, err := runInputNumber(step, "duration_ms", false); err != nil {
+				return fmt.Errorf("run input step %d action %w", i, err)
+			}
+		default:
+			return fmt.Errorf("run input step %d unsupported type: %s", i, typ)
+		}
+	}
+	return nil
+}
+
+func runInputString(step map[string]any, key string) (string, bool) {
+	val, ok := step[key]
+	if !ok {
+		return "", false
+	}
+	text, ok := val.(string)
+	return text, ok
+}
+
+func runInputNumber(step map[string]any, key string, required bool) (float64, error) {
+	val, ok := step[key]
+	if !ok {
+		if required {
+			return 0, fmt.Errorf("requires %s", key)
+		}
+		return 0, nil
+	}
+	number, ok := val.(float64)
+	if !ok {
+		return 0, fmt.Errorf("%s must be numeric", key)
+	}
+	if number < 0 {
+		return 0, fmt.Errorf("%s must be non-negative", key)
+	}
+	return number, nil
+}
+
+func validateRunInputMode(step map[string]any, key, label string) error {
+	mode, ok := runInputString(step, key)
+	if !ok {
+		return nil
+	}
+	switch mode {
+	case "tap", "press", "release":
+		return nil
+	default:
+		return fmt.Errorf("%s must be tap, press, or release", label)
+	}
 }
 
 func runRunWaitProbe(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
@@ -474,6 +596,9 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 			return fmt.Errorf("smoke input parse: %w", err)
 		}
 		if len(payload.Steps) > 0 {
+			if err := validateRunInputSteps(payload.Steps); err != nil {
+				return fmt.Errorf("smoke input: %w", err)
+			}
 			res, err := client.RunInput(ctx, requestID(), payload.Steps)
 			if err != nil {
 				return fmt.Errorf("smoke input: %w", err)

@@ -432,13 +432,14 @@ var helpGroups = []helpGroup{
 			line: "  gdctl [--host host] [--port port] [--token token] run input --file input.json [--timeout DURATION] [--summary-probe SOURCE]",
 			desc: "play a short input sequence into the running game",
 			flags: []helpFlag{
-				{name: "file", meta: "FILE", usage: "input JSON file containing steps"},
+				{name: "file", meta: "FILE", usage: "input JSON file containing validated steps"},
 				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for input job (default 5s)"},
 				{name: "summary-probe", meta: "SOURCE", usage: "after input completes, print the latest log entry for this source"},
 			},
 			usecase: []string{
 				"Replay a recorded input sequence to simulate player actions in a test.",
 				"Drive a menu navigation or combat flow without human interaction.",
+				"Use mouse_motion with relative: [x, y]; dx/dy is rejected.",
 			},
 		},
 		{
@@ -457,6 +458,7 @@ var helpGroups = []helpGroup{
 			usecase: []string{
 				"Block until a game state condition is met (e.g., score >= 100) before asserting.",
 				"Use in CI to wait for a loading screen to finish before screenshotting.",
+				"Quote --assert expressions containing > or < in shells, or use the split assertion flags.",
 			},
 		},
 		{

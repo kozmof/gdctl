@@ -262,11 +262,14 @@ The helper prefixes custom sources with `runtime.`, so the example appears in `g
   "steps": [
     {"type": "key", "key": "W", "action": "press"},
     {"type": "wait", "ms": 500},
+    {"type": "mouse_motion", "relative": [180, -120]},
     {"type": "key", "key": "W", "action": "release"},
     {"type": "mouse_button", "button": "left", "action": "tap", "duration_ms": 200}
   ]
 }
 ```
+
+`mouse_motion` uses `relative`: `[x, y]`; it does not accept `dx`/`dy`. `run input` validates step shapes before sending them to the runtime helper.
 
 `run screenshot` captures the running game viewport by default. Use `--source screen` for whole-host-screen capture, `--screen N` to select the display index, and `--viewport PATH` to capture a specific SubViewport node instead of the root.
 
@@ -295,8 +298,10 @@ gdctl run profile --metric fps,draw_calls,memory_usage --duration 10s
 `run wait-probe` polls run logs until a probe field satisfies a predicate or timeout fires:
 
 ```bash
-gdctl run wait-probe --source runtime.game --assert targets_disabled>=1 --timeout 30s
+gdctl run wait-probe --source runtime.game --assert 'targets_disabled>=1' --timeout 30s
 ```
+
+Quote `--assert` expressions containing `>` or `<`, or use `--assert-key`, `--assert-op`, and `--assert-value` to avoid shell redirection.
 
 `run probe raycast` fires a center-screen ray in the running 3D game and reports the hit collider, position, and normal. Requires `GdctlRuntimeBridge` autoload and an active `Camera3D`.
 
