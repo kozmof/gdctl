@@ -145,7 +145,13 @@ func runRunStatus(ctx context.Context, client *bridge.Client, args []string, std
 			}
 			return nil
 		}
-		if result.PlayingScene != "" {
+		if !result.RuntimeHelper.Present {
+			if result.PlayingScene != "" {
+				fmt.Fprintf(stdout, "Run status: running without runtime helper (%s)\n", result.PlayingScene)
+			} else {
+				fmt.Fprintln(stdout, "Run status: running without runtime helper")
+			}
+		} else if result.PlayingScene != "" {
 			fmt.Fprintf(stdout, "Run status: running (%s)\n", result.PlayingScene)
 		} else {
 			fmt.Fprintln(stdout, "Run status: running")
@@ -212,6 +218,45 @@ func printRuntimeHelperSummary(stdout io.Writer, helper bridge.RuntimeHelperStat
 	}
 }
 
+func requireRuntimeHelper(ctx context.Context, client *bridge.Client, commandName string) error {
+	status, err := client.RunStatus(ctx, requestID())
+	if err != nil {
+		return fmt.Errorf("%s runtime helper preflight: %w", commandName, err)
+	}
+	if status.RuntimeHelper.Present {
+		return nil
+	}
+	diagnostic := runtimeHelperDiagnostic(status)
+	if diagnostic == "" {
+		diagnostic = "runtime helper is not present"
+	}
+	return fmt.Errorf("%s requires the gdctl runtime helper; %s", commandName, diagnostic)
+}
+
+func runtimeHelperDiagnostic(status bridge.RunStatusResult) string {
+	parts := []string{}
+	if status.Running {
+		if status.PlayingScene != "" {
+			parts = append(parts, fmt.Sprintf("run is running (%s)", status.PlayingScene))
+		} else {
+			parts = append(parts, "run is running")
+		}
+	} else {
+		parts = append(parts, "run is stopped")
+	}
+	if status.RuntimeHelper.Error != "" {
+		parts = append(parts, "runtime helper not present: "+status.RuntimeHelper.Error)
+	} else {
+		parts = append(parts, "runtime helper not present")
+	}
+	if status.RuntimeHelper.AutoloadConfigured {
+		parts = append(parts, "try restarting the scene with gdctl run start --scene <scene>, or restart/reload Godot if the autoload was just configured")
+	} else {
+		parts = append(parts, "try gdctl run start --scene <scene> to configure and start the runtime helper")
+	}
+	return strings.Join(parts, "; ")
+}
+
 func runRunInput(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("run input", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -238,6 +283,9 @@ func runRunInput(ctx context.Context, client *bridge.Client, args []string, stdo
 		return fmt.Errorf("run input file requires at least one step")
 	}
 	if err := validateRunInputSteps(payload.Steps); err != nil {
+		return err
+	}
+	if err := requireRuntimeHelper(ctx, client, "run input"); err != nil {
 		return err
 	}
 	result, err := client.RunInput(ctx, requestID(), payload.Steps)
@@ -417,6 +465,9 @@ func runRunWaitProbe(ctx context.Context, client *bridge.Client, args []string, 
 	}
 	key, op, rawVal, err := parseAssertExpr(predicate)
 	if err != nil {
+		return err
+	}
+	if err := requireRuntimeHelper(ctx, client, "run wait-probe"); err != nil {
 		return err
 	}
 
@@ -898,6 +949,11 @@ func runRunScreenshot(ctx context.Context, client *bridge.Client, args []string,
 	}
 	if *source != "game" && *source != "screen" {
 		return fmt.Errorf("run screenshot --source must be game or screen")
+	}
+	if *source == "game" {
+		if err := requireRuntimeHelper(ctx, client, "run screenshot"); err != nil {
+			return err
+		}
 	}
 	result, err := client.RunScreenshot(ctx, requestID(), *source, *screen, *viewport)
 	if err != nil {

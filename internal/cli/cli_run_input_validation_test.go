@@ -23,6 +23,8 @@ func TestRunInputAcceptsMouseMotionRelative(t *testing.T) {
 	var gotEnvelope bridge.RequestEnvelope
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/run/status":
+			writeRunStatusResponse(t, w, true, "res://main.tscn", bridge.RuntimeHelperStatus{Present: true})
 		case "/run/input":
 			if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
 				t.Fatal(err)

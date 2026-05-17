@@ -362,6 +362,9 @@ var helpGroups = []helpGroup{
 			flags: []helpFlag{
 				{name: "json", usage: "print status as JSON"},
 			},
+			notes: []string{
+				"Plain output says running without runtime helper when a scene is active but GdctlRuntimeBridge has not checked in.",
+			},
 			usecase: []string{
 				"Check whether the editor is currently running a scene.",
 				"Poll in a script to wait until a scene finishes starting before probing.",
@@ -418,7 +421,8 @@ var helpGroups = []helpGroup{
 			},
 			notes: []string{
 				"Game screenshots require the gdctl runtime helper autoload installed by run start.",
-				"Use --source screen for the legacy whole-host-screen capture.",
+				"With --source game, gdctl checks helper health before queueing the screenshot job.",
+				"Use --source screen for the legacy whole-host-screen capture; it does not require the helper.",
 				"Use --viewport to capture a specific SubViewport (e.g. a split-screen panel).",
 			},
 			usecase: []string{
@@ -435,6 +439,9 @@ var helpGroups = []helpGroup{
 				{name: "file", meta: "FILE", usage: "input JSON file containing validated steps"},
 				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for input job (default 5s)"},
 				{name: "summary-probe", meta: "SOURCE", usage: "after input completes, print the latest log entry for this source"},
+			},
+			notes: []string{
+				"Requires GdctlRuntimeBridge to be present in the running scene; gdctl checks this before queueing input.",
 			},
 			usecase: []string{
 				"Replay a recorded input sequence to simulate player actions in a test.",
@@ -454,6 +461,9 @@ var helpGroups = []helpGroup{
 				{name: "assert-value", meta: "VALUE", usage: "predicate value for split assertion form"},
 				{name: "timeout", meta: "DURATION", usage: "maximum time to wait (default 30s)"},
 				{name: "json", usage: "print matching entry as JSON"},
+			},
+			notes: []string{
+				"Requires GdctlRuntimeBridge to be present in the running scene; gdctl checks this before polling logs.",
 			},
 			usecase: []string{
 				"Block until a game state condition is met (e.g., score >= 100) before asserting.",

@@ -1399,6 +1399,8 @@ func TestRunScreenshot(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
 		switch r.URL.Path {
+		case "/run/status":
+			writeRunStatusResponse(t, w, true, "res://main.tscn", bridge.RuntimeHelperStatus{Present: true})
 		case "/run/screenshot":
 			if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
 				t.Fatal(err)
@@ -1456,7 +1458,7 @@ func TestRunScreenshot(t *testing.T) {
 	if !strings.Contains(stdout.String(), "Run screenshot written:") || !strings.Contains(stdout.String(), "1280x720") || !strings.Contains(stdout.String(), "game viewport") {
 		t.Fatalf("stdout:\n%s", stdout.String())
 	}
-	if requests != 2 {
+	if requests != 3 {
 		t.Fatalf("requests = %d", requests)
 	}
 }
@@ -1530,6 +1532,8 @@ func TestRunScreenshotRejectsInvalidSourceBeforeNetwork(t *testing.T) {
 func TestRunScreenshotTimeoutIncludesDebuggerDetail(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/run/status":
+			writeRunStatusResponse(t, w, true, "res://main.tscn", bridge.RuntimeHelperStatus{Present: true})
 		case "/run/screenshot":
 			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
 				OK:     true,
@@ -1580,6 +1584,8 @@ func TestRunInputCommand(t *testing.T) {
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/run/status":
+			writeRunStatusResponse(t, w, true, "res://main.tscn", bridge.RuntimeHelperStatus{Present: true})
 		case "/run/input":
 			if err := json.NewDecoder(r.Body).Decode(&gotEnvelope); err != nil {
 				t.Fatal(err)
@@ -3720,6 +3726,8 @@ func TestRunLogsSinceStartFilter(t *testing.T) {
 func TestRunInputSummaryProbe(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/run/status":
+			writeRunStatusResponse(t, w, true, "res://main.tscn", bridge.RuntimeHelperStatus{Present: true})
 		case "/run/input":
 			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
 				OK:     true,
@@ -3763,6 +3771,10 @@ func TestRunInputSummaryProbe(t *testing.T) {
 
 func TestRunWaitProbeHappyPath(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/run/status" {
+			writeRunStatusResponse(t, w, true, "res://main.tscn", bridge.RuntimeHelperStatus{Present: true})
+			return
+		}
 		if r.URL.Path != "/run/logs" {
 			t.Fatalf("path = %s", r.URL.Path)
 		}
@@ -3938,6 +3950,8 @@ func TestRunScreenshotSanityCheckWarns(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/run/status":
+			writeRunStatusResponse(t, w, true, "res://main.tscn", bridge.RuntimeHelperStatus{Present: true})
 		case "/run/screenshot":
 			_ = json.NewEncoder(w).Encode(bridge.BridgeResponse[map[string]any]{
 				OK:     true,

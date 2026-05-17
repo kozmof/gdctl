@@ -255,6 +255,8 @@ if gdctl:
 
 The helper prefixes custom sources with `runtime.`, so the example appears in `gdctl run logs` as `runtime.foo`.
 
+`gdctl run status` reports `running without runtime helper` when a scene is active but `GdctlRuntimeBridge` has not checked in. Helper-dependent commands fail early with that diagnostic instead of waiting for a helper job to time out.
+
 `run input` plays short input scripts into the running game through the runtime helper:
 
 ```json
@@ -269,9 +271,9 @@ The helper prefixes custom sources with `runtime.`, so the example appears in `g
 }
 ```
 
-`mouse_motion` uses `relative`: `[x, y]`; it does not accept `dx`/`dy`. `run input` validates step shapes before sending them to the runtime helper.
+`mouse_motion` uses `relative`: `[x, y]`; it does not accept `dx`/`dy`. `run input` validates step shapes, then checks that the runtime helper is present before sending input.
 
-`run screenshot` captures the running game viewport by default. Use `--source screen` for whole-host-screen capture, `--screen N` to select the display index, and `--viewport PATH` to capture a specific SubViewport node instead of the root.
+`run screenshot` captures the running game viewport by default and checks helper health before queueing a game-viewport capture. Use `--source screen` for whole-host-screen capture without the runtime helper, `--screen N` to select the display index, and `--viewport PATH` to capture a specific SubViewport node instead of the root.
 
 `run instantiate` spawns a packed scene under a parent node in the running game:
 
@@ -295,7 +297,7 @@ Autoloads (including the runtime helper) persist across the reload.
 gdctl run profile --metric fps,draw_calls,memory_usage --duration 10s
 ```
 
-`run wait-probe` polls run logs until a probe field satisfies a predicate or timeout fires:
+`run wait-probe` checks that the runtime helper is present, then polls run logs until a probe field satisfies a predicate or timeout fires:
 
 ```bash
 gdctl run wait-probe --source runtime.game --assert 'targets_disabled>=1' --timeout 30s

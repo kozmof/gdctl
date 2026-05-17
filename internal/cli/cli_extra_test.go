@@ -126,7 +126,9 @@ func TestRunProbeRaycastDirectResult(t *testing.T) {
 
 func TestRunWaitProbeMatchFound(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/run/logs" {
+		if r.URL.Path == "/run/status" {
+			writeRunStatusResponse(t, w, true, "res://main.tscn", bridge.RuntimeHelperStatus{Present: true})
+		} else if r.URL.Path == "/run/logs" {
 			_ = json.NewEncoder(w).Encode(bridge.LogsResponse{
 				OK: true,
 				Entries: []bridge.LogEntry{
@@ -155,7 +157,9 @@ func TestRunWaitProbeMatchFound(t *testing.T) {
 
 func TestRunWaitProbeMatchFoundJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/run/logs" {
+		if r.URL.Path == "/run/status" {
+			writeRunStatusResponse(t, w, true, "res://main.tscn", bridge.RuntimeHelperStatus{Present: true})
+		} else if r.URL.Path == "/run/logs" {
 			_ = json.NewEncoder(w).Encode(bridge.LogsResponse{
 				OK: true,
 				Entries: []bridge.LogEntry{
