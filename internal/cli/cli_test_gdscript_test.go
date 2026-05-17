@@ -12,6 +12,41 @@ import (
 	"gdctl/internal/bridge"
 )
 
+func TestTestShorthandDir(t *testing.T) {
+	var got bridge.RequestEnvelope
+	server := gdscriptTestServer(t, func(r *http.Request, env bridge.RequestEnvelope) {
+		got = env
+	})
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), append(serverArgs(server), "--token", "secret", "test", "--dir", "res://tests"), &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Op != "test.gdscript" || got.Params["dir"] != "res://tests" {
+		t.Fatalf("envelope = %#v", got)
+	}
+	if !strings.Contains(stdout.String(), "PASS gdscript tests") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
+func TestTestRequiresGDScriptSelector(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := Run(context.Background(), []string{"test"}, &stdout, &stderr); err == nil {
+		t.Fatal("Run succeeded, want selector error")
+	}
+}
+
+func TestTestGoIsNotUserCommand(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), []string{"test", "go"}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "unknown test command: go") {
+		t.Fatalf("err = %v, want unknown test command", err)
+	}
+}
+
 func TestGDScriptTestPath(t *testing.T) {
 	var got bridge.RequestEnvelope
 	server := gdscriptTestServer(t, func(r *http.Request, env bridge.RequestEnvelope) {

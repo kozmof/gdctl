@@ -230,6 +230,17 @@ func TestEmbeddedAddonManifestIncludesCommandDirectory(t *testing.T) {
 		"commands/viewport_commands.gd",
 		"commands/test_commands.gd",
 		"testing/test_case.gd",
+		"testing/test_test_case.gd",
+		"testing/test_runner_hooks.gd",
+		"testing/test_command_test_commands.gd",
+		"testing/test_command_bridge_log_file.gd",
+		"testing/test_command_input_project_import_navigation.gd",
+		"testing/test_command_script_shader_resource.gd",
+		"testing/test_command_signal_theme_animation_audio.gd",
+		"testing/test_command_node_scene_viewport.gd",
+		"testing/test_command_ui_data_tools.gd",
+		"testing/test_command_3d_environment.gd",
+		"testing/test_command_request.gd",
 	}
 	for _, path := range required {
 		if !manifestFiles[path] {

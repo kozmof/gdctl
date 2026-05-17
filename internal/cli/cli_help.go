@@ -560,19 +560,22 @@ var helpGroups = []helpGroup{
 	{name: "test", cmds: []helpCmd{
 		{
 			sub:  "gdscript",
-			line: "  gdctl [--host host] [--port port] [--token token] test gdscript (--path PATH | --dir DIR) [--timeout DURATION] [--json]",
-			desc: "run GDScript unit tests in the editor bridge",
+			line: "  gdctl [--host host] [--port port] [--token token] test [gdscript] (--path PATH | --dir DIR) [--timeout DURATION] [--json]",
+			desc: "run selected GDScript unit tests in the editor bridge",
 			flags: []helpFlag{
-				{name: "path", meta: "PATH", usage: "single test script path (res:// .gd)"},
+				{name: "path", meta: "PATH", usage: "single GDScript test script path (res:// .gd)"},
 				{name: "dir", meta: "DIR", usage: "directory to recursively discover test_*.gd files"},
 				{name: "timeout", meta: "DURATION", usage: "maximum time to wait for the test job (default 30s)"},
 				{name: "json", usage: "print the full structured result as JSON"},
 			},
 			notes: []string{
+				"With --path or --dir and no subcommand, runs the selected GDScript tests.",
+				"test gdscript is an explicit alias for the same GDScript test runner.",
 				"Test scripts should extend res://addons/godot_tcp_bridge/testing/test_case.gd.",
 				"Zero-argument methods named test_* are executed with optional before_all/after_all/before_each/after_each hooks.",
 			},
 			usecase: []string{
+				"Run project-selected GDScript unit tests without launching the game scene.",
 				"Run fast editor-side GDScript unit tests without launching the game scene.",
 				"Use --json to feed test results into CI or another tool.",
 			},

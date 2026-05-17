@@ -380,17 +380,42 @@ go run ./cmd/gdctl node group remove --path /root/Main/Player --group enemies
 
 If a command returns `UNKNOWN_ENDPOINT`, the running addon is older than the CLI. Go back to Stage B.
 
-### Go unit tests
+### CLI dev tests
 
-Before Stage A, verify all Go tests pass against mock servers:
+Use the `gdctl test` command family during CLI/addon development. The combined and GDScript-only forms require an explicit project test selector; gdctl does not assume its own addon self-test path for user projects.
+
+For this repository's addon self-tests, first point the CLI at the running editor bridge:
 
 ```bash
-go test ./...
+export GDCTL_BRIDGE_HOST=host.docker.internal
+export GDCTL_BRIDGE_TOKEN=<token>
 ```
 
+Run the implementation tests and bridge-side addon tests separately:
+
+```bash
+# 1. Go implementation tests for the CLI repository
+go test ./...
+
+# 2. GDScript addon tests through the editor bridge
+go run ./cmd/gdctl test --dir res://addons/godot_tcp_bridge/testing
+
+# Explicit equivalent
+go run ./cmd/gdctl test gdscript --dir res://addons/godot_tcp_bridge/testing
+```
+
+For a single GDScript suite file:
+
+```bash
+go run ./cmd/gdctl test gdscript --path res://addons/godot_tcp_bridge/testing/test_command_script_shader_resource.gd
+```
+
+Bare `gdctl test` and bare `gdctl test gdscript` intentionally fail because the GDScript test path belongs to the user/project. Go tests stay as normal repository implementation tests via `go test ./...`; they are not part of the user-facing `gdctl test` command.
+
 Each new command needs at minimum:
-- A happy-path test: mock the HTTP endpoint, verify the correct `op` and params are sent, check stdout
-- A validation test: omit a required flag and confirm the error fires before any network call (use a bare `[]string{...}` with no server, not `serverArgs`)
+- A Go happy-path test: mock the HTTP endpoint, verify the correct `op` and params are sent, check stdout
+- A Go validation test: omit a required flag and confirm the error fires before any network call (use a bare `[]string{...}` with no server, not `serverArgs`)
+- A GDScript addon command test under `addons/godot_tcp_bridge/testing/` when the command handler has meaningful validation or mutation logic
 
 ### Recovery if the bridge breaks
 

@@ -10,44 +10,32 @@ import (
 	"gdctl/internal/bridge"
 )
 
-func runTest(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
-	if len(args) == 0 {
-		return fmt.Errorf("test requires a subcommand")
-	}
-	switch args[0] {
-	case "gdscript":
+func runTest(ctx context.Context, client *bridge.Client, args []string, stdout, _stderr io.Writer) error {
+	if len(args) == 0 || args[0] == "gdscript" {
+		if len(args) == 0 {
+			return runTestGDScript(ctx, client, args, stdout)
+		}
 		return runTestGDScript(ctx, client, args[1:], stdout)
-	default:
-		return fmt.Errorf("unknown test command: %s", args[0])
 	}
+	if len(args[0]) > 0 && args[0][0] == '-' {
+		return runTestGDScript(ctx, client, args, stdout)
+	}
+	return fmt.Errorf("unknown test command: %s", args[0])
 }
 
 func runTestGDScript(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
-	fs := newFlagSet("test gdscript")
-	path := fs.String("path", "", "GDScript test file path")
-	dir := fs.String("dir", "", "GDScript test directory")
-	timeout := fs.Duration("timeout", 30*time.Second, "maximum time to wait for test job")
-	jsonOut := fs.Bool("json", false, "print result as JSON")
-	if err := fs.Parse(args); err != nil {
+	path, dir, timeout, jsonOut, err := parseGDScriptTestOptions(args)
+	if err != nil {
 		return err
 	}
-	if (*path == "" && *dir == "") || (*path != "" && *dir != "") {
-		return fmt.Errorf("test gdscript requires exactly one of --path or --dir")
-	}
-	if *path != "" && (!isResPath(*path) || !hasSuffix(*path, ".gd")) {
-		return fmt.Errorf("test gdscript --path must be a res:// .gd path")
-	}
-	if *dir != "" && !isResPath(*dir) {
-		return fmt.Errorf("test gdscript --dir must be a res:// path")
-	}
-	queued, err := client.TestGDScript(ctx, requestID(), *path, *dir)
+	queued, err := client.TestGDScript(ctx, requestID(), path, dir)
 	if err != nil {
 		return err
 	}
 	if queued.JobID == "" {
 		return fmt.Errorf("test gdscript did not return a job id")
 	}
-	job, err := waitForJob(ctx, client, queued.JobID, *timeout, "test gdscript")
+	job, err := waitForJob(ctx, client, queued.JobID, timeout, "test gdscript")
 	if err != nil {
 		return err
 	}
@@ -55,7 +43,7 @@ func runTestGDScript(ctx context.Context, client *bridge.Client, args []string, 
 	if err := mapJobResult(job.Result, &result); err != nil {
 		return err
 	}
-	if *jsonOut {
+	if jsonOut {
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(result); err != nil {
@@ -68,6 +56,27 @@ func runTestGDScript(ctx context.Context, client *bridge.Client, args []string, 
 		return fmt.Errorf("gdscript tests failed: %d/%d failed", result.FailedCount, result.Total)
 	}
 	return nil
+}
+
+func parseGDScriptTestOptions(args []string) (string, string, time.Duration, bool, error) {
+	fs := newFlagSet("test gdscript")
+	path := fs.String("path", "", "GDScript test file path")
+	dir := fs.String("dir", "", "GDScript test directory")
+	timeout := fs.Duration("timeout", 30*time.Second, "maximum time to wait for test job")
+	jsonOut := fs.Bool("json", false, "print result as JSON")
+	if err := fs.Parse(args); err != nil {
+		return "", "", 0, false, err
+	}
+	if (*path == "" && *dir == "") || (*path != "" && *dir != "") {
+		return "", "", 0, false, fmt.Errorf("test gdscript requires exactly one of --path or --dir")
+	}
+	if *path != "" && (!isResPath(*path) || !hasSuffix(*path, ".gd")) {
+		return "", "", 0, false, fmt.Errorf("test gdscript --path must be a res:// .gd path")
+	}
+	if *dir != "" && !isResPath(*dir) {
+		return "", "", 0, false, fmt.Errorf("test gdscript --dir must be a res:// path")
+	}
+	return *path, *dir, *timeout, *jsonOut, nil
 }
 
 func printGDScriptTestResult(stdout io.Writer, result bridge.GDScriptTestResult) {

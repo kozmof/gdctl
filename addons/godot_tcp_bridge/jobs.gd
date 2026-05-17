@@ -736,7 +736,7 @@ func _collect_gdscript_test_files(dir_path: String, files: Array[String]) -> voi
 		var child_path := dir_path + "/" + name
 		if dir.current_is_dir():
 			_collect_gdscript_test_files(child_path, files)
-		elif name.begins_with("test_") and name.ends_with(".gd"):
+		elif name.begins_with("test_") and name.ends_with(".gd") and name != "test_case.gd":
 			files.append(child_path)
 		name = dir.get_next()
 	dir.list_dir_end()

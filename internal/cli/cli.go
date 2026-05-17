@@ -56,7 +56,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	case "run":
 		return runRun(ctx, client, rest[1:], stdout, stderr)
 	case "test":
-		return runTest(ctx, client, rest[1:], stdout)
+		return runTest(ctx, client, rest[1:], stdout, stderr)
 	case "scene":
 		if len(rest) >= 2 {
 			switch rest[1] {
