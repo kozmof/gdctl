@@ -279,14 +279,16 @@ Shader authoring starts with whole-file operations:
 ```bash
 gdctl shader write --path res://shaders/edge_mix_3d.gdshader --body-file examples/edge_mix_3d.gdshader
 gdctl shader check --path res://shaders/edge_mix_3d.gdshader
-gdctl material write --path res://materials/edge_mix.tres --shader res://shaders/edge_mix_3d.gdshader --texture-param edge_lut=res://textures/edge_lut.png
+gdctl resource create --path res://materials/edge_mix.tres --type ShaderMaterial \
+  --prop 'shader={"kind":"Resource","value":"res://shaders/edge_mix_3d.gdshader"}' \
+  --shader-param edge_lut=res://textures/edge_lut.png
 gdctl node set-resource --path /root/Main3D/Player/Body --property material --resource res://materials/edge_mix.tres
-gdctl lut write --path res://textures/edge_lut.png --profiles examples/edge_profiles.json
+gdctl file lut-write --path res://textures/edge_lut.png --profiles examples/edge_profiles.json
 ```
 
 This intentionally avoids partial shader or material parameter mutation at first. Rewriting the whole `.gdshader` file is easier to reason about, easier to diff, and matches the current bridge pattern for scripts.
 
-`lut write` generates a 256x1 PNG locally from JSON edge profiles and uploads it through `file write-bytes`. This keeps Edge ID + LUT authoring data-driven while reusing one general binary file primitive.
+`file lut-write` generates a 256x1 PNG locally from JSON edge profiles and uploads it through `file write-bytes`. This keeps Edge ID + LUT authoring data-driven while reusing one general binary file primitive.
 
 ## 9. Current Self-Update Caveat
 
@@ -329,12 +331,25 @@ This section documents the proven workflow for adding a new CLI command end-to-e
 | Bridge wiring | `addons/godot_tcp_bridge/bridge_server.gd` | `preload` const, instance var, route `if`, capability string |
 | Addon manifest | `addons/godot_tcp_bridge/gdctl_manifest.json` | filename in `files` array (new command files must be listed here or `addon update` won't deploy them) |
 | Go types | `internal/bridge/types.go` | result struct |
-| Go client | `internal/bridge/client.go` | method calling `postEnvelope` |
-| Go CLI | `internal/cli/cli.go` | router case, handler function, `printUsage` line |
-| Go help | `internal/cli/cli_help.go` | `helpCmd` entry with `usecase` bullets |
-| Go tests | `internal/cli/cli_test.go` | happy-path test + validation test |
+| Go client | `internal/bridge/client_*.go` | method calling `callPost` or `postEnvelope` |
+| Go CLI route | `internal/cli/cli.go` | entry in the `routes` map inside `init()` (choose a layer); `routeXxx` dispatcher function |
+| Go CLI handler | `internal/cli/cli_<layer>_commands.go` | `runXxx` implementation function(s) |
+| Go help | `internal/cli/cli_help.go` | `helpCmd` entry in the relevant `helpGroup` with `usecase` bullets |
+| Go tests | `internal/cli/cli_*_test.go` | happy-path test + validation test |
 
 For a new category also create a new `*_commands.gd` file and add it to both `bridge_server.gd` and `gdctl_manifest.json`.
+
+**Layer placement:** choose the layer that matches the command's purpose and add the route entry under that comment block in `init()`. Existing layers and their files:
+
+| Layer | Route tag | Handler file(s) |
+|---|---|---|
+| Object | `"object"` | `cli_scene_node.go`, `cli_project_assets.go` |
+| System | `"system"` | `cli_env_commands.go`, `cli_media_commands.go`, `cli_*_commands.go` |
+| Policy | `"policy"` | `cli_policy_commands.go` |
+| Workflow | `"workflow"` | `cli_workflow_commands.go` |
+| Execution | `"execution"` | `cli_asset_commands.go`, `cli_lint_commands.go`, etc. |
+| Recipe | `"recipe"` | `cli_recipe_commands.go` |
+| Infrastructure | `"infra"` | `cli_run.go`, `cli_bridge_addon.go`, etc. |
 
 ### Deployment workflow
 
