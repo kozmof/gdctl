@@ -23,6 +23,69 @@ var newAddonManager = func() addon.Manager {
 // preventing cross-wire races when multiple gdctl invocations run concurrently in one process.
 var sceneMu sync.Mutex
 
+type commandRoute struct {
+	layer   string
+	handler func(ctx context.Context, client *bridge.Client, addonMgr addon.Manager, cfg bridge.Config, rest []string, stdout, stderr io.Writer) error
+}
+
+var routes = map[string]commandRoute{
+	// Object Layer
+	"scene":    {layer: "object", handler: routeScene},
+	"node":     {layer: "object", handler: routeNode},
+	"script":   {layer: "object", handler: routeScript},
+	"shader":   {layer: "object", handler: routeShader},
+	"resource": {layer: "object", handler: routeResource},
+	"file":     {layer: "object", handler: routeFile},
+	// System Layer
+	"navigation":    {layer: "system", handler: routeNavigation},
+	"localization":  {layer: "system", handler: routeLocalization},
+	"audio":         {layer: "system", handler: routeAudio},
+	"animation":     {layer: "system", handler: routeAnimation},
+	"tilemap":       {layer: "system", handler: routeTilemap},
+	"theme":         {layer: "system", handler: routeTheme},
+	"viewport":      {layer: "system", handler: routeViewport},
+	"window":        {layer: "system", handler: routeWindow},
+	"accessibility": {layer: "system", handler: routeAccessibility},
+	"lightmap":      {layer: "system", handler: routeLightmap},
+	// Policy Layer
+	"policy": {layer: "policy", handler: routePolicy},
+	// Workflow Layer
+	"apply":    {layer: "workflow", handler: routeApply},
+	"plan":     {layer: "workflow", handler: routePlan},
+	"diff":     {layer: "workflow", handler: routeNotImplemented("diff")},
+	"tx":       {layer: "workflow", handler: routeNotImplemented("tx")},
+	"workflow": {layer: "workflow", handler: routeNotImplemented("workflow")},
+	"scaffold": {layer: "workflow", handler: routeNotImplemented("scaffold")},
+	// Execution Layer
+	"asset":  {layer: "execution", handler: routeNotImplemented("asset")},
+	"lint":   {layer: "execution", handler: routeNotImplemented("lint")},
+	"test":   {layer: "execution", handler: routeTest},
+	"gate":   {layer: "execution", handler: routeGate},
+	"export": {layer: "execution", handler: routeNotImplemented("export")},
+	"perf":   {layer: "execution", handler: routeNotImplemented("perf")},
+	"data":   {layer: "execution", handler: routeNotImplemented("data")},
+	// Recipe Layer
+	"recipe": {layer: "recipe", handler: routeRecipe},
+	// Infrastructure
+	"ping":     {layer: "infra", handler: routePing},
+	"doctor":   {layer: "infra", handler: routeDoctor},
+	"addon":    {layer: "infra", handler: routeAddon},
+	"bridge":   {layer: "infra", handler: routeBridge},
+	"autoload": {layer: "infra", handler: routeAutoload},
+	"input":    {layer: "infra", handler: routeInput},
+	"run":      {layer: "infra", handler: routeRun},
+	"signal":   {layer: "infra", handler: routeSignal},
+	"project":  {layer: "infra", handler: routeProject},
+	"import":   {layer: "infra", handler: routeImport},
+	"help":     {layer: "infra", handler: routeHelp},
+}
+
+func routeNotImplemented(name string) func(ctx context.Context, client *bridge.Client, addonMgr addon.Manager, cfg bridge.Config, rest []string, stdout, stderr io.Writer) error {
+	return func(_ context.Context, _ *bridge.Client, _ addon.Manager, _ bridge.Config, _ []string, _ io.Writer, _ io.Writer) error {
+		return fmt.Errorf("%s: not yet implemented", name)
+	}
+}
+
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	cfg, rest, err := parseGlobalFlags(args)
 	if err != nil {
@@ -40,282 +103,384 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 
 	client := bridge.NewClient(cfg)
 	addonManager := newAddonManager()
-	switch rest[0] {
-	case "ping":
-		return runPing(ctx, client, stdout)
-	case "doctor":
-		return runDoctor(ctx, cfg, client, addonManager, rest[1:], stdout)
-	case "addon":
-		return runAddon(ctx, cfg, client, addonManager, rest[1:], stdout)
-	case "bridge":
-		return runBridge(ctx, client, addonManager, rest[1:], stdout)
-	case "autoload":
-		return runAutoload(ctx, client, rest[1:], stdout)
-	case "input":
-		return runInputMap(ctx, client, rest[1:], stdout)
-	case "run":
-		return runRun(ctx, client, rest[1:], stdout, stderr)
-	case "test":
-		return runTest(ctx, client, rest[1:], stdout, stderr)
-	case "scene":
-		if len(rest) >= 2 {
-			switch rest[1] {
-			case "create":
-				return runSceneCreate(ctx, client, rest[2:], stdout)
-			case "open":
-				return runSceneOpen(ctx, client, rest[2:], stdout)
-			case "instance":
-				return runSceneInstance(ctx, client, rest[2:], stdout)
-			case "tree":
-				return runSceneTree(ctx, client, stdout)
-			case "save":
-				return runSceneSave(ctx, client, rest[2:], stdout)
-			case "apply":
-				return runSceneApply(ctx, client, rest[2:], stdout)
-			case "batch":
-				return runSceneBatch(ctx, client, rest[2:], stdout)
-			case "apply-blueprint":
-				return runSceneApplyBlueprint(ctx, client, rest[2:], stdout)
-			case "list":
-				return runSceneList(ctx, client, rest[2:], stdout)
-			case "run":
-				return runSceneRun(ctx, cfg, rest[2:], stdout)
-			}
-		}
-	case "node":
-		if len(rest) >= 2 {
-			switch rest[1] {
-			case "add":
-				return runNodeAdd(ctx, client, rest[2:], stdout)
-			case "remove":
-				return runNodeRemove(ctx, client, rest[2:], stdout)
-			case "rename":
-				return runNodeRename(ctx, client, rest[2:], stdout)
-			case "move":
-				return runNodeMove(ctx, client, rest[2:], stdout)
-			case "get":
-				return runNodeGet(ctx, client, rest[2:], stdout)
-			case "set":
-				return runNodeSet(ctx, client, rest[2:], stdout)
-			case "set-many":
-				return runNodeSetMany(ctx, client, rest[2:], stdout)
-			case "set-resource":
-				return runNodeSetResource(ctx, client, rest[2:], stdout)
-			case "attach-script":
-				return runNodeAttachScript(ctx, client, rest[2:], stdout)
-			case "group":
-				if len(rest) >= 3 {
-					switch rest[2] {
-					case "add":
-						return runNodeGroupAdd(ctx, client, rest[3:], stdout)
-					case "remove":
-						return runNodeGroupRemove(ctx, client, rest[3:], stdout)
-					case "list":
-						return runNodeGroupList(ctx, client, rest[3:], stdout)
-					}
-				}
-			case "duplicate":
-				return runNodeDuplicate(ctx, client, rest[2:], stdout)
-			case "list-properties":
-				return runNodeListProperties(ctx, client, rest[2:], stdout)
-			}
-		}
-	case "script":
-		if len(rest) >= 2 {
-			switch rest[1] {
-			case "create":
-				return runScriptCreate(ctx, client, rest[2:], stdout)
-			case "write":
-				return runScriptWrite(ctx, client, rest[2:], stdout)
-			case "check":
-				return runScriptCheck(ctx, client, rest[2:], stdout)
-			}
-		}
-	case "shader":
-		if len(rest) >= 2 {
-			switch rest[1] {
-			case "write":
-				return runShaderWrite(ctx, client, rest[2:], stdout)
-			case "check":
-				return runShaderCheck(ctx, client, rest[2:], stdout)
-			}
-		}
-	case "resource":
-		if len(rest) >= 2 {
-			switch rest[1] {
-			case "create":
-				return runResourceCreate(ctx, client, rest[2:], stdout)
-			case "list":
-				return runResourceList(ctx, client, rest[2:], stdout)
-			}
-		}
-	case "import":
-		if len(rest) >= 2 {
-			switch rest[1] {
-			case "set":
-				return runImportSet(ctx, client, rest[2:], stdout)
-			}
-		}
-	case "file":
-		if len(rest) >= 2 {
-			switch rest[1] {
-			case "write-bytes":
-				return runFileWriteBytes(ctx, client, rest[2:], stdout)
-			case "lut-write":
-				return runLUTWrite(ctx, client, rest[2:], stdout)
-			case "list":
-				return runFileList(ctx, client, rest[2:], stdout)
-			case "mkdir":
-				return runFileMkdir(ctx, client, rest[2:], stdout)
-			case "delete":
-				return runFileDelete(ctx, client, rest[2:], stdout)
-			case "exists":
-				return runFileExists(ctx, client, rest[2:], stdout)
-			}
-		}
-	case "navigation":
-		if len(rest) >= 2 {
-			switch rest[1] {
-			case "bake":
-				return runNavigationBake(ctx, client, rest[2:], stdout)
-			}
-		}
-	case "signal":
-		if len(rest) >= 2 {
-			switch rest[1] {
-			case "connect":
-				return runSignalConnect(ctx, client, rest[2:], stdout)
-			case "disconnect":
-				return runSignalDisconnect(ctx, client, rest[2:], stdout)
-			}
-		}
-	case "project":
-		if len(rest) >= 2 {
-			switch rest[1] {
-			case "setting":
-				if len(rest) >= 3 {
-					switch rest[2] {
-					case "get":
-						return runProjectSettingGet(ctx, client, rest[3:], stdout)
-					case "set":
-						return runProjectSettingSet(ctx, client, rest[3:], stdout)
-					}
-				}
-			case "run":
-				return runProjectRun(ctx, cfg, rest[2:], stdout)
-			}
-		}
-	case "viewport":
-		if len(rest) >= 2 {
-			switch rest[1] {
-			case "screenshot":
-				return runViewportScreenshot(ctx, client, rest[2:], stdout)
-			case "set-size":
-				return runViewportSetSize(ctx, client, rest[2:], stdout)
-			case "add":
-				return runViewportAdd(ctx, client, rest[2:], stdout)
-			case "camera-assign":
-				return runViewportCameraAssign(ctx, client, rest[2:], stdout)
-			}
-		}
-	case "theme":
-		if len(rest) >= 2 {
-			switch rest[1] {
-			case "create":
-				return runThemeCreate(ctx, client, rest[2:], stdout)
-			case "set-color":
-				return runThemeSetColor(ctx, client, rest[2:], stdout)
-			case "set-font-size":
-				return runThemeSetFontSize(ctx, client, rest[2:], stdout)
-			case "set-constant":
-				return runThemeSetConstant(ctx, client, rest[2:], stdout)
-			}
-		}
-	case "tilemap":
-		if len(rest) >= 2 {
-			switch rest[1] {
-			case "tileset-create":
-				return runTilesetCreate(ctx, client, rest[2:], stdout)
-			case "source-add":
-				return runTilesetSourceAdd(ctx, client, rest[2:], stdout)
-			case "cell-set":
-				return runTilemapCellSet(ctx, client, rest[2:], stdout)
-			case "cell-set-rect":
-				return runTilemapCellSetRect(ctx, client, rest[2:], stdout)
-			case "cell-clear":
-				return runTilemapCellClear(ctx, client, rest[2:], stdout)
-			}
-		}
-	case "audio":
-		if len(rest) >= 2 {
-			switch rest[1] {
-			case "bus-add":
-				return runAudioBusAdd(ctx, client, rest[2:], stdout)
-			case "bus-volume-set":
-				return runAudioBusVolumeSet(ctx, client, rest[2:], stdout)
-			case "bus-effect-add":
-				return runAudioBusEffectAdd(ctx, client, rest[2:], stdout)
-			case "listener-make-current":
-				return runAudioListenerMakeCurrent(ctx, client, rest[2:], stdout)
-			case "playlist-add":
-				return runAudioPlaylistAdd(ctx, client, rest[2:], stdout)
-			case "playlist-autoplay":
-				return runAudioPlaylistAutoplay(ctx, client, rest[2:], stdout)
-			}
-		}
-	case "animation":
-		if len(rest) >= 2 {
-			switch rest[1] {
-			case "create":
-				return runAnimationCreate(ctx, client, rest[2:], stdout)
-			case "track-add":
-				return runAnimationTrackAdd(ctx, client, rest[2:], stdout)
-			case "keyframe-add":
-				return runAnimationKeyframeAdd(ctx, client, rest[2:], stdout)
-			case "length-set":
-				return runAnimationLengthSet(ctx, client, rest[2:], stdout)
-			case "player-play":
-				return runAnimationPlayerPlay(ctx, client, rest[2:], stdout)
-			case "tree":
-				return runAnimationTree(ctx, client, rest[2:], stdout)
-			}
-		}
-	case "softbody":
-		return runSoftBody(ctx, client, rest[1:], stdout)
-	case "lod":
-		return runLOD(ctx, client, rest[1:], stdout)
-	case "terrain":
-		return runTerrain(ctx, client, rest[1:], stdout)
-	case "lightmap":
-		return runLightmap(ctx, client, rest[1:], stdout)
-	case "voxelgi":
-		return runVoxelGI(ctx, client, rest[1:], stdout)
-	case "reflection-probe":
-		return runReflectionProbe(ctx, client, rest[1:], stdout)
-	case "window":
-		return runWindow(ctx, client, rest[1:], stdout)
-	case "graph-edit":
-		return runGraphEdit(ctx, client, rest[1:], stdout)
-	case "accessibility":
-		return runAccessibility(ctx, client, rest[1:], stdout)
-	case "i18n":
-		return runI18n(ctx, client, rest[1:], stdout)
-	case "csg":
-		return runCSG(ctx, client, rest[1:], stdout)
-	case "environment":
-		return runEnvironment(ctx, client, rest[1:], stdout)
-	case "decal":
-		return runDecal(ctx, client, rest[1:], stdout)
-	case "fog-volume":
-		return runFogVolume(ctx, client, rest[1:], stdout)
-	case "occluder":
-		return runOccluder(ctx, client, rest[1:], stdout)
-	case "help":
-		return runHelp(rest[1:], stdout)
-	}
 
-	printUsage(stderr)
-	return fmt.Errorf("unknown command: %s", strings.Join(rest, " "))
+	route, ok := routes[rest[0]]
+	if !ok {
+		printUsage(stderr)
+		return fmt.Errorf("unknown command: %s", strings.Join(rest, " "))
+	}
+	return route.handler(ctx, client, addonManager, cfg, rest[1:], stdout, stderr)
+}
+
+// Route dispatchers — Object Layer
+
+func routeScene(ctx context.Context, client *bridge.Client, _ addon.Manager, cfg bridge.Config, rest []string, stdout, stderr io.Writer) error {
+	if len(rest) == 0 {
+		return fmt.Errorf("scene requires a subcommand: create, open, instance, tree, save, apply, batch, apply-blueprint, list, run")
+	}
+	switch rest[0] {
+	case "create":
+		return runSceneCreate(ctx, client, rest[1:], stdout)
+	case "open":
+		return runSceneOpen(ctx, client, rest[1:], stdout)
+	case "instance":
+		return runSceneInstance(ctx, client, rest[1:], stdout)
+	case "tree":
+		return runSceneTree(ctx, client, stdout)
+	case "save":
+		return runSceneSave(ctx, client, rest[1:], stdout)
+	case "apply":
+		return runSceneApply(ctx, client, rest[1:], stdout)
+	case "batch":
+		return runSceneBatch(ctx, client, rest[1:], stdout)
+	case "apply-blueprint":
+		return runSceneApplyBlueprint(ctx, client, rest[1:], stdout)
+	case "list":
+		return runSceneList(ctx, client, rest[1:], stdout)
+	case "run":
+		return runSceneRun(ctx, cfg, rest[1:], stdout)
+	}
+	return fmt.Errorf("unknown scene subcommand: %s", rest[0])
+}
+
+func routeNode(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	if len(rest) == 0 {
+		return fmt.Errorf("node requires a subcommand: add, remove, rename, move, get, set, set-many, set-resource, attach-script, group, duplicate, list-properties")
+	}
+	switch rest[0] {
+	case "add":
+		return runNodeAdd(ctx, client, rest[1:], stdout)
+	case "remove":
+		return runNodeRemove(ctx, client, rest[1:], stdout)
+	case "rename":
+		return runNodeRename(ctx, client, rest[1:], stdout)
+	case "move":
+		return runNodeMove(ctx, client, rest[1:], stdout)
+	case "get":
+		return runNodeGet(ctx, client, rest[1:], stdout)
+	case "set":
+		return runNodeSet(ctx, client, rest[1:], stdout)
+	case "set-many":
+		return runNodeSetMany(ctx, client, rest[1:], stdout)
+	case "set-resource":
+		return runNodeSetResource(ctx, client, rest[1:], stdout)
+	case "attach-script":
+		return runNodeAttachScript(ctx, client, rest[1:], stdout)
+	case "group":
+		if len(rest) >= 2 {
+			switch rest[1] {
+			case "add":
+				return runNodeGroupAdd(ctx, client, rest[2:], stdout)
+			case "remove":
+				return runNodeGroupRemove(ctx, client, rest[2:], stdout)
+			case "list":
+				return runNodeGroupList(ctx, client, rest[2:], stdout)
+			}
+		}
+		return fmt.Errorf("node group requires a subcommand: add, remove, list")
+	case "duplicate":
+		return runNodeDuplicate(ctx, client, rest[1:], stdout)
+	case "list-properties":
+		return runNodeListProperties(ctx, client, rest[1:], stdout)
+	}
+	return fmt.Errorf("unknown node subcommand: %s", rest[0])
+}
+
+func routeScript(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	if len(rest) == 0 {
+		return fmt.Errorf("script requires a subcommand: create, write, check")
+	}
+	switch rest[0] {
+	case "create":
+		return runScriptCreate(ctx, client, rest[1:], stdout)
+	case "write":
+		return runScriptWrite(ctx, client, rest[1:], stdout)
+	case "check":
+		return runScriptCheck(ctx, client, rest[1:], stdout)
+	}
+	return fmt.Errorf("unknown script subcommand: %s", rest[0])
+}
+
+func routeShader(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	if len(rest) == 0 {
+		return fmt.Errorf("shader requires a subcommand: write, check")
+	}
+	switch rest[0] {
+	case "write":
+		return runShaderWrite(ctx, client, rest[1:], stdout)
+	case "check":
+		return runShaderCheck(ctx, client, rest[1:], stdout)
+	}
+	return fmt.Errorf("unknown shader subcommand: %s", rest[0])
+}
+
+func routeResource(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	if len(rest) == 0 {
+		return fmt.Errorf("resource requires a subcommand: create, list")
+	}
+	switch rest[0] {
+	case "create":
+		return runResourceCreate(ctx, client, rest[1:], stdout)
+	case "list":
+		return runResourceList(ctx, client, rest[1:], stdout)
+	}
+	return fmt.Errorf("unknown resource subcommand: %s", rest[0])
+}
+
+func routeFile(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	if len(rest) == 0 {
+		return fmt.Errorf("file requires a subcommand: write-bytes, lut-write, list, mkdir, delete, exists")
+	}
+	switch rest[0] {
+	case "write-bytes":
+		return runFileWriteBytes(ctx, client, rest[1:], stdout)
+	case "lut-write":
+		return runLUTWrite(ctx, client, rest[1:], stdout)
+	case "list":
+		return runFileList(ctx, client, rest[1:], stdout)
+	case "mkdir":
+		return runFileMkdir(ctx, client, rest[1:], stdout)
+	case "delete":
+		return runFileDelete(ctx, client, rest[1:], stdout)
+	case "exists":
+		return runFileExists(ctx, client, rest[1:], stdout)
+	}
+	return fmt.Errorf("unknown file subcommand: %s", rest[0])
+}
+
+// Route dispatchers — System Layer
+
+func routeNavigation(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	if len(rest) == 0 {
+		return fmt.Errorf("navigation requires a subcommand: bake")
+	}
+	switch rest[0] {
+	case "bake":
+		return runNavigationBake(ctx, client, rest[1:], stdout)
+	}
+	return fmt.Errorf("unknown navigation subcommand: %s", rest[0])
+}
+
+func routeLocalization(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	return runLocalization(ctx, client, rest, stdout)
+}
+
+func routeAudio(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	if len(rest) == 0 {
+		return fmt.Errorf("audio requires a subcommand: bus-add, bus-volume-set, bus-effect-add, listener-make-current, playlist-add, playlist-autoplay")
+	}
+	switch rest[0] {
+	case "bus-add":
+		return runAudioBusAdd(ctx, client, rest[1:], stdout)
+	case "bus-volume-set":
+		return runAudioBusVolumeSet(ctx, client, rest[1:], stdout)
+	case "bus-effect-add":
+		return runAudioBusEffectAdd(ctx, client, rest[1:], stdout)
+	case "listener-make-current":
+		return runAudioListenerMakeCurrent(ctx, client, rest[1:], stdout)
+	case "playlist-add":
+		return runAudioPlaylistAdd(ctx, client, rest[1:], stdout)
+	case "playlist-autoplay":
+		return runAudioPlaylistAutoplay(ctx, client, rest[1:], stdout)
+	}
+	return fmt.Errorf("unknown audio subcommand: %s", rest[0])
+}
+
+func routeAnimation(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	if len(rest) == 0 {
+		return fmt.Errorf("animation requires a subcommand: create, track-add, keyframe-add, length-set, player-play, tree")
+	}
+	switch rest[0] {
+	case "create":
+		return runAnimationCreate(ctx, client, rest[1:], stdout)
+	case "track-add":
+		return runAnimationTrackAdd(ctx, client, rest[1:], stdout)
+	case "keyframe-add":
+		return runAnimationKeyframeAdd(ctx, client, rest[1:], stdout)
+	case "length-set":
+		return runAnimationLengthSet(ctx, client, rest[1:], stdout)
+	case "player-play":
+		return runAnimationPlayerPlay(ctx, client, rest[1:], stdout)
+	case "tree":
+		return runAnimationTree(ctx, client, rest[1:], stdout)
+	}
+	return fmt.Errorf("unknown animation subcommand: %s", rest[0])
+}
+
+func routeTilemap(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	if len(rest) == 0 {
+		return fmt.Errorf("tilemap requires a subcommand: tileset-create, source-add, cell-set, cell-set-rect, cell-clear")
+	}
+	switch rest[0] {
+	case "tileset-create":
+		return runTilesetCreate(ctx, client, rest[1:], stdout)
+	case "source-add":
+		return runTilesetSourceAdd(ctx, client, rest[1:], stdout)
+	case "cell-set":
+		return runTilemapCellSet(ctx, client, rest[1:], stdout)
+	case "cell-set-rect":
+		return runTilemapCellSetRect(ctx, client, rest[1:], stdout)
+	case "cell-clear":
+		return runTilemapCellClear(ctx, client, rest[1:], stdout)
+	}
+	return fmt.Errorf("unknown tilemap subcommand: %s", rest[0])
+}
+
+func routeTheme(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	if len(rest) == 0 {
+		return fmt.Errorf("theme requires a subcommand: create, set-color, set-font-size, set-constant")
+	}
+	switch rest[0] {
+	case "create":
+		return runThemeCreate(ctx, client, rest[1:], stdout)
+	case "set-color":
+		return runThemeSetColor(ctx, client, rest[1:], stdout)
+	case "set-font-size":
+		return runThemeSetFontSize(ctx, client, rest[1:], stdout)
+	case "set-constant":
+		return runThemeSetConstant(ctx, client, rest[1:], stdout)
+	}
+	return fmt.Errorf("unknown theme subcommand: %s", rest[0])
+}
+
+func routeViewport(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	if len(rest) == 0 {
+		return fmt.Errorf("viewport requires a subcommand: screenshot, set-size, add, camera-assign")
+	}
+	switch rest[0] {
+	case "screenshot":
+		return runViewportScreenshot(ctx, client, rest[1:], stdout)
+	case "set-size":
+		return runViewportSetSize(ctx, client, rest[1:], stdout)
+	case "add":
+		return runViewportAdd(ctx, client, rest[1:], stdout)
+	case "camera-assign":
+		return runViewportCameraAssign(ctx, client, rest[1:], stdout)
+	}
+	return fmt.Errorf("unknown viewport subcommand: %s", rest[0])
+}
+
+func routeWindow(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	return runWindow(ctx, client, rest, stdout)
+}
+
+func routeAccessibility(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	return runAccessibility(ctx, client, rest, stdout)
+}
+
+func routeLightmap(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	return runLightmap(ctx, client, rest, stdout)
+}
+
+// Route dispatchers — Policy Layer
+
+func routePolicy(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	return runPolicy(ctx, client, rest, stdout)
+}
+
+// Route dispatchers — Workflow Layer
+
+func routeApply(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	return runApply(ctx, client, rest, stdout)
+}
+
+func routePlan(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	return runPlan(ctx, client, rest, stdout)
+}
+
+// Route dispatchers — Execution Layer
+
+func routeTest(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, stderr io.Writer) error {
+	return runTest(ctx, client, rest, stdout, stderr)
+}
+
+func routeGate(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, stderr io.Writer) error {
+	return runGate(ctx, client, rest, stdout, stderr)
+}
+
+// Route dispatchers — Recipe Layer
+
+func routeRecipe(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	return runRecipe(ctx, client, rest, stdout)
+}
+
+// Route dispatchers — Infrastructure
+
+func routePing(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, _ []string, stdout, _ io.Writer) error {
+	return runPing(ctx, client, stdout)
+}
+
+func routeDoctor(ctx context.Context, client *bridge.Client, addonMgr addon.Manager, cfg bridge.Config, rest []string, stdout, _ io.Writer) error {
+	return runDoctor(ctx, cfg, client, addonMgr, rest, stdout)
+}
+
+func routeAddon(ctx context.Context, client *bridge.Client, addonMgr addon.Manager, cfg bridge.Config, rest []string, stdout, _ io.Writer) error {
+	return runAddon(ctx, cfg, client, addonMgr, rest, stdout)
+}
+
+func routeBridge(ctx context.Context, client *bridge.Client, addonMgr addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	return runBridge(ctx, client, addonMgr, rest, stdout)
+}
+
+func routeAutoload(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	return runAutoload(ctx, client, rest, stdout)
+}
+
+func routeInput(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	return runInputMap(ctx, client, rest, stdout)
+}
+
+func routeRun(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, stderr io.Writer) error {
+	return runRun(ctx, client, rest, stdout, stderr)
+}
+
+func routeSignal(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	if len(rest) == 0 {
+		return fmt.Errorf("signal requires a subcommand: connect, disconnect")
+	}
+	switch rest[0] {
+	case "connect":
+		return runSignalConnect(ctx, client, rest[1:], stdout)
+	case "disconnect":
+		return runSignalDisconnect(ctx, client, rest[1:], stdout)
+	}
+	return fmt.Errorf("unknown signal subcommand: %s", rest[0])
+}
+
+func routeProject(ctx context.Context, client *bridge.Client, _ addon.Manager, cfg bridge.Config, rest []string, stdout, _ io.Writer) error {
+	if len(rest) == 0 {
+		return fmt.Errorf("project requires a subcommand: setting, run")
+	}
+	switch rest[0] {
+	case "setting":
+		if len(rest) >= 2 {
+			switch rest[1] {
+			case "get":
+				return runProjectSettingGet(ctx, client, rest[2:], stdout)
+			case "set":
+				return runProjectSettingSet(ctx, client, rest[2:], stdout)
+			}
+		}
+		return fmt.Errorf("project setting requires a subcommand: get, set")
+	case "run":
+		return runProjectRun(ctx, cfg, rest[1:], stdout)
+	}
+	return fmt.Errorf("unknown project subcommand: %s", rest[0])
+}
+
+func routeImport(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	if len(rest) == 0 {
+		return fmt.Errorf("import requires a subcommand: set")
+	}
+	switch rest[0] {
+	case "set":
+		return runImportSet(ctx, client, rest[1:], stdout)
+	}
+	return fmt.Errorf("unknown import subcommand: %s", rest[0])
+}
+
+func routeHelp(_ context.Context, _ *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	return runHelp(rest, stdout)
 }
 
 func normalizeCommandArgs(args []string) []string {
@@ -347,9 +512,6 @@ func normalizeCommandArgs(args []string) []string {
 	return append(normalized, args[1:]...)
 }
 
-// isSuspectedEditorCapture returns true when the image looks like a uniform
-// desktop/editor background: samples a 10x10 grid and considers it uniform if
-// ≥90% of sampled pixels are within ±10 of the dominant color per channel.
 func parseGlobalFlags(args []string) (bridge.Config, []string, error) {
 	cfg := bridge.ConfigFromEnv()
 	fs := flag.NewFlagSet("gdctl", flag.ContinueOnError)

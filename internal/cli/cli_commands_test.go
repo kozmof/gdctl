@@ -88,13 +88,13 @@ func TestAccessibilityUnknownSubcmd(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// i18n commands
+// localization commands
 // ---------------------------------------------------------------------------
 
 func TestI18nLocaleSet(t *testing.T) {
 	server := singleHandler("/i18n/locale-set", map[string]any{"locale": "ja"})
 	defer server.Close()
-	out, err := runCmd(t, server, "i18n", "locale-set", "--locale", "ja")
+	out, err := runCmd(t, server, "localization", "locale-set", "--locale", "ja")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestI18nLocaleSet(t *testing.T) {
 }
 
 func TestI18nLocaleSetRequiresLocale(t *testing.T) {
-	err := Run(context.Background(), []string{"i18n", "locale-set"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"localization", "locale-set"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "--locale") {
 		t.Fatalf("expected --locale error, got %v", err)
 	}
@@ -113,7 +113,7 @@ func TestI18nLocaleSetRequiresLocale(t *testing.T) {
 func TestI18nStringAdd(t *testing.T) {
 	server := singleHandler("/i18n/string-add", map[string]any{})
 	defer server.Close()
-	out, err := runCmd(t, server, "i18n", "string-add", "--key", "GREET", "--locale", "en", "--text", "Hello")
+	out, err := runCmd(t, server, "localization", "string-add", "--key", "GREET", "--locale", "en", "--text", "Hello")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestI18nStringAdd(t *testing.T) {
 }
 
 func TestI18nStringAddRequiresAllFlags(t *testing.T) {
-	err := Run(context.Background(), []string{"i18n", "string-add", "--key", "K"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"localization", "string-add", "--key", "K"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -172,13 +172,13 @@ func TestWindowCreateInvalidPosition(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Graph-edit commands
+// Graph-edit commands (recipe layer)
 // ---------------------------------------------------------------------------
 
 func TestGraphEditNodeAdd(t *testing.T) {
 	server := singleHandler("/graph-edit/node-add", map[string]any{})
 	defer server.Close()
-	out, err := runCmd(t, server, "graph-edit", "node-add", "--path", "/root/Graph", "--name", "MyNode")
+	out, err := runCmd(t, server, "recipe", "graph-edit", "node-add", "--path", "/root/Graph", "--name", "MyNode")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestGraphEditNodeAdd(t *testing.T) {
 }
 
 func TestGraphEditNodeAddRequiresFlags(t *testing.T) {
-	err := Run(context.Background(), []string{"graph-edit", "node-add", "--path", "/root/Graph"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "graph-edit", "node-add", "--path", "/root/Graph"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "--path and --name") {
 		t.Fatalf("expected path+name error, got %v", err)
 	}
@@ -197,7 +197,7 @@ func TestGraphEditNodeAddRequiresFlags(t *testing.T) {
 func TestGraphEditConnectionAdd(t *testing.T) {
 	server := singleHandler("/graph-edit/connection-add", map[string]any{})
 	defer server.Close()
-	out, err := runCmd(t, server, "graph-edit", "connection-add", "--graph", "/root/Graph", "--from", "A", "--to", "B")
+	out, err := runCmd(t, server, "recipe", "graph-edit", "connection-add", "--graph", "/root/Graph", "--from", "A", "--to", "B")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestGraphEditConnectionAdd(t *testing.T) {
 func TestGraphEditNodeRemove(t *testing.T) {
 	server := singleHandler("/graph-edit/node-remove", map[string]any{})
 	defer server.Close()
-	out, err := runCmd(t, server, "graph-edit", "node-remove", "--path", "/root/Graph", "--name", "A")
+	out, err := runCmd(t, server, "recipe", "graph-edit", "node-remove", "--path", "/root/Graph", "--name", "A")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,13 +326,13 @@ func TestAnimationTreeSetParamRequiresFlags(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Environment: terrain, lightmap, voxelgi, reflection-probe, decal, fog-volume, occluder
+// Recipe: terrain, lightmap, voxelgi, reflection-probe, decal, fog-volume, occluder
 // ---------------------------------------------------------------------------
 
 func TestTerrainHeightmapImport(t *testing.T) {
 	server := singleHandler("/terrain/heightmap-import", map[string]any{"width": 128.0, "height": 128.0})
 	defer server.Close()
-	out, err := runCmd(t, server, "terrain", "heightmap-import", "--path", "/root/Terrain", "--texture", "res://hmap.png")
+	out, err := runCmd(t, server, "recipe", "terrain", "heightmap-import", "--path", "/root/Terrain", "--texture", "res://hmap.png")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +342,7 @@ func TestTerrainHeightmapImport(t *testing.T) {
 }
 
 func TestTerrainHeightmapImportRequiresFlags(t *testing.T) {
-	err := Run(context.Background(), []string{"terrain", "heightmap-import", "--path", "/root/T"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "terrain", "heightmap-import", "--path", "/root/T"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -373,7 +373,7 @@ func TestLightmapBakeRequiresPath(t *testing.T) {
 func TestVoxelGIBake(t *testing.T) {
 	server := singleHandler("/voxelgi/bake", map[string]any{"status": "ok"})
 	defer server.Close()
-	out, err := runCmd(t, server, "voxelgi", "bake", "--path", "/root/VoxelGI")
+	out, err := runCmd(t, server, "recipe", "voxelgi", "bake", "--path", "/root/VoxelGI")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,7 +383,7 @@ func TestVoxelGIBake(t *testing.T) {
 }
 
 func TestVoxelGIBakeRequiresPath(t *testing.T) {
-	err := Run(context.Background(), []string{"voxelgi", "bake"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "voxelgi", "bake"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -392,7 +392,7 @@ func TestVoxelGIBakeRequiresPath(t *testing.T) {
 func TestReflectionProbeBake(t *testing.T) {
 	server := singleHandler("/reflection-probe/bake", map[string]any{"status": "ok", "note": ""})
 	defer server.Close()
-	out, err := runCmd(t, server, "reflection-probe", "bake", "--path", "/root/ReflectionProbe")
+	out, err := runCmd(t, server, "recipe", "reflection-probe", "bake", "--path", "/root/ReflectionProbe")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,7 +402,7 @@ func TestReflectionProbeBake(t *testing.T) {
 }
 
 func TestReflectionProbeBakeRequiresPath(t *testing.T) {
-	err := Run(context.Background(), []string{"reflection-probe", "bake"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "reflection-probe", "bake"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -411,7 +411,7 @@ func TestReflectionProbeBakeRequiresPath(t *testing.T) {
 func TestDecalAdd(t *testing.T) {
 	server := singleHandler("/decal/add", map[string]any{"path": "/root/Main/Decal"})
 	defer server.Close()
-	out, err := runCmd(t, server, "decal", "add", "--parent", "/root/Main", "--texture", "res://tex.png")
+	out, err := runCmd(t, server, "recipe", "decal", "add", "--parent", "/root/Main", "--texture", "res://tex.png")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,7 +421,7 @@ func TestDecalAdd(t *testing.T) {
 }
 
 func TestDecalAddRequiresParent(t *testing.T) {
-	err := Run(context.Background(), []string{"decal", "add"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "decal", "add"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -430,7 +430,7 @@ func TestDecalAddRequiresParent(t *testing.T) {
 func TestDecalSetNormalFade(t *testing.T) {
 	server := singleHandler("/decal/set-normal-fade", map[string]any{})
 	defer server.Close()
-	out, err := runCmd(t, server, "decal", "set-normal-fade", "--path", "/root/Main/Decal", "--fade", "0.5")
+	out, err := runCmd(t, server, "recipe", "decal", "set-normal-fade", "--path", "/root/Main/Decal", "--fade", "0.5")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -440,7 +440,7 @@ func TestDecalSetNormalFade(t *testing.T) {
 }
 
 func TestDecalSetNormalFadeRequiresPath(t *testing.T) {
-	err := Run(context.Background(), []string{"decal", "set-normal-fade"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "decal", "set-normal-fade"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -449,7 +449,7 @@ func TestDecalSetNormalFadeRequiresPath(t *testing.T) {
 func TestFogVolumeAdd(t *testing.T) {
 	server := singleHandler("/fog-volume/add", map[string]any{"path": "/root/Main/FogVolume"})
 	defer server.Close()
-	out, err := runCmd(t, server, "fog-volume", "add", "--parent", "/root/Main")
+	out, err := runCmd(t, server, "recipe", "fog-volume", "add", "--parent", "/root/Main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,7 +459,7 @@ func TestFogVolumeAdd(t *testing.T) {
 }
 
 func TestFogVolumeAddRequiresParent(t *testing.T) {
-	err := Run(context.Background(), []string{"fog-volume", "add"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "fog-volume", "add"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -468,7 +468,7 @@ func TestFogVolumeAddRequiresParent(t *testing.T) {
 func TestOccluderAdd(t *testing.T) {
 	server := singleHandler("/occluder/add", map[string]any{"path": "/root/Main/Occluder"})
 	defer server.Close()
-	out, err := runCmd(t, server, "occluder", "add", "--parent", "/root/Main")
+	out, err := runCmd(t, server, "recipe", "occluder", "add", "--parent", "/root/Main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -478,20 +478,20 @@ func TestOccluderAdd(t *testing.T) {
 }
 
 func TestOccluderAddRequiresParent(t *testing.T) {
-	err := Run(context.Background(), []string{"occluder", "add"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "occluder", "add"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 // ---------------------------------------------------------------------------
-// CSG commands
+// CSG commands (recipe layer)
 // ---------------------------------------------------------------------------
 
 func TestCSGNodeAdd(t *testing.T) {
 	server := singleHandler("/node/add", map[string]any{"path": "/root/Main/CSGBox3D"})
 	defer server.Close()
-	out, err := runCmd(t, server, "csg", "node-add", "--parent", "/root/Main", "--name", "Box")
+	out, err := runCmd(t, server, "recipe", "csg", "node-add", "--parent", "/root/Main", "--name", "Box")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -501,7 +501,7 @@ func TestCSGNodeAdd(t *testing.T) {
 }
 
 func TestCSGNodeAddRequiresParent(t *testing.T) {
-	err := Run(context.Background(), []string{"csg", "node-add"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "csg", "node-add"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -510,7 +510,7 @@ func TestCSGNodeAddRequiresParent(t *testing.T) {
 func TestCSGOperationSet(t *testing.T) {
 	server := singleHandler("/node/set", map[string]any{"path": "/root/Main/Box", "property": "operation"})
 	defer server.Close()
-	out, err := runCmd(t, server, "csg", "operation-set", "--path", "/root/Main/Box", "--operation", "union")
+	out, err := runCmd(t, server, "recipe", "csg", "operation-set", "--path", "/root/Main/Box", "--operation", "union")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -520,7 +520,7 @@ func TestCSGOperationSet(t *testing.T) {
 }
 
 func TestCSGOperationSetRequiresPath(t *testing.T) {
-	err := Run(context.Background(), []string{"csg", "operation-set"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "csg", "operation-set"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -529,7 +529,7 @@ func TestCSGOperationSetRequiresPath(t *testing.T) {
 func TestCSGSizeSet(t *testing.T) {
 	server := singleHandler("/node/set", map[string]any{"path": "/root/Main/Box", "property": "size"})
 	defer server.Close()
-	out, err := runCmd(t, server, "csg", "size-set", "--path", "/root/Main/Box", "--size", "2,2,2")
+	out, err := runCmd(t, server, "recipe", "csg", "size-set", "--path", "/root/Main/Box", "--size", "2,2,2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -539,7 +539,7 @@ func TestCSGSizeSet(t *testing.T) {
 }
 
 func TestCSGSizeSetRequiresPath(t *testing.T) {
-	err := Run(context.Background(), []string{"csg", "size-set"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "csg", "size-set"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -710,7 +710,7 @@ func TestWindowCreateInvalidWindowPos(t *testing.T) {
 func TestDecalAddInvalidSize(t *testing.T) {
 	server := singleHandler("/decal/add", map[string]any{})
 	defer server.Close()
-	_, err := runCmd(t, server, "decal", "add", "--parent", "/root/Main", "--size", "1,2")
+	_, err := runCmd(t, server, "recipe", "decal", "add", "--parent", "/root/Main", "--size", "1,2")
 	if err == nil || !strings.Contains(err.Error(), "--size") {
 		t.Fatalf("expected size error, got %v", err)
 	}

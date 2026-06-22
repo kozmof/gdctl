@@ -112,6 +112,7 @@ func runSceneApply(ctx context.Context, client *bridge.Client, args []string, st
 	filePath := fs.String("file", "", "JSON scene tree file")
 	dryRun := fs.Bool("dry-run", false, "validate without mutating or saving")
 	timeout := fs.Duration("timeout", 5*time.Second, "maximum time to wait for open/save jobs")
+	jsonOut := fs.Bool("json", false, "print result as JSON")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -135,6 +136,11 @@ func runSceneApply(ctx context.Context, client *bridge.Client, args []string, st
 		return err
 	}
 	if *dryRun {
+		if *jsonOut {
+			enc := json.NewEncoder(stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(map[string]any{"scene": openedPath, "dry_run": true, "created": result.Created, "properties": result.Updated})
+		}
 		fmt.Fprintf(stdout, "Dry run ok: %s (created: %d, properties: %d)\n", openedPath, result.Created, result.Updated)
 		return nil
 	}
@@ -144,6 +150,11 @@ func runSceneApply(ctx context.Context, client *bridge.Client, args []string, st
 	}
 	if root == "" {
 		root = result.Root
+	}
+	if *jsonOut {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(map[string]any{"scene": savedPath, "root": root, "created": result.Created, "properties": result.Updated})
 	}
 	fmt.Fprintf(stdout, "Scene applied: %s\n", savedPath)
 	if root != "" {

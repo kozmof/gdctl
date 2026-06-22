@@ -66,56 +66,56 @@ func TestAutoloadRequiresSubcmd(t *testing.T) {
 }
 
 func TestGraphEditUnknownSubcmd(t *testing.T) {
-	err := Run(context.Background(), []string{"graph-edit", "unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "unknown graph-edit") {
-		t.Fatalf("expected unknown graph-edit error, got %v", err)
+	err := Run(context.Background(), []string{"recipe", "graph-edit", "unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "graph-edit") {
+		t.Fatalf("expected graph-edit error, got %v", err)
 	}
 }
 
 func TestGraphEditRequiresSubcmd(t *testing.T) {
-	err := Run(context.Background(), []string{"graph-edit"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "graph-edit"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestI18nUnknownSubcmd(t *testing.T) {
-	err := Run(context.Background(), []string{"i18n", "unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "unknown i18n") {
-		t.Fatalf("expected unknown i18n error, got %v", err)
+	err := Run(context.Background(), []string{"localization", "unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "unknown localization") {
+		t.Fatalf("expected unknown localization error, got %v", err)
 	}
 }
 
 func TestLODUnknownSubcmd(t *testing.T) {
-	err := Run(context.Background(), []string{"lod", "unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "lod", "unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "unknown lod") {
 		t.Fatalf("expected unknown lod error, got %v", err)
 	}
 }
 
 func TestDecalUnknownSubcmd(t *testing.T) {
-	err := Run(context.Background(), []string{"decal", "unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "decal", "unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "unknown decal") {
 		t.Fatalf("expected unknown decal error, got %v", err)
 	}
 }
 
 func TestDecalRequiresSubcmd(t *testing.T) {
-	err := Run(context.Background(), []string{"decal"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "decal"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestCSGUnknownSubcmd(t *testing.T) {
-	err := Run(context.Background(), []string{"csg", "unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "csg", "unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "unknown csg") {
 		t.Fatalf("expected unknown csg error, got %v", err)
 	}
 }
 
 func TestCSGRequiresSubcmd(t *testing.T) {
-	err := Run(context.Background(), []string{"csg"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "csg"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}

@@ -1714,7 +1714,7 @@ var helpGroups = []helpGroup{
 	{name: "softbody", cmds: []helpCmd{
 		{
 			sub:  "pin-point",
-			line: "  gdctl [--host host] [--port port] [--token token] softbody pin-point --path PATH --point N",
+			line: "  gdctl [--host host] [--port port] [--token token] recipe softbody pin-point --path PATH --point N",
 			desc: "pin a vertex of a SoftBody3D to prevent it from simulating",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "SoftBody3D node path"},
@@ -1727,7 +1727,7 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "unpin-point",
-			line: "  gdctl [--host host] [--port port] [--token token] softbody unpin-point --path PATH --point N",
+			line: "  gdctl [--host host] [--port port] [--token token] recipe softbody unpin-point --path PATH --point N",
 			desc: "unpin a previously pinned SoftBody3D vertex",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "SoftBody3D node path"},
@@ -1742,7 +1742,7 @@ var helpGroups = []helpGroup{
 	{name: "lod", cmds: []helpCmd{
 		{
 			sub:  "set",
-			line: "  gdctl [--host host] [--port port] [--token token] lod set --path PATH --begin N --end N",
+			line: "  gdctl [--host host] [--port port] [--token token] recipe lod set --path PATH --begin N --end N",
 			desc: "set LOD visibility range on a GeometryInstance3D node",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "node path"},
@@ -1756,7 +1756,7 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "set-many",
-			line: "  gdctl [--host host] [--port port] [--token token] lod set-many --file FILE",
+			line: "  gdctl [--host host] [--port port] [--token token] recipe lod set-many --file FILE",
 			desc: "set LOD ranges on multiple nodes from a JSON file",
 			flags: []helpFlag{
 				{name: "file", meta: "FILE", usage: `JSON array: [{"path":"/root/Node","begin":20.0,"end":40.0},...]`},
@@ -1770,7 +1770,7 @@ var helpGroups = []helpGroup{
 	{name: "terrain", cmds: []helpCmd{
 		{
 			sub:  "heightmap-import",
-			line: "  gdctl [--host host] [--port port] [--token token] terrain heightmap-import --path PATH --texture TEX --min-height N --max-height N",
+			line: "  gdctl [--host host] [--port port] [--token token] recipe terrain heightmap-import --path PATH --texture TEX --min-height N --max-height N",
 			desc: "import a heightmap image into a HeightMapShape3D node",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "HeightMapShape3D node path"},
@@ -1801,7 +1801,7 @@ var helpGroups = []helpGroup{
 	{name: "voxelgi", cmds: []helpCmd{
 		{
 			sub:  "bake",
-			line: "  gdctl [--host host] [--port port] [--token token] voxelgi bake --path PATH",
+			line: "  gdctl [--host host] [--port port] [--token token] recipe voxelgi bake --path PATH",
 			desc: "trigger a VoxelGI bake",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "VoxelGI node path"},
@@ -1815,7 +1815,7 @@ var helpGroups = []helpGroup{
 	{name: "reflection-probe", cmds: []helpCmd{
 		{
 			sub:  "bake",
-			line: "  gdctl [--host host] [--port port] [--token token] reflection-probe bake --path PATH",
+			line: "  gdctl [--host host] [--port port] [--token token] recipe reflection-probe bake --path PATH",
 			desc: "attempt to bake a ReflectionProbe (not supported via GDScript; returns status)",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "ReflectionProbe node path"},
@@ -1859,7 +1859,7 @@ var helpGroups = []helpGroup{
 	{name: "graph-edit", cmds: []helpCmd{
 		{
 			sub:  "node-add",
-			line: "  gdctl [--host host] [--port port] [--token token] graph-edit node-add --path GRAPH --name NAME [--position X,Y]",
+			line: "  gdctl [--host host] [--port port] [--token token] recipe graph-edit node-add --path GRAPH --name NAME [--position X,Y]",
 			desc: "add a GraphNode to a GraphEdit control",
 			flags: []helpFlag{
 				{name: "path", meta: "GRAPH", usage: "GraphEdit node path"},
@@ -1873,7 +1873,7 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "connection-add",
-			line: "  gdctl [--host host] [--port port] [--token token] graph-edit connection-add --graph GRAPH --from NODE --from-port N --to NODE --to-port N",
+			line: "  gdctl [--host host] [--port port] [--token token] recipe graph-edit connection-add --graph GRAPH --from NODE --from-port N --to NODE --to-port N",
 			desc: "connect two GraphNodes in a GraphEdit",
 			flags: []helpFlag{
 				{name: "graph", meta: "GRAPH", usage: "GraphEdit node path"},
@@ -1889,7 +1889,7 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "node-remove",
-			line: "  gdctl [--host host] [--port port] [--token token] graph-edit node-remove --path GRAPH --name NAME",
+			line: "  gdctl [--host host] [--port port] [--token token] recipe graph-edit node-remove --path GRAPH --name NAME",
 			desc: "remove a GraphNode from a GraphEdit",
 			flags: []helpFlag{
 				{name: "path", meta: "GRAPH", usage: "GraphEdit node path"},
@@ -1939,10 +1939,10 @@ var helpGroups = []helpGroup{
 			},
 		},
 	}},
-	{name: "i18n", cmds: []helpCmd{
+	{name: "localization", cmds: []helpCmd{
 		{
 			sub:  "locale-set",
-			line: "  gdctl [--host host] [--port port] [--token token] i18n locale-set --locale LOCALE",
+			line: "  gdctl [--host host] [--port port] [--token token] localization locale-set --locale LOCALE",
 			desc: "set the active locale in TranslationServer",
 			flags: []helpFlag{
 				{name: "locale", meta: "LOCALE", usage: "locale code, e.g. en, ja, fr"},
@@ -1954,7 +1954,7 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "string-add",
-			line: "  gdctl [--host host] [--port port] [--token token] i18n string-add --key KEY --locale LOCALE --text TEXT",
+			line: "  gdctl [--host host] [--port port] [--token token] localization string-add --key KEY --locale LOCALE --text TEXT",
 			desc: "add or update a translation string at runtime",
 			flags: []helpFlag{
 				{name: "key", meta: "KEY", usage: "translation key"},
@@ -1970,7 +1970,7 @@ var helpGroups = []helpGroup{
 	{name: "csg", cmds: []helpCmd{
 		{
 			sub:  "node-add",
-			line: "  gdctl [--host host] [--port port] [--token token] csg node-add --parent PATH --type TYPE --name NAME [--no-collision]",
+			line: "  gdctl [--host host] [--port port] [--token token] recipe csg node-add --parent PATH --type TYPE --name NAME [--no-collision]",
 			desc: "add a CSG node with use_collision=true by default",
 			flags: []helpFlag{
 				{name: "parent", meta: "PATH", usage: "parent node path"},
@@ -1986,7 +1986,7 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "operation-set",
-			line: "  gdctl [--host host] [--port port] [--token token] csg operation-set --path PATH --operation OP",
+			line: "  gdctl [--host host] [--port port] [--token token] recipe csg operation-set --path PATH --operation OP",
 			desc: "set the CSG boolean operation on a CSG node",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "CSG node path"},
@@ -1999,7 +1999,7 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "size-set",
-			line: "  gdctl [--host host] [--port port] [--token token] csg size-set --path PATH --size X,Y,Z",
+			line: "  gdctl [--host host] [--port port] [--token token] recipe csg size-set --path PATH --size X,Y,Z",
 			desc: "set the size of a CSGBox3D node",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "CSGBox3D node path"},
@@ -2014,7 +2014,7 @@ var helpGroups = []helpGroup{
 	{name: "environment", cmds: []helpCmd{
 		{
 			sub:  "set-background",
-			line: "  gdctl [--host host] [--port port] [--token token] environment set-background --path PATH --mode color|sky|clear [--color R,G,B[,A]]",
+			line: "  gdctl [--host host] [--port port] [--token token] recipe environment set-background --path PATH --mode color|sky|clear [--color R,G,B[,A]]",
 			desc: "set the background mode and color on a WorldEnvironment node",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "WorldEnvironment node path in the open scene"},
@@ -2031,7 +2031,7 @@ var helpGroups = []helpGroup{
 	{name: "decal", cmds: []helpCmd{
 		{
 			sub:  "add",
-			line: "  gdctl [--host host] [--port port] [--token token] decal add --parent PATH --texture TEX --size X,Y,Z",
+			line: "  gdctl [--host host] [--port port] [--token token] recipe decal add --parent PATH --texture TEX --size X,Y,Z",
 			desc: "add a Decal node to a parent",
 			flags: []helpFlag{
 				{name: "parent", meta: "PATH", usage: "parent node path"},
@@ -2045,7 +2045,7 @@ var helpGroups = []helpGroup{
 		},
 		{
 			sub:  "set-normal-fade",
-			line: "  gdctl [--host host] [--port port] [--token token] decal set-normal-fade --path PATH --fade N",
+			line: "  gdctl [--host host] [--port port] [--token token] recipe decal set-normal-fade --path PATH --fade N",
 			desc: "set the normal fade factor on a Decal node",
 			flags: []helpFlag{
 				{name: "path", meta: "PATH", usage: "Decal node path"},
@@ -2060,7 +2060,7 @@ var helpGroups = []helpGroup{
 	{name: "fog-volume", cmds: []helpCmd{
 		{
 			sub:  "add",
-			line: "  gdctl [--host host] [--port port] [--token token] fog-volume add --parent PATH --shape SHAPE --size X,Y,Z --density N",
+			line: "  gdctl [--host host] [--port port] [--token token] recipe fog-volume add --parent PATH --shape SHAPE --size X,Y,Z --density N",
 			desc: "add a FogVolume node with a FogMaterial to a parent",
 			flags: []helpFlag{
 				{name: "parent", meta: "PATH", usage: "parent node path"},
@@ -2077,7 +2077,7 @@ var helpGroups = []helpGroup{
 	{name: "occluder", cmds: []helpCmd{
 		{
 			sub:  "add",
-			line: "  gdctl [--host host] [--port port] [--token token] occluder add --parent PATH --shape SHAPE --size X,Y,Z",
+			line: "  gdctl [--host host] [--port port] [--token token] recipe occluder add --parent PATH --shape SHAPE --size X,Y,Z",
 			desc: "add an OccluderInstance3D node to a parent",
 			flags: []helpFlag{
 				{name: "parent", meta: "PATH", usage: "parent node path"},
@@ -2087,6 +2087,68 @@ var helpGroups = []helpGroup{
 			usecase: []string{
 				"Add an OccluderInstance3D to improve GPU occlusion culling performance.",
 				"Place invisible geometry that tells the renderer what to cull behind it.",
+			},
+		},
+	}},
+	{name: "apply", cmds: []helpCmd{
+		{
+			sub:  "apply",
+			line: "  gdctl [--host host] [--port port] [--token token] apply FILE --scene SCENE [--dry-run] [--json]",
+			desc: "apply a JSON scene tree as desired state (top-level workflow command)",
+			flags: []helpFlag{
+				{name: "scene", meta: "SCENE", usage: "scene path to open and mutate"},
+				{name: "dry-run", usage: "preview changes without saving"},
+				{name: "json", usage: "print result as JSON"},
+			},
+			usecase: []string{
+				"Apply a JSON scene descriptor to a scene file in a single command.",
+				"Use in CI pipelines to converge scene state from a declarative file.",
+			},
+		},
+	}},
+	{name: "plan", cmds: []helpCmd{
+		{
+			sub:  "plan",
+			line: "  gdctl [--host host] [--port port] [--token token] plan FILE --scene SCENE [--json]",
+			desc: "preview what apply would change without writing (dry run)",
+			flags: []helpFlag{
+				{name: "scene", meta: "SCENE", usage: "scene path to preview"},
+				{name: "json", usage: "print result as JSON"},
+			},
+			usecase: []string{
+				"Preview nodes and properties that would be created or updated without writing anything.",
+				"Use before apply to review changes in CI or review workflows.",
+			},
+		},
+	}},
+	{name: "gate", cmds: []helpCmd{
+		{
+			sub:  "run",
+			line: "  gdctl [--host host] [--port port] [--token token] gate run [PROFILE] [--json]",
+			desc: "run a validation gate profile (production, ci, quick)",
+			flags: []helpFlag{
+				{name: "profile", meta: "PROFILE", usage: "gate profile: production, ci, or quick (default: quick)"},
+				{name: "json", usage: "print results as JSON"},
+			},
+			usecase: []string{
+				"Run all project quality checks in one command before a release.",
+				"Use gdctl gate run ci in continuous integration to validate bridge, scripts, and policy.",
+			},
+		},
+	}},
+	{name: "policy", cmds: []helpCmd{
+		{
+			sub:  "validate",
+			line: "  gdctl policy validate FILE [--json]",
+			desc: "validate the project against a policy file",
+			flags: []helpFlag{
+				{name: "file", meta: "FILE", usage: "JSON policy file path"},
+				{name: "json", usage: "print results as JSON"},
+			},
+			usecase: []string{
+				"Validate that project assets meet organizational requirements (size, format, node count).",
+				"Use in outsourcing pipelines to check vendor submissions against acceptance criteria.",
+				"Add to CI to block releases when policy rules are violated.",
 			},
 		},
 	}},

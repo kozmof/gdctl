@@ -21,7 +21,7 @@ import (
 func TestLODSet(t *testing.T) {
 	server := singleHandler("/lod/set", map[string]any{"begin": 10.0, "end": 50.0})
 	defer server.Close()
-	out, err := runCmd(t, server, "lod", "set", "--path", "/root/Mesh", "--begin", "10", "--end", "50")
+	out, err := runCmd(t, server, "recipe", "lod", "set", "--path", "/root/Mesh", "--begin", "10", "--end", "50")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestLODSet(t *testing.T) {
 }
 
 func TestLODSetRequiresPath(t *testing.T) {
-	err := Run(context.Background(), []string{"lod", "set"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "lod", "set"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "--path") {
 		t.Fatalf("expected --path error, got %v", err)
 	}
@@ -45,7 +45,7 @@ func TestLODSetMany(t *testing.T) {
 	}
 	server := singleHandler("/lod/set-many", map[string]any{"updated": 1.0})
 	defer server.Close()
-	out, err := runCmd(t, server, "lod", "set-many", "--file", lodFile)
+	out, err := runCmd(t, server, "recipe", "lod", "set-many", "--file", lodFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestLODSetMany(t *testing.T) {
 }
 
 func TestLODSetManyRequiresFile(t *testing.T) {
-	err := Run(context.Background(), []string{"lod", "set-many"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "lod", "set-many"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -68,7 +68,7 @@ func TestLODSetManyRequiresFile(t *testing.T) {
 func TestSoftBodyPinPoint(t *testing.T) {
 	server := singleHandler("/softbody/pin-point", map[string]any{})
 	defer server.Close()
-	out, err := runCmd(t, server, "softbody", "pin-point", "--path", "/root/SoftBody3D", "--point", "0")
+	out, err := runCmd(t, server, "recipe", "softbody", "pin-point", "--path", "/root/SoftBody3D", "--point", "0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestSoftBodyPinPoint(t *testing.T) {
 func TestSoftBodyUnpinPoint(t *testing.T) {
 	server := singleHandler("/softbody/unpin-point", map[string]any{})
 	defer server.Close()
-	out, err := runCmd(t, server, "softbody", "unpin-point", "--path", "/root/SoftBody3D", "--point", "0")
+	out, err := runCmd(t, server, "recipe", "softbody", "unpin-point", "--path", "/root/SoftBody3D", "--point", "0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,14 +90,14 @@ func TestSoftBodyUnpinPoint(t *testing.T) {
 }
 
 func TestSoftBodyRequiresSubcommand(t *testing.T) {
-	err := Run(context.Background(), []string{"softbody"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "softbody"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestSoftBodyPinRequiresFlags(t *testing.T) {
-	err := Run(context.Background(), []string{"softbody", "pin-point", "--path", "/root/Body"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "softbody", "pin-point", "--path", "/root/Body"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}

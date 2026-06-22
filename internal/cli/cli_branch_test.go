@@ -223,7 +223,7 @@ func TestNodeGroupRemoveResult(t *testing.T) {
 func TestGraphEditNodeRemoveOK(t *testing.T) {
 	server := singleHandler("/graph-edit/node-remove", map[string]any{"name": "MyNode"})
 	defer server.Close()
-	out, err := runCmd(t, server, "graph-edit", "node-remove", "--path", "/root/Graph", "--name", "MyNode")
+	out, err := runCmd(t, server, "recipe", "graph-edit", "node-remove", "--path", "/root/Graph", "--name", "MyNode")
 	if err != nil {
 		t.Fatal(err)
 	}

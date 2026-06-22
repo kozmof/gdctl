@@ -360,7 +360,7 @@ func TestInputEventAddKeyRequiresFlags(t *testing.T) {
 
 func TestLODSetManyNoContent(t *testing.T) {
 	tmpFile := writeTempJSONFile(t, []any{})
-	err := Run(context.Background(), []string{"lod", "set-many", "--file", tmpFile}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "lod", "set-many", "--file", tmpFile}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "no entries") {
 		t.Fatalf("expected no entries error, got %v", err)
 	}

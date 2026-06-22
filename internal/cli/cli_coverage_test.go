@@ -343,7 +343,7 @@ func makeCSGServer() *httptest.Server {
 func TestCSGOperationSetIntersection(t *testing.T) {
 	server := makeCSGServer()
 	defer server.Close()
-	out, err := runCmd(t, server, "csg", "operation-set", "--path", "/root/CSG", "--operation", "intersection")
+	out, err := runCmd(t, server, "recipe", "csg", "operation-set", "--path", "/root/CSG", "--operation", "intersection")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +355,7 @@ func TestCSGOperationSetIntersection(t *testing.T) {
 func TestCSGOperationSetSubtraction(t *testing.T) {
 	server := makeCSGServer()
 	defer server.Close()
-	out, err := runCmd(t, server, "csg", "operation-set", "--path", "/root/CSG", "--operation", "subtraction")
+	out, err := runCmd(t, server, "recipe", "csg", "operation-set", "--path", "/root/CSG", "--operation", "subtraction")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +367,7 @@ func TestCSGOperationSetSubtraction(t *testing.T) {
 func TestCSGOperationSetSubtract(t *testing.T) {
 	server := makeCSGServer()
 	defer server.Close()
-	out, err := runCmd(t, server, "csg", "operation-set", "--path", "/root/CSG", "--operation", "subtract")
+	out, err := runCmd(t, server, "recipe", "csg", "operation-set", "--path", "/root/CSG", "--operation", "subtract")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,11 +422,11 @@ func TestValueOrDash(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// env command dispatcher coverage (terrain/lightmap/voxelgi/reflectionprobe/fogvolume/occluder unknown subcmd)
+// recipe dispatcher coverage (terrain/voxelgi/reflectionprobe/fogvolume/occluder unknown verb)
 // ---------------------------------------------------------------------------
 
 func TestTerrainUnknownSubcmd(t *testing.T) {
-	err := Run(context.Background(), []string{"terrain", "unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "terrain", "unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "unknown terrain") {
 		t.Fatalf("expected unknown terrain error, got %v", err)
 	}
@@ -440,35 +440,35 @@ func TestLightmapUnknownSubcmd(t *testing.T) {
 }
 
 func TestVoxelGIUnknownSubcmd(t *testing.T) {
-	err := Run(context.Background(), []string{"voxelgi", "unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "voxelgi", "unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "unknown voxelgi") {
 		t.Fatalf("expected unknown voxelgi error, got %v", err)
 	}
 }
 
 func TestReflectionProbeUnknownSubcmd(t *testing.T) {
-	err := Run(context.Background(), []string{"reflection-probe", "unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "reflection-probe", "unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "unknown reflection-probe") {
 		t.Fatalf("expected unknown reflection-probe error, got %v", err)
 	}
 }
 
 func TestFogVolumeUnknownSubcmd(t *testing.T) {
-	err := Run(context.Background(), []string{"fog-volume", "unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "fog-volume", "unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "unknown fog-volume") {
 		t.Fatalf("expected unknown fog-volume error, got %v", err)
 	}
 }
 
 func TestOccluderUnknownSubcmd(t *testing.T) {
-	err := Run(context.Background(), []string{"occluder", "unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "occluder", "unknown"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "unknown occluder") {
 		t.Fatalf("expected unknown occluder error, got %v", err)
 	}
 }
 
 func TestTerrainRequiresSubcmd(t *testing.T) {
-	err := Run(context.Background(), []string{"terrain"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "terrain"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -482,28 +482,28 @@ func TestLightmapRequiresSubcmd(t *testing.T) {
 }
 
 func TestVoxelGIRequiresSubcmd(t *testing.T) {
-	err := Run(context.Background(), []string{"voxelgi"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "voxelgi"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestReflectionProbeRequiresSubcmd(t *testing.T) {
-	err := Run(context.Background(), []string{"reflection-probe"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "reflection-probe"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestFogVolumeRequiresSubcmd(t *testing.T) {
-	err := Run(context.Background(), []string{"fog-volume"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "fog-volume"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestOccluderRequiresSubcmd(t *testing.T) {
-	err := Run(context.Background(), []string{"occluder"}, &bytes.Buffer{}, &bytes.Buffer{})
+	err := Run(context.Background(), []string{"recipe", "occluder"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
