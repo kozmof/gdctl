@@ -488,15 +488,13 @@ func runRunWaitProbe(ctx context.Context, client *bridge.Client, args []string, 
 					enc.SetIndent("", "  ")
 					return enc.Encode(e)
 				}
-				encoded, _ := json.Marshal(e.Detail)
-				fmt.Fprintf(stdout, "Probe [%s] matched %s: %s\n", *source, predicate, encoded)
+				fmt.Fprintf(stdout, "Probe [%s] matched %s: %s\n", *source, predicate, jsonOrFallback(e.Detail))
 				return nil
 			}
 		}
 		if time.Now().After(deadline) {
 			if lastEntry != nil {
-				encoded, _ := json.Marshal(lastEntry.Detail)
-				return fmt.Errorf("run wait-probe timed out after %s; last probe [%s]: %s", *timeout, *source, encoded)
+				return fmt.Errorf("run wait-probe timed out after %s; last probe [%s]: %s", *timeout, *source, jsonOrFallback(lastEntry.Detail))
 			}
 			return fmt.Errorf("run wait-probe timed out after %s; no probe entries from %s", *timeout, *source)
 		}
@@ -705,12 +703,11 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 			}
 			if !matched {
 				if time.Now().After(deadline) {
-					encoded, _ := json.Marshal(lastDetail)
 					helperSummary := smokeHelperFailureSummary(ctx, client)
 					if helperSummary != "" {
-						return fmt.Errorf("Smoke: FAIL — assert %s timed out; last probe: %s; %s", resolvedAssert, encoded, helperSummary)
+						return fmt.Errorf("Smoke: FAIL — assert %s timed out; last probe: %s; %s", resolvedAssert, jsonOrFallback(lastDetail), helperSummary)
 					}
-					return fmt.Errorf("Smoke: FAIL — assert %s timed out; last probe: %s", resolvedAssert, encoded)
+					return fmt.Errorf("Smoke: FAIL — assert %s timed out; last probe: %s", resolvedAssert, jsonOrFallback(lastDetail))
 				}
 				select {
 				case <-time.After(500 * time.Millisecond):
@@ -823,8 +820,7 @@ func runRunProbeNode(ctx context.Context, client *bridge.Client, args []string, 
 	}
 	if props, ok := job.Result["properties"].(map[string]any); ok {
 		for _, property := range properties {
-			encoded, _ := json.Marshal(props[string(property)])
-			fmt.Fprintf(stdout, "  %s: %s\n", property, encoded)
+			fmt.Fprintf(stdout, "  %s: %s\n", property, jsonOrFallback(props[string(property)]))
 		}
 	}
 	return nil
@@ -1047,6 +1043,14 @@ func runRunSceneReload(ctx context.Context, client *bridge.Client, args []string
 	}
 	fmt.Fprintln(stdout, "Scene reloaded")
 	return nil
+}
+
+func jsonOrFallback(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return string(b)
 }
 
 func waitForJob(ctx context.Context, client *bridge.Client, jobID string, timeout time.Duration, label string) (bridge.Job, error) {

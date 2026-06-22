@@ -11,7 +11,10 @@ func TestConfigFromEnv(t *testing.T) {
 	t.Setenv("GDCTL_BRIDGE_PORT", "9001")
 	t.Setenv("GDCTL_BRIDGE_TOKEN", "secret")
 
-	cfg := ConfigFromEnv()
+	cfg, err := ConfigFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if cfg.Host != "example.local" {
 		t.Fatalf("Host = %q", cfg.Host)
 	}
@@ -26,15 +29,12 @@ func TestConfigFromEnv(t *testing.T) {
 	}
 }
 
-func TestConfigFromEnvDefaultsInvalidPort(t *testing.T) {
+func TestConfigFromEnvInvalidPortReturnsError(t *testing.T) {
 	t.Setenv("GDCTL_BRIDGE_PORT", "nope")
 
-	cfg := ConfigFromEnv()
-	if cfg.Host != DefaultHost {
-		t.Fatalf("Host = %q", cfg.Host)
-	}
-	if cfg.Port != DefaultPort {
-		t.Fatalf("Port = %d", cfg.Port)
+	_, err := ConfigFromEnv()
+	if err == nil {
+		t.Fatal("expected error for invalid port, got nil")
 	}
 }
 

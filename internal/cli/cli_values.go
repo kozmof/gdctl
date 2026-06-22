@@ -226,7 +226,9 @@ func parseStringArray(value string) []string {
 	parts := strings.Split(value, ";")
 	out := make([]string, 0, len(parts))
 	for _, part := range parts {
-		out = append(out, strings.TrimSpace(part))
+		if s := strings.TrimSpace(part); s != "" {
+			out = append(out, s)
+		}
 	}
 	return out
 }

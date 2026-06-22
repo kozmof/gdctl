@@ -558,7 +558,10 @@ func normalizeCommandArgs(args []string) []string {
 }
 
 func parseGlobalFlags(args []string) (bridge.Config, []string, error) {
-	cfg := bridge.ConfigFromEnv()
+	cfg, err := bridge.ConfigFromEnv()
+	if err != nil {
+		return cfg, nil, err
+	}
 	fs := flag.NewFlagSet("gdctl", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	host := fs.String("host", cfg.Host, "bridge host")

@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"os"
@@ -34,15 +35,17 @@ func DefaultConfig() Config {
 	}
 }
 
-func ConfigFromEnv() Config {
+func ConfigFromEnv() (Config, error) {
 	cfg := DefaultConfig()
 	if host := os.Getenv("GDCTL_BRIDGE_HOST"); host != "" {
 		cfg.Host = host
 	}
 	if port := os.Getenv("GDCTL_BRIDGE_PORT"); port != "" {
-		if parsed, err := strconv.Atoi(port); err == nil && parsed > 0 {
-			cfg.Port = parsed
+		parsed, err := strconv.Atoi(port)
+		if err != nil || parsed <= 0 {
+			return cfg, fmt.Errorf("GDCTL_BRIDGE_PORT %q is not a valid port number", port)
 		}
+		cfg.Port = parsed
 	}
 	if token := os.Getenv("GDCTL_BRIDGE_TOKEN"); token != "" {
 		cfg.Token = token
@@ -50,7 +53,7 @@ func ConfigFromEnv() Config {
 	if godot := os.Getenv("GDCTL_GODOT_PATH"); godot != "" {
 		cfg.GodotPath = godot
 	}
-	return cfg
+	return cfg, nil
 }
 
 func (c Config) WithProjectToken() (Config, error) {
