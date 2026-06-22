@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"gdctl/internal/bridge"
@@ -25,7 +26,7 @@ func runApply(ctx context.Context, client *bridge.Client, args []string, stdout 
 	}
 	file := fs.Arg(0)
 	if *scene == "" || file == "" {
-		return fmt.Errorf("apply requires <file> and --scene <path>")
+		return fmt.Errorf("apply requires --scene <path> and <file>")
 	}
 	data, err := os.ReadFile(file)
 	if err != nil {
@@ -95,7 +96,7 @@ func runPlan(ctx context.Context, client *bridge.Client, args []string, stdout i
 	}
 	file := fs.Arg(0)
 	if *scene == "" || file == "" {
-		return fmt.Errorf("plan requires <file> and --scene <path>")
+		return fmt.Errorf("plan requires --scene <path> and <file>")
 	}
 	data, err := os.ReadFile(file)
 	if err != nil {
@@ -255,4 +256,140 @@ func gateChecksForProfile(profile string) []gateCheck {
 func runGateCheck(ctx context.Context, client *bridge.Client, check gateCheck, stderr io.Writer) gateCheckResult {
 	passed, detail := check.run(ctx, client, stderr)
 	return gateCheckResult{Name: check.name, Passed: passed, Detail: detail}
+}
+
+// runTx is the workflow-layer transaction command.
+// gdctl tx run --scene SCENE --file OPS.json [--dry-run] [--json]
+// gdctl tx begin|commit — stubs (stateful tx not yet implemented)
+func runTx(ctx context.Context, client *bridge.Client, args []string, stdout, _ io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("tx requires a subcommand: run, begin, commit")
+	}
+	switch args[0] {
+	case "run":
+		// tx run accepts --scene (workflow-layer convention) in addition to
+		// --path (scene batch convention); translate --scene → --path.
+		translated := make([]string, 0, len(args[1:]))
+		for i := 0; i < len(args[1:]); i++ {
+			a := args[1:][i]
+			if a == "--scene" && i+1 < len(args[1:]) {
+				translated = append(translated, "--path", args[1:][i+1])
+				i++
+			} else {
+				translated = append(translated, a)
+			}
+		}
+		return runSceneBatch(ctx, client, translated, stdout)
+	case "begin", "commit":
+		return fmt.Errorf("tx %s: stateful begin/commit not yet implemented; use 'tx run --file ops.json --scene SCENE'", args[0])
+	}
+	return fmt.Errorf("unknown tx subcommand: %s", args[0])
+}
+
+// workflowFile is the JSON format for named workflows.
+//
+//	{
+//	  "ci": ["lint", "gate run ci"],
+//	  "nightly": ["asset scan --dir res://", "lint", "test gdscript --dir res://tests"]
+//	}
+type workflowFile map[string][]string
+
+// runWorkflow runs named steps from a JSON workflow file.
+// gdctl workflow run <name> [--file gdctl-workflows.json] [--continue-on-error] [--json]
+func runWorkflow(ctx context.Context, client *bridge.Client, args []string, stdout, stderr io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("workflow requires a subcommand: run")
+	}
+	switch args[0] {
+	case "run":
+		return runWorkflowRun(ctx, client, args[1:], stdout, stderr)
+	}
+	return fmt.Errorf("unknown workflow subcommand: %s", args[0])
+}
+
+func runWorkflowRun(ctx context.Context, _ *bridge.Client, args []string, stdout, stderr io.Writer) error {
+	fs := newFlagSet("workflow run")
+	file := fs.String("file", "gdctl-workflows.json", "workflow definition file")
+	continueOnError := fs.Bool("continue-on-error", false, "continue after a failed step")
+	jsonOut := fs.Bool("json", false, "print results as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	name := fs.Arg(0)
+	if name == "" {
+		return fmt.Errorf("workflow run requires a workflow name")
+	}
+
+	data, err := os.ReadFile(*file)
+	if err != nil {
+		return fmt.Errorf("workflow run: could not read %s: %w", *file, err)
+	}
+	var wf workflowFile
+	if err := json.Unmarshal(data, &wf); err != nil {
+		return fmt.Errorf("workflow run: could not parse %s: %w", *file, err)
+	}
+	steps, ok := wf[name]
+	if !ok {
+		return fmt.Errorf("workflow %q not found in %s", name, *file)
+	}
+
+	type stepResult struct {
+		Step   string `json:"step"`
+		Passed bool   `json:"passed"`
+		Error  string `json:"error,omitempty"`
+		Ms     int64  `json:"ms"`
+	}
+	results := make([]stepResult, 0, len(steps))
+	allPassed := true
+
+	if !*jsonOut {
+		fmt.Fprintf(stdout, "Workflow: %s\n", name)
+	}
+	for _, step := range steps {
+		stepArgs := strings.Fields(step)
+		start := time.Now()
+		var buf bytes.Buffer
+		runErr := Run(ctx, stepArgs, &buf, &buf)
+		ms := time.Since(start).Milliseconds()
+
+		sr := stepResult{Step: step, Passed: runErr == nil, Ms: ms}
+		if runErr != nil {
+			sr.Error = runErr.Error()
+			allPassed = false
+		}
+		results = append(results, sr)
+
+		if !*jsonOut {
+			mark := "PASS"
+			if runErr != nil {
+				mark = "FAIL"
+			}
+			fmt.Fprintf(stdout, "  %s  %s (%dms)\n", mark, step, ms)
+			if runErr != nil {
+				fmt.Fprintf(stdout, "       %s\n", runErr.Error())
+			}
+		}
+		if runErr != nil && !*continueOnError {
+			break
+		}
+	}
+
+	if *jsonOut {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(map[string]any{
+			"workflow": name,
+			"passed":  allPassed,
+			"steps":   results,
+		})
+	}
+
+	fmt.Fprintln(stdout)
+	if allPassed {
+		fmt.Fprintf(stdout, "Workflow %s passed.\n", name)
+	} else {
+		fmt.Fprintf(stdout, "Workflow %s failed.\n", name)
+		return fmt.Errorf("workflow %s: one or more steps failed", name)
+	}
+	return nil
 }

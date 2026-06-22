@@ -28,7 +28,12 @@ type commandRoute struct {
 	handler func(ctx context.Context, client *bridge.Client, addonMgr addon.Manager, cfg bridge.Config, rest []string, stdout, stderr io.Writer) error
 }
 
-var routes = map[string]commandRoute{
+// routes is initialized in init() to break the cycle:
+// routeWorkflow → runWorkflow → runWorkflowRun → Run → routes
+var routes map[string]commandRoute
+
+func init() {
+	routes = map[string]commandRoute{
 	// Object Layer
 	"scene":    {layer: "object", handler: routeScene},
 	"node":     {layer: "object", handler: routeNode},
@@ -47,23 +52,28 @@ var routes = map[string]commandRoute{
 	"window":        {layer: "system", handler: routeWindow},
 	"accessibility": {layer: "system", handler: routeAccessibility},
 	"lightmap":      {layer: "system", handler: routeLightmap},
+	"ui":            {layer: "system", handler: routeNotImplemented("ui")},
+	"save":          {layer: "system", handler: routeSave},
 	// Policy Layer
 	"policy": {layer: "policy", handler: routePolicy},
 	// Workflow Layer
 	"apply":    {layer: "workflow", handler: routeApply},
 	"plan":     {layer: "workflow", handler: routePlan},
-	"diff":     {layer: "workflow", handler: routeNotImplemented("diff")},
-	"tx":       {layer: "workflow", handler: routeNotImplemented("tx")},
-	"workflow": {layer: "workflow", handler: routeNotImplemented("workflow")},
-	"scaffold": {layer: "workflow", handler: routeNotImplemented("scaffold")},
+	"diff":     {layer: "workflow", handler: routeDiff},
+	"tx":       {layer: "workflow", handler: routeTx},
+	"workflow": {layer: "workflow", handler: routeWorkflow},
+	"scaffold": {layer: "workflow", handler: routeScaffold},
 	// Execution Layer
-	"asset":  {layer: "execution", handler: routeNotImplemented("asset")},
-	"lint":   {layer: "execution", handler: routeNotImplemented("lint")},
-	"test":   {layer: "execution", handler: routeTest},
-	"gate":   {layer: "execution", handler: routeGate},
-	"export": {layer: "execution", handler: routeNotImplemented("export")},
-	"perf":   {layer: "execution", handler: routeNotImplemented("perf")},
-	"data":   {layer: "execution", handler: routeNotImplemented("data")},
+	"asset":    {layer: "execution", handler: routeAsset},
+	"lint":     {layer: "execution", handler: routeLint},
+	"test":     {layer: "execution", handler: routeTest},
+	"gate":     {layer: "execution", handler: routeGate},
+	"export":   {layer: "execution", handler: routeNotImplemented("export")},
+	"perf":     {layer: "execution", handler: routePerf},
+	"data":     {layer: "execution", handler: routeNotImplemented("data")},
+	"platform": {layer: "execution", handler: routeNotImplemented("platform")},
+	"store":    {layer: "execution", handler: routeNotImplemented("store")},
+	"release":  {layer: "execution", handler: routeNotImplemented("release")},
 	// Recipe Layer
 	"recipe": {layer: "recipe", handler: routeRecipe},
 	// Infrastructure
@@ -78,6 +88,7 @@ var routes = map[string]commandRoute{
 	"project":  {layer: "infra", handler: routeProject},
 	"import":   {layer: "infra", handler: routeImport},
 	"help":     {layer: "infra", handler: routeHelp},
+	}
 }
 
 func routeNotImplemented(name string) func(ctx context.Context, client *bridge.Client, addonMgr addon.Manager, cfg bridge.Config, rest []string, stdout, stderr io.Writer) error {
@@ -378,6 +389,12 @@ func routePolicy(ctx context.Context, client *bridge.Client, _ addon.Manager, _ 
 	return runPolicy(ctx, client, rest, stdout)
 }
 
+// Route dispatchers — System Layer (additional)
+
+func routeSave(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	return runSceneSave(ctx, client, rest, stdout)
+}
+
 // Route dispatchers — Workflow Layer
 
 func routeApply(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
@@ -388,7 +405,31 @@ func routePlan(ctx context.Context, client *bridge.Client, _ addon.Manager, _ br
 	return runPlan(ctx, client, rest, stdout)
 }
 
+func routeDiff(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	return runDiff(ctx, client, rest, stdout)
+}
+
+func routeTx(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, stderr io.Writer) error {
+	return runTx(ctx, client, rest, stdout, stderr)
+}
+
+func routeWorkflow(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, stderr io.Writer) error {
+	return runWorkflow(ctx, client, rest, stdout, stderr)
+}
+
+func routeScaffold(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	return runScaffold(ctx, client, rest, stdout)
+}
+
 // Route dispatchers — Execution Layer
+
+func routeAsset(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	return runAsset(ctx, client, rest, stdout)
+}
+
+func routeLint(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	return runLint(ctx, client, rest, stdout)
+}
 
 func routeTest(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, stderr io.Writer) error {
 	return runTest(ctx, client, rest, stdout, stderr)
@@ -396,6 +437,10 @@ func routeTest(ctx context.Context, client *bridge.Client, _ addon.Manager, _ br
 
 func routeGate(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, stderr io.Writer) error {
 	return runGate(ctx, client, rest, stdout, stderr)
+}
+
+func routePerf(ctx context.Context, client *bridge.Client, _ addon.Manager, _ bridge.Config, rest []string, stdout, _ io.Writer) error {
+	return runRunProfile(ctx, client, rest, stdout)
 }
 
 // Route dispatchers — Recipe Layer
@@ -569,6 +614,18 @@ func printBridgeInfo(stdout io.Writer, ping bridge.PingResponse) {
 
 func requestID() string {
 	return "cli-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+}
+
+// extractPositionalArg splits args into the first non-flag argument and the
+// remaining flag args. This lets callers mix `cmd file --flag val` and
+// `cmd --flag val file` without ambiguity.
+func extractPositionalArg(args []string) (positional string, rest []string) {
+	for i, a := range args {
+		if len(a) > 0 && a[0] != '-' {
+			return a, append(args[:i:i], args[i+1:]...)
+		}
+	}
+	return "", args
 }
 
 func newFlagSet(name string) *flag.FlagSet {

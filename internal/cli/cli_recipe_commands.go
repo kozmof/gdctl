@@ -14,7 +14,7 @@ import (
 
 func runRecipe(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("recipe requires a name: fog-volume, decal, occluder, voxelgi, reflection-probe, csg, lod, softbody, terrain, graph-edit, environment, character-body, area-trigger, camera-3d, camera-2d")
+		return fmt.Errorf("recipe requires a name: fog-volume, decal, occluder, voxelgi, reflection-probe, csg, lod, softbody, terrain, graph-edit, environment, character-body, area-trigger, camera-3d, camera-2d, light-3d, light-2d, ui-button")
 	}
 	switch args[0] {
 	case "fog-volume":
@@ -47,6 +47,12 @@ func runRecipe(ctx context.Context, client *bridge.Client, args []string, stdout
 		return runRecipeCamera3D(ctx, client, args[1:], stdout)
 	case "camera-2d":
 		return runRecipeCamera2D(ctx, client, args[1:], stdout)
+	case "light-3d":
+		return runRecipeLight3D(ctx, client, args[1:], stdout)
+	case "light-2d":
+		return runRecipeLight2D(ctx, client, args[1:], stdout)
+	case "ui-button":
+		return runRecipeUIButton(ctx, client, args[1:], stdout)
 	}
 	return fmt.Errorf("unknown recipe: %s", args[0])
 }
@@ -844,6 +850,147 @@ func runRecipeCamera2DAdd(ctx context.Context, client *bridge.Client, args []str
 	}
 	nodePath, _ := result["path"].(string)
 	fmt.Fprintf(stdout, "Camera2D added: %s\n", nodePath)
+	return nil
+}
+
+// recipe light-3d
+
+func runRecipeLight3D(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("recipe light-3d requires a verb: add")
+	}
+	switch args[0] {
+	case "add":
+		return runRecipeLight3DAdd(ctx, client, args[1:], stdout)
+	}
+	return fmt.Errorf("unknown light-3d verb: %s", args[0])
+}
+
+func runRecipeLight3DAdd(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := newFlagSet("recipe light-3d add")
+	parent := fs.String("parent", "", "parent node path")
+	name := fs.String("name", "DirectionalLight3D", "node name")
+	lightType := fs.String("type", "directional", "light type: directional, omni, spot")
+	printCore := fs.Bool("print-core", false, "print underlying core commands instead of executing")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *parent == "" {
+		return fmt.Errorf("recipe light-3d add requires --parent")
+	}
+	nodeType := light3DNodeType(*lightType)
+	if *printCore {
+		fmt.Fprintf(stdout, "gdctl node add --parent %s --type %s --name %s\n", *parent, nodeType, *name)
+		return nil
+	}
+	result, err := client.AddNode(ctx, requestID(), *parent, nodeType, *name, map[string]any{}, false)
+	if err != nil {
+		return err
+	}
+	nodePath, _ := result["path"].(string)
+	fmt.Fprintf(stdout, "%s added: %s\n", nodeType, nodePath)
+	return nil
+}
+
+func light3DNodeType(t string) string {
+	switch strings.ToLower(t) {
+	case "omni":
+		return "OmniLight3D"
+	case "spot":
+		return "SpotLight3D"
+	}
+	return "DirectionalLight3D"
+}
+
+// recipe light-2d
+
+func runRecipeLight2D(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("recipe light-2d requires a verb: add")
+	}
+	switch args[0] {
+	case "add":
+		return runRecipeLight2DAdd(ctx, client, args[1:], stdout)
+	}
+	return fmt.Errorf("unknown light-2d verb: %s", args[0])
+}
+
+func runRecipeLight2DAdd(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := newFlagSet("recipe light-2d add")
+	parent := fs.String("parent", "", "parent node path")
+	name := fs.String("name", "DirectionalLight2D", "node name")
+	lightType := fs.String("type", "directional", "light type: directional, point")
+	printCore := fs.Bool("print-core", false, "print underlying core commands instead of executing")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *parent == "" {
+		return fmt.Errorf("recipe light-2d add requires --parent")
+	}
+	nodeType := light2DNodeType(*lightType)
+	if *printCore {
+		fmt.Fprintf(stdout, "gdctl node add --parent %s --type %s --name %s\n", *parent, nodeType, *name)
+		return nil
+	}
+	result, err := client.AddNode(ctx, requestID(), *parent, nodeType, *name, map[string]any{}, false)
+	if err != nil {
+		return err
+	}
+	nodePath, _ := result["path"].(string)
+	fmt.Fprintf(stdout, "%s added: %s\n", nodeType, nodePath)
+	return nil
+}
+
+func light2DNodeType(t string) string {
+	switch strings.ToLower(t) {
+	case "point":
+		return "PointLight2D"
+	}
+	return "DirectionalLight2D"
+}
+
+// recipe ui-button
+
+func runRecipeUIButton(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("recipe ui-button requires a verb: add")
+	}
+	switch args[0] {
+	case "add":
+		return runRecipeUIButtonAdd(ctx, client, args[1:], stdout)
+	}
+	return fmt.Errorf("unknown ui-button verb: %s", args[0])
+}
+
+func runRecipeUIButtonAdd(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+	fs := newFlagSet("recipe ui-button add")
+	parent := fs.String("parent", "", "parent node path")
+	name := fs.String("name", "Button", "node name")
+	text := fs.String("text", "", "button label text")
+	printCore := fs.Bool("print-core", false, "print underlying core commands instead of executing")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *parent == "" {
+		return fmt.Errorf("recipe ui-button add requires --parent")
+	}
+	if *printCore {
+		fmt.Fprintf(stdout, "gdctl node add --parent %s --type Button --name %s\n", *parent, *name)
+		if *text != "" {
+			fmt.Fprintf(stdout, "gdctl node set --path %s/%s --property text --string %q\n", *parent, *name, *text)
+		}
+		return nil
+	}
+	props := map[string]any{}
+	if *text != "" {
+		props["text"] = map[string]any{"kind": "String", "value": *text}
+	}
+	result, err := client.AddNode(ctx, requestID(), *parent, "Button", *name, props, false)
+	if err != nil {
+		return err
+	}
+	nodePath, _ := result["path"].(string)
+	fmt.Fprintf(stdout, "Button added: %s\n", nodePath)
 	return nil
 }
 
