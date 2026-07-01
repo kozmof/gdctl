@@ -61,8 +61,7 @@ func runWindowAssignViewport(ctx context.Context, client *bridge.Client, args []
 	if err != nil {
 		return err
 	}
-	_ = result
-	fmt.Fprintf(stdout, "Viewport assigned: %s -> window %d\n", *viewport, *windowID)
+	fmt.Fprintf(stdout, "Viewport assigned: %s -> window %d%s\n", *viewport, *windowID, serverNote(result))
 	return nil
 }
 

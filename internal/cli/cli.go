@@ -634,6 +634,17 @@ func yesNo(value bool) string {
 	return "no"
 }
 
+// serverNote returns a parenthesized suffix for any "note" the bridge attached
+// to a successful result, or "" when there is none. It lets server-side caveats
+// (e.g. "TTS not supported on this platform") surface to the user instead of
+// being silently discarded by the caller.
+func serverNote(result map[string]any) string {
+	if note, _ := result["note"].(string); note != "" {
+		return " (" + note + ")"
+	}
+	return ""
+}
+
 func valueOrDash(value string) string {
 	if value == "" {
 		return "-"

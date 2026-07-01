@@ -68,8 +68,7 @@ func runAnimationTreeAddTransition(ctx context.Context, client *bridge.Client, a
 	if err != nil {
 		return err
 	}
-	_ = result
-	fmt.Fprintf(stdout, "AnimationTree transition added: %s -> %s (tree: %s)\n", *from, *to, *tree)
+	fmt.Fprintf(stdout, "AnimationTree transition added: %s -> %s (tree: %s)%s\n", *from, *to, *tree, serverNote(result))
 	return nil
 }
 
@@ -89,8 +88,7 @@ func runAnimationTreeBlendSpace2DAdd(ctx context.Context, client *bridge.Client,
 	if err != nil {
 		return err
 	}
-	_ = result
-	fmt.Fprintf(stdout, "AnimationTree BlendSpace2D added: %s (tree: %s)\n", *state, *tree)
+	fmt.Fprintf(stdout, "AnimationTree BlendSpace2D added: %s (tree: %s)%s\n", *state, *tree, serverNote(result))
 	return nil
 }
 
@@ -139,7 +137,6 @@ func runAnimationTreeSetParam(ctx context.Context, client *bridge.Client, args [
 	if err != nil {
 		return err
 	}
-	_ = result
-	fmt.Fprintf(stdout, "AnimationTree param set: %s (tree: %s)\n", *param, *tree)
+	fmt.Fprintf(stdout, "AnimationTree param set: %s (tree: %s)%s\n", *param, *tree, serverNote(result))
 	return nil
 }

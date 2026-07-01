@@ -85,16 +85,18 @@ func runBridgeAddonUpdate(ctx context.Context, client *bridge.Client, manager ad
 		return err
 	}
 	// Load the currently installed manifest so the bridge can remove stale files.
+	// This is best-effort: if we can't read or decode it, we proceed without a
+	// stale-file list rather than failing the update.
 	var oldManifestMap map[string]any
-	cfg := bridge.Config{}
 	if ping, err := client.Ping(ctx); err == nil && ping.ProjectPath != "" {
 		if installed, err := addon.LoadInstalledManifest(ping.ProjectPath); err == nil && len(installed.Files) > 0 {
 			if data, err := json.Marshal(installed); err == nil {
-				_ = json.Unmarshal(data, &oldManifestMap)
+				if err := json.Unmarshal(data, &oldManifestMap); err != nil {
+					oldManifestMap = nil
+				}
 			}
 		}
 	}
-	_ = cfg
 	result, err := client.UpdateAddon(ctx, requestID(), manifest, oldManifestMap, files)
 	if err != nil {
 		return err

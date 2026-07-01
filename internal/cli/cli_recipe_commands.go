@@ -164,8 +164,7 @@ func runRecipeDecalSetNormalFade(ctx context.Context, client *bridge.Client, arg
 	if err != nil {
 		return err
 	}
-	_ = result
-	fmt.Fprintf(stdout, "Decal normal fade set: %s (%.3f)\n", *path, *fade)
+	fmt.Fprintf(stdout, "Decal normal fade set: %s (%.3f)%s\n", *path, *fade, serverNote(result))
 	return nil
 }
 
@@ -480,11 +479,10 @@ func runRecipeSoftBodyPin(ctx context.Context, client *bridge.Client, args []str
 	if err != nil {
 		return err
 	}
-	_ = result
 	if pin {
-		fmt.Fprintf(stdout, "SoftBody3D point pinned: %s[%d]\n", *path, *point)
+		fmt.Fprintf(stdout, "SoftBody3D point pinned: %s[%d]%s\n", *path, *point, serverNote(result))
 	} else {
-		fmt.Fprintf(stdout, "SoftBody3D point unpinned: %s[%d]\n", *path, *point)
+		fmt.Fprintf(stdout, "SoftBody3D point unpinned: %s[%d]%s\n", *path, *point, serverNote(result))
 	}
 	return nil
 }
@@ -560,8 +558,7 @@ func runRecipeGraphEditNodeAdd(ctx context.Context, client *bridge.Client, args 
 	if err != nil {
 		return err
 	}
-	_ = result
-	fmt.Fprintf(stdout, "GraphNode added: %s (graph: %s)\n", *name, *path)
+	fmt.Fprintf(stdout, "GraphNode added: %s (graph: %s)%s\n", *name, *path, serverNote(result))
 	return nil
 }
 
@@ -582,8 +579,7 @@ func runRecipeGraphEditConnectionAdd(ctx context.Context, client *bridge.Client,
 	if err != nil {
 		return err
 	}
-	_ = result
-	fmt.Fprintf(stdout, "GraphEdit connection added: %s:%d -> %s:%d (graph: %s)\n", *from, *fromPort, *to, *toPort, *graph)
+	fmt.Fprintf(stdout, "GraphEdit connection added: %s:%d -> %s:%d (graph: %s)%s\n", *from, *fromPort, *to, *toPort, *graph, serverNote(result))
 	return nil
 }
 
@@ -601,8 +597,7 @@ func runRecipeGraphEditNodeRemove(ctx context.Context, client *bridge.Client, ar
 	if err != nil {
 		return err
 	}
-	_ = result
-	fmt.Fprintf(stdout, "GraphNode removed: %s (graph: %s)\n", *name, *path)
+	fmt.Fprintf(stdout, "GraphNode removed: %s (graph: %s)%s\n", *name, *path, serverNote(result))
 	return nil
 }
 

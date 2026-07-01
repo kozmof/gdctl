@@ -158,8 +158,13 @@ func runRunProbeRaycast(ctx context.Context, client *bridge.Client, args []strin
 		if err != nil {
 			return err
 		}
-		encoded, _ := json.Marshal(job.Result)
-		_ = json.Unmarshal(encoded, &result)
+		encoded, err := json.Marshal(job.Result)
+		if err != nil {
+			return fmt.Errorf("run probe raycast: encode job result: %w", err)
+		}
+		if err := json.Unmarshal(encoded, &result); err != nil {
+			return fmt.Errorf("run probe raycast: decode job result: %w", err)
+		}
 	} else {
 		result = queued
 	}
@@ -657,7 +662,6 @@ func runAudioPlaylistAutoplay(ctx context.Context, client *bridge.Client, args [
 	if err != nil {
 		return err
 	}
-	_ = result
-	fmt.Fprintf(stdout, "Audio playlist autoplay set: bus=%s mode=%s\n", *bus, *mode)
+	fmt.Fprintf(stdout, "Audio playlist autoplay set: bus=%s mode=%s%s\n", *bus, *mode, serverNote(result))
 	return nil
 }

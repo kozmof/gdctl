@@ -38,8 +38,11 @@ func runAccessibilityTTSSpeak(ctx context.Context, client *bridge.Client, args [
 	if err != nil {
 		return err
 	}
-	_ = result
-	fmt.Fprintf(stdout, "TTS speak: %q\n", *text)
+	if voice, _ := result["voice"].(string); voice != "" {
+		fmt.Fprintf(stdout, "TTS speak: %q (voice: %s)%s\n", *text, voice, serverNote(result))
+	} else {
+		fmt.Fprintf(stdout, "TTS speak: %q%s\n", *text, serverNote(result))
+	}
 	return nil
 }
 
@@ -55,8 +58,14 @@ func runAccessibilityTTSConfigure(ctx context.Context, client *bridge.Client, ar
 	if err != nil {
 		return err
 	}
-	_ = result
-	fmt.Fprintln(stdout, "TTS configured")
+	// The bridge echoes back the effective configuration, filling in any values
+	// left unchanged (0 / empty), so report what actually took effect.
+	effPitch, _ := result["pitch"].(float64)
+	effRate, _ := result["rate"].(float64)
+	effVolume, _ := result["volume"].(float64)
+	effVoice, _ := result["voice"].(string)
+	fmt.Fprintf(stdout, "TTS configured: pitch=%.2f rate=%.2f volume=%d voice=%s\n",
+		effPitch, effRate, int(effVolume), valueOrDash(effVoice))
 	return nil
 }
 

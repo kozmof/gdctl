@@ -1,0 +1,24 @@
+# golangci-lint configuration (schema v2).
+# The default linter set (errcheck, govet, ineffassign, staticcheck, unused)
+# is active; errcheck is tuned below so idiomatic unchecked writes to an
+# io.Writer / fmt.Fprint* do not create noise, while genuine dropped errors
+# (json.Unmarshal, os.Remove used for effect, etc.) are still reported.
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+  exclusions:
+    generated: lax
+    rules:
+      # Test helpers frequently ignore errors on best-effort setup/teardown.
+      - path: _test\.go
+        linters:
+          - errcheck

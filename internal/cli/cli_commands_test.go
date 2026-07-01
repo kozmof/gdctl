@@ -38,14 +38,16 @@ func runCmd(t *testing.T, server *httptest.Server, args ...string) (string, erro
 // ---------------------------------------------------------------------------
 
 func TestAccessibilityTTSSpeak(t *testing.T) {
-	server := singleHandler("/accessibility/tts-speak", map[string]any{"queued": true})
+	// The bridge auto-selects a voice; the CLI must surface it rather than
+	// only echoing the requested text.
+	server := singleHandler("/accessibility/tts-speak", map[string]any{"voice": "en-US-1", "spoken": true})
 	defer server.Close()
 	out, err := runCmd(t, server, "accessibility", "tts-speak", "--text", "hello")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "TTS speak") {
-		t.Fatalf("stdout: %s", out)
+	if !strings.Contains(out, "TTS speak") || !strings.Contains(out, "en-US-1") {
+		t.Fatalf("expected text and server-chosen voice in output, got: %s", out)
 	}
 }
 
@@ -57,14 +59,18 @@ func TestAccessibilityTTSSpeakRequiresText(t *testing.T) {
 }
 
 func TestAccessibilityTTSConfigure(t *testing.T) {
-	server := singleHandler("/accessibility/tts-configure", map[string]any{})
+	// The bridge echoes the effective configuration (filling in unchanged
+	// values); the CLI must report what actually took effect.
+	server := singleHandler("/accessibility/tts-configure", map[string]any{
+		"pitch": 1.2, "rate": 1.0, "volume": 50.0, "voice": "en-US-1", "applied": true,
+	})
 	defer server.Close()
 	out, err := runCmd(t, server, "accessibility", "tts-configure", "--pitch", "1.2")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "TTS configured") {
-		t.Fatalf("stdout: %s", out)
+	if !strings.Contains(out, "TTS configured") || !strings.Contains(out, "pitch=1.20") || !strings.Contains(out, "voice=en-US-1") {
+		t.Fatalf("expected effective config in output, got: %s", out)
 	}
 }
 
@@ -154,6 +160,21 @@ func TestWindowAssignViewport(t *testing.T) {
 	}
 	if !strings.Contains(out, "Viewport assigned") {
 		t.Fatalf("stdout: %s", out)
+	}
+}
+
+func TestWindowAssignViewportSurfacesServerNote(t *testing.T) {
+	// A server-side caveat must reach the user instead of being swallowed.
+	server := singleHandler("/window/assign-viewport", map[string]any{
+		"assigned": true, "note": "window already had a viewport",
+	})
+	defer server.Close()
+	out, err := runCmd(t, server, "window", "assign-viewport", "--window-id", "1", "--viewport", "/root/Main/Viewport")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "window already had a viewport") {
+		t.Fatalf("expected server note in output, got: %s", out)
 	}
 }
 

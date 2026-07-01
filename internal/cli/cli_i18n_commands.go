@@ -55,7 +55,6 @@ func runLocalizationStringAdd(ctx context.Context, client *bridge.Client, args [
 	if err != nil {
 		return err
 	}
-	_ = result
-	fmt.Fprintf(stdout, "Translation added: %s[%s] = %q\n", *key, *locale, *text)
+	fmt.Fprintf(stdout, "Translation added: %s[%s] = %q%s\n", *key, *locale, *text, serverNote(result))
 	return nil
 }
