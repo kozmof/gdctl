@@ -206,11 +206,14 @@ func (m Manager) Rollback(opts RollbackOptions) (Result, error) {
 		if err != nil {
 			return err
 		}
+		dst := filepath.Join(project.AddonPath(), rel)
+		if !strings.HasPrefix(filepath.Clean(dst)+string(filepath.Separator), filepath.Clean(project.AddonPath())+string(filepath.Separator)) {
+			return fmt.Errorf("backup contains path outside addon directory: %s", rel)
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		dst := filepath.Join(project.AddonPath(), rel)
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return err
 		}

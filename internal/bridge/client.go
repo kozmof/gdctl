@@ -21,6 +21,15 @@ func NewClient(cfg Config) *Client {
 		cfg: cfg,
 		httpClient: &http.Client{
 			Timeout: 5 * time.Second,
+			Transport: &http.Transport{
+				DialContext: (&net.Dialer{
+					Timeout: 3 * time.Second,
+				}).DialContext,
+				MaxIdleConns:        10,
+				MaxIdleConnsPerHost: 4,
+				MaxConnsPerHost:     8,
+				IdleConnTimeout:     30 * time.Second,
+			},
 		},
 	}
 }
@@ -103,8 +112,10 @@ func callPost[T any](ctx context.Context, c *Client, path string, env RequestEnv
 	return out, json.Unmarshal(encoded, &out)
 }
 
+const maxResponseBytes = 100 * 1024 * 1024 // 100 MB
+
 func decodeResponse(resp *http.Response, target any) error {
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
 		return err
 	}

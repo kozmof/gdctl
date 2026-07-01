@@ -762,13 +762,17 @@ func runSceneRun(ctx context.Context, cfg bridge.Config, args []string, stdout i
 }
 
 func execGodotHeadless(ctx context.Context, godotBin, projectPath, scene string, timeout time.Duration, stdout io.Writer) error {
+	resolved, err := exec.LookPath(godotBin)
+	if err != nil {
+		return fmt.Errorf("godot binary not found or not executable: %s", godotBin)
+	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	argv := []string{"--headless", "--path", projectPath}
 	if scene != "" {
 		argv = append(argv, scene)
 	}
-	cmd := exec.CommandContext(runCtx, godotBin, argv...)
+	cmd := exec.CommandContext(runCtx, resolved, argv...)
 	cmd.Stdout = stdout
 	cmd.Stderr = stdout
 	if err := cmd.Run(); err != nil {

@@ -37,7 +37,7 @@ func runRun(ctx context.Context, client *bridge.Client, args []string, stdout, s
 	case "wait-probe":
 		return runRunWaitProbe(ctx, client, args[1:], stdout)
 	case "smoke":
-		return runRunSmoke(ctx, client, args[1:], stdout)
+		return runRunSmoke(ctx, client, args[1:], stdout, stderr)
 	case "probe":
 		return runRunProbe(ctx, client, args[1:], stdout)
 	case "instantiate":
@@ -272,6 +272,9 @@ func runRunInput(ctx context.Context, client *bridge.Client, args []string, stdo
 	content, err := os.ReadFile(*filePath)
 	if err != nil {
 		return fmt.Errorf("read input file: %w", err)
+	}
+	if len(content) > 10*1024*1024 {
+		return fmt.Errorf("run input file too large (max 10 MB)")
 	}
 	var payload struct {
 		Steps []any `json:"steps"`
@@ -588,7 +591,7 @@ func evalPredicate(detail map[string]any, key, op, rawVal string) bool {
 	return false
 }
 
-func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdout io.Writer) error {
+func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("run smoke", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	scenePath := fs.String("scene", "", "scene path to run")
@@ -611,7 +614,9 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 	}
 
 	// stop any in-progress run before starting smoke to prevent Godot crash
-	_, _ = client.RunStop(ctx, requestID())
+	if _, err := client.RunStop(ctx, requestID()); err != nil {
+		fmt.Fprintf(stderr, "warning: pre-smoke stop failed: %v\n", err)
+	}
 	time.Sleep(300 * time.Millisecond)
 
 	// start
@@ -627,7 +632,9 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 
 	stop := func() {
 		if !*keepRunning {
-			_, _ = client.RunStop(ctx, requestID())
+			if _, err := client.RunStop(ctx, requestID()); err != nil {
+				fmt.Fprintf(stderr, "warning: post-smoke stop failed: %v\n", err)
+			}
 		}
 	}
 	defer stop()
@@ -637,6 +644,9 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 		content, err := os.ReadFile(*inputFile)
 		if err != nil {
 			return fmt.Errorf("smoke input read: %w", err)
+		}
+		if len(content) > 10*1024*1024 {
+			return fmt.Errorf("smoke input file too large (max 10 MB)")
 		}
 		var payload struct {
 			Steps []any `json:"steps"`
