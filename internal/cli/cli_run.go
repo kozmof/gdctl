@@ -731,9 +731,9 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 				if time.Now().After(deadline) {
 					helperSummary := smokeHelperFailureSummary(ctx, client)
 					if helperSummary != "" {
-						return fmt.Errorf("Smoke: FAIL — assert %s timed out; last probe: %s; %s", resolvedAssert, jsonOrFallback(lastDetail), helperSummary)
+						return fmt.Errorf("smoke: FAIL — assert %s timed out; last probe: %s; %s", resolvedAssert, jsonOrFallback(lastDetail), helperSummary)
 					}
-					return fmt.Errorf("Smoke: FAIL — assert %s timed out; last probe: %s", resolvedAssert, jsonOrFallback(lastDetail))
+					return fmt.Errorf("smoke: FAIL — assert %s timed out; last probe: %s", resolvedAssert, jsonOrFallback(lastDetail))
 				}
 				select {
 				case <-time.After(500 * time.Millisecond):
@@ -998,9 +998,10 @@ func runRunScreenshot(ctx context.Context, client *bridge.Client, args []string,
 		resultSource = *source
 	}
 	sourceLabel := resultSource
-	if resultSource == "game" {
+	switch resultSource {
+	case "game":
 		sourceLabel = "game viewport"
-	} else if resultSource == "screen" {
+	case "screen":
 		sourceLabel = "host screen"
 	}
 	if width > 0 && height > 0 {

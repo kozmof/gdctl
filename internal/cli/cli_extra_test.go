@@ -126,9 +126,10 @@ func TestRunProbeRaycastDirectResult(t *testing.T) {
 
 func TestRunWaitProbeMatchFound(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/run/status" {
+		switch r.URL.Path {
+		case "/run/status":
 			writeRunStatusResponse(t, w, true, "res://main.tscn", bridge.RuntimeHelperStatus{Present: true})
-		} else if r.URL.Path == "/run/logs" {
+		case "/run/logs":
 			_ = json.NewEncoder(w).Encode(bridge.LogsResponse{
 				OK: true,
 				Entries: []bridge.LogEntry{
@@ -141,7 +142,7 @@ func TestRunWaitProbeMatchFound(t *testing.T) {
 					},
 				},
 			})
-		} else {
+		default:
 			ok200(w, map[string]any{})
 		}
 	}))
@@ -157,16 +158,17 @@ func TestRunWaitProbeMatchFound(t *testing.T) {
 
 func TestRunWaitProbeMatchFoundJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/run/status" {
+		switch r.URL.Path {
+		case "/run/status":
 			writeRunStatusResponse(t, w, true, "res://main.tscn", bridge.RuntimeHelperStatus{Present: true})
-		} else if r.URL.Path == "/run/logs" {
+		case "/run/logs":
 			_ = json.NewEncoder(w).Encode(bridge.LogsResponse{
 				OK: true,
 				Entries: []bridge.LogEntry{
 					{Source: "engine", Message: "probe", Detail: map[string]any{"count": float64(5)}},
 				},
 			})
-		} else {
+		default:
 			ok200(w, map[string]any{})
 		}
 	}))

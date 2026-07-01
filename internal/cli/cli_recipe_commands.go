@@ -1014,11 +1014,11 @@ func parseVec2(s string) (float64, float64, error) {
 	}
 	x, err := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
 	if err != nil {
-		return 0, 0, fmt.Errorf("X: %w", err)
+		return 0, 0, fmt.Errorf("x: %w", err)
 	}
 	y, err := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
 	if err != nil {
-		return 0, 0, fmt.Errorf("Y: %w", err)
+		return 0, 0, fmt.Errorf("y: %w", err)
 	}
 	return x, y, nil
 }

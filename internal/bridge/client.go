@@ -85,7 +85,7 @@ func (c *Client) getJSON(ctx context.Context, path string, target any) error {
 	if err != nil {
 		return classifyTransportError(c.cfg.Address(), err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return decodeResponse(resp, target)
 }
 
@@ -108,7 +108,7 @@ func (c *Client) postEnvelope(ctx context.Context, path string, env RequestEnvel
 	if err != nil {
 		return nil, classifyTransportError(c.cfg.Address(), err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var out BridgeResponse[map[string]any]
 	if err := decodeResponse(resp, &out); err != nil {
