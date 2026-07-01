@@ -52,4 +52,6 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          version: latest
+          # Pin to a specific release so a new golangci-lint version cannot turn
+          # CI red without a corresponding change in this repo.
+          version: v2.1.0
