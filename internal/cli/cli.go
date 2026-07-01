@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -571,6 +572,9 @@ func parseGlobalFlags(args []string) (bridge.Config, []string, error) {
 func runPing(ctx context.Context, client *bridge.Client, stdout io.Writer) error {
 	ping, err := client.Ping(ctx)
 	if err != nil {
+		if errors.Is(err, bridge.ErrUnreachable) {
+			return fmt.Errorf("%w — is the Godot editor running with the TCP bridge addon enabled? Try 'gdctl doctor'", err)
+		}
 		return err
 	}
 	if !ping.OK {

@@ -66,7 +66,7 @@ func (c *Client) Dial(ctx context.Context) error {
 	var dialer net.Dialer
 	conn, err := dialer.DialContext(ctx, "tcp", c.cfg.Address())
 	if err != nil {
-		return err
+		return classifyTransportError(c.cfg.Address(), err)
 	}
 	return conn.Close()
 }
@@ -83,7 +83,7 @@ func (c *Client) getJSON(ctx context.Context, path string, target any) error {
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return err
+		return classifyTransportError(c.cfg.Address(), err)
 	}
 	defer resp.Body.Close()
 	return decodeResponse(resp, target)
@@ -106,7 +106,7 @@ func (c *Client) postEnvelope(ctx context.Context, path string, env RequestEnvel
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, classifyTransportError(c.cfg.Address(), err)
 	}
 	defer resp.Body.Close()
 
@@ -150,7 +150,7 @@ func decodeResponse(resp *http.Response, target any) error {
 		if err := json.Unmarshal(data, &bridged); err == nil && bridged.Error != nil {
 			return bridged.Error
 		}
-		return fmt.Errorf("bridge returned HTTP %d: %s", resp.StatusCode, string(data))
+		return &HTTPError{StatusCode: resp.StatusCode, Body: string(data)}
 	}
 	if err := json.Unmarshal(data, target); err != nil {
 		return fmt.Errorf("decode bridge response: %w", err)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,6 +32,28 @@ func runCmd(t *testing.T, server *httptest.Server, args ...string) (string, erro
 	var stdout, stderr bytes.Buffer
 	err := Run(context.Background(), append(serverArgs(server), args...), &stdout, &stderr)
 	return stdout.String(), err
+}
+
+// TestPingUnreachableGivesGuidance verifies that when the bridge is down, the
+// CLI turns the raw socket error into actionable guidance while still matching
+// bridge.ErrUnreachable in the wrapped chain.
+func TestPingUnreachableGivesGuidance(t *testing.T) {
+	// Start then immediately stop a server to get a port that refuses connections.
+	server := singleHandler("/ping", map[string]any{})
+	args := serverArgs(server)
+	server.Close()
+
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), append(args, "ping"), &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected error pinging a closed bridge")
+	}
+	if !strings.Contains(err.Error(), "gdctl doctor") {
+		t.Fatalf("expected guidance mentioning 'gdctl doctor', got: %v", err)
+	}
+	if !errors.Is(err, bridge.ErrUnreachable) {
+		t.Fatalf("expected wrapped error to match bridge.ErrUnreachable, got: %v", err)
+	}
 }
 
 // ---------------------------------------------------------------------------
