@@ -20,7 +20,6 @@ func NewClient(cfg Config) *Client {
 	return &Client{
 		cfg: cfg,
 		httpClient: &http.Client{
-			Timeout: 5 * time.Second,
 			Transport: &http.Transport{
 				DialContext: (&net.Dialer{
 					Timeout: 3 * time.Second,

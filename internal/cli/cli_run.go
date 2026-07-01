@@ -613,11 +613,27 @@ func runRunSmoke(ctx context.Context, client *bridge.Client, args []string, stdo
 		return fmt.Errorf("run smoke requires at most one of --scene or --main")
 	}
 
-	// stop any in-progress run before starting smoke to prevent Godot crash
+	// Stop any in-progress run before starting smoke to prevent Godot from
+	// crashing when two scenes start in quick succession.  Poll until the
+	// engine confirms it has stopped (up to 2s) rather than sleeping blindly.
 	if _, err := client.RunStop(ctx, requestID()); err != nil {
 		fmt.Fprintf(stderr, "warning: pre-smoke stop failed: %v\n", err)
 	}
-	time.Sleep(300 * time.Millisecond)
+	stopDeadline := time.Now().Add(2 * time.Second)
+	for {
+		status, err := client.RunStatus(ctx, requestID())
+		if err != nil || !status.Running {
+			break
+		}
+		if time.Now().After(stopDeadline) {
+			break
+		}
+		select {
+		case <-time.After(100 * time.Millisecond):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 
 	// start
 	startResult, err := client.RunStart(ctx, requestID(), *scenePath, *main, true)

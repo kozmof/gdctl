@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
+	"sync/atomic"
 
 	embeddedaddons "gdctl/addons"
 	"gdctl/internal/addon"
@@ -52,7 +52,6 @@ func init() {
 	"window":        {layer: "system", handler: routeWindow},
 	"accessibility": {layer: "system", handler: routeAccessibility},
 	"lightmap":      {layer: "system", handler: routeLightmap},
-	"ui":            {layer: "system", handler: routeNotImplemented("ui")},
 	"save":          {layer: "system", handler: routeSave},
 	// Policy Layer
 	"policy": {layer: "policy", handler: routePolicy},
@@ -68,12 +67,7 @@ func init() {
 	"lint":     {layer: "execution", handler: routeLint},
 	"test":     {layer: "execution", handler: routeTest},
 	"gate":     {layer: "execution", handler: routeGate},
-	"export":   {layer: "execution", handler: routeNotImplemented("export")},
 	"perf":     {layer: "execution", handler: routePerf},
-	"data":     {layer: "execution", handler: routeNotImplemented("data")},
-	"platform": {layer: "execution", handler: routeNotImplemented("platform")},
-	"store":    {layer: "execution", handler: routeNotImplemented("store")},
-	"release":  {layer: "execution", handler: routeNotImplemented("release")},
 	// Recipe Layer
 	"recipe": {layer: "recipe", handler: routeRecipe},
 	// Infrastructure
@@ -91,11 +85,6 @@ func init() {
 	}
 }
 
-func routeNotImplemented(name string) func(ctx context.Context, client *bridge.Client, addonMgr addon.Manager, cfg bridge.Config, rest []string, stdout, stderr io.Writer) error {
-	return func(_ context.Context, _ *bridge.Client, _ addon.Manager, _ bridge.Config, _ []string, _ io.Writer, _ io.Writer) error {
-		return fmt.Errorf("%s: not yet implemented", name)
-	}
-}
 
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	cfg, rest, err := parseGlobalFlags(args)
@@ -615,8 +604,10 @@ func printBridgeInfo(stdout io.Writer, ping bridge.PingResponse) {
 	}
 }
 
+var reqCounter atomic.Int64
+
 func requestID() string {
-	return "cli-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	return "cli-" + strconv.FormatInt(reqCounter.Add(1), 10)
 }
 
 // extractPositionalArg splits args into the first non-flag argument and the

@@ -37,6 +37,8 @@ func runDiff(ctx context.Context, client *bridge.Client, args []string, stdout i
 		return fmt.Errorf("diff: file must be JSON: %w", err)
 	}
 
+	sceneMu.Lock()
+	defer sceneMu.Unlock()
 	openedPath, _, err := openSceneAndWait(ctx, client, *scene, *timeout)
 	if err != nil {
 		return err

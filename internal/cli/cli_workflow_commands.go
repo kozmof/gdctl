@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"time"
 
 	"gdctl/internal/bridge"
@@ -36,6 +35,8 @@ func runApply(ctx context.Context, client *bridge.Client, args []string, stdout 
 	if err := json.Unmarshal(data, &tree); err != nil {
 		return fmt.Errorf("apply: file must be JSON: %w", err)
 	}
+	sceneMu.Lock()
+	defer sceneMu.Unlock()
 	openedPath, root, err := openSceneAndWait(ctx, client, *scene, *timeout)
 	if err != nil {
 		return err
@@ -106,6 +107,8 @@ func runPlan(ctx context.Context, client *bridge.Client, args []string, stdout i
 	if err := json.Unmarshal(data, &tree); err != nil {
 		return fmt.Errorf("plan: file must be JSON: %w", err)
 	}
+	sceneMu.Lock()
+	defer sceneMu.Unlock()
 	openedPath, _, err := openSceneAndWait(ctx, client, *scene, *timeout)
 	if err != nil {
 		return err
@@ -346,7 +349,7 @@ func runWorkflowRun(ctx context.Context, _ *bridge.Client, args []string, stdout
 		fmt.Fprintf(stdout, "Workflow: %s\n", name)
 	}
 	for _, step := range steps {
-		stepArgs := strings.Fields(step)
+		stepArgs := shellFields(step)
 		start := time.Now()
 		var buf bytes.Buffer
 		runErr := Run(ctx, stepArgs, &buf, &buf)
@@ -392,4 +395,63 @@ func runWorkflowRun(ctx context.Context, _ *bridge.Client, args []string, stdout
 		return fmt.Errorf("workflow %s: one or more steps failed", name)
 	}
 	return nil
+}
+
+// shellFields splits a command string into tokens the same way a POSIX shell
+// does: whitespace separates tokens, single-quoted strings are taken verbatim,
+// double-quoted strings honour backslash escapes.  This prevents node paths
+// that contain spaces from being split incorrectly.
+func shellFields(s string) []string {
+	var fields []string
+	var cur []byte
+	inSingle := false
+	inDouble := false
+	i := 0
+	for i < len(s) {
+		c := s[i]
+		switch {
+		case inSingle:
+			if c == '\'' {
+				inSingle = false
+			} else {
+				cur = append(cur, c)
+			}
+			i++
+		case inDouble:
+			if c == '"' {
+				inDouble = false
+				i++
+			} else if c == '\\' && i+1 < len(s) {
+				i++
+				cur = append(cur, s[i])
+				i++
+			} else {
+				cur = append(cur, c)
+				i++
+			}
+		case c == '\'':
+			inSingle = true
+			i++
+		case c == '"':
+			inDouble = true
+			i++
+		case c == '\\' && i+1 < len(s):
+			i++
+			cur = append(cur, s[i])
+			i++
+		case c == ' ' || c == '\t':
+			if len(cur) > 0 {
+				fields = append(fields, string(cur))
+				cur = cur[:0]
+			}
+			i++
+		default:
+			cur = append(cur, c)
+			i++
+		}
+	}
+	if len(cur) > 0 {
+		fields = append(fields, string(cur))
+	}
+	return fields
 }
