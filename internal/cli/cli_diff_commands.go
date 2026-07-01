@@ -100,11 +100,11 @@ func runDiff(ctx context.Context, client *bridge.Client, args []string, stdout i
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(map[string]any{
-			"scene":          openedPath,
-			"current_nodes":  len(currentIndex),
-			"desired_nodes":  len(desiredIndex),
-			"changes":        changes,
-			"property_diff":  "not supported — requires per-node GetNodeProperty queries",
+			"scene":         openedPath,
+			"current_nodes": len(currentIndex),
+			"desired_nodes": len(desiredIndex),
+			"changes":       changes,
+			"property_diff": "not supported — requires per-node GetNodeProperty queries",
 		})
 	}
 

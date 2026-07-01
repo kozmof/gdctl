@@ -34,57 +34,56 @@ var routes map[string]commandRoute
 
 func init() {
 	routes = map[string]commandRoute{
-	// Object Layer
-	"scene":    {layer: "object", handler: routeScene},
-	"node":     {layer: "object", handler: routeNode},
-	"script":   {layer: "object", handler: routeScript},
-	"shader":   {layer: "object", handler: routeShader},
-	"resource": {layer: "object", handler: routeResource},
-	"file":     {layer: "object", handler: routeFile},
-	// System Layer
-	"navigation":    {layer: "system", handler: routeNavigation},
-	"localization":  {layer: "system", handler: routeLocalization},
-	"audio":         {layer: "system", handler: routeAudio},
-	"animation":     {layer: "system", handler: routeAnimation},
-	"tilemap":       {layer: "system", handler: routeTilemap},
-	"theme":         {layer: "system", handler: routeTheme},
-	"viewport":      {layer: "system", handler: routeViewport},
-	"window":        {layer: "system", handler: routeWindow},
-	"accessibility": {layer: "system", handler: routeAccessibility},
-	"lightmap":      {layer: "system", handler: routeLightmap},
-	"save":          {layer: "system", handler: routeSave},
-	// Policy Layer
-	"policy": {layer: "policy", handler: routePolicy},
-	// Workflow Layer
-	"apply":    {layer: "workflow", handler: routeApply},
-	"plan":     {layer: "workflow", handler: routePlan},
-	"diff":     {layer: "workflow", handler: routeDiff},
-	"tx":       {layer: "workflow", handler: routeTx},
-	"workflow": {layer: "workflow", handler: routeWorkflow},
-	"scaffold": {layer: "workflow", handler: routeScaffold},
-	// Execution Layer
-	"asset":    {layer: "execution", handler: routeAsset},
-	"lint":     {layer: "execution", handler: routeLint},
-	"test":     {layer: "execution", handler: routeTest},
-	"gate":     {layer: "execution", handler: routeGate},
-	"perf":     {layer: "execution", handler: routePerf},
-	// Recipe Layer
-	"recipe": {layer: "recipe", handler: routeRecipe},
-	// Infrastructure
-	"ping":     {layer: "infra", handler: routePing},
-	"doctor":   {layer: "infra", handler: routeDoctor},
-	"addon":    {layer: "infra", handler: routeAddon},
-	"bridge":   {layer: "infra", handler: routeBridge},
-	"autoload": {layer: "infra", handler: routeAutoload},
-	"input":    {layer: "infra", handler: routeInput},
-	"run":      {layer: "infra", handler: routeRun},
-	"signal":   {layer: "infra", handler: routeSignal},
-	"project":  {layer: "infra", handler: routeProject},
-	"import":   {layer: "infra", handler: routeImport},
-	"help":     {layer: "infra", handler: routeHelp},
+		// Object Layer
+		"scene":    {layer: "object", handler: routeScene},
+		"node":     {layer: "object", handler: routeNode},
+		"script":   {layer: "object", handler: routeScript},
+		"shader":   {layer: "object", handler: routeShader},
+		"resource": {layer: "object", handler: routeResource},
+		"file":     {layer: "object", handler: routeFile},
+		// System Layer
+		"navigation":    {layer: "system", handler: routeNavigation},
+		"localization":  {layer: "system", handler: routeLocalization},
+		"audio":         {layer: "system", handler: routeAudio},
+		"animation":     {layer: "system", handler: routeAnimation},
+		"tilemap":       {layer: "system", handler: routeTilemap},
+		"theme":         {layer: "system", handler: routeTheme},
+		"viewport":      {layer: "system", handler: routeViewport},
+		"window":        {layer: "system", handler: routeWindow},
+		"accessibility": {layer: "system", handler: routeAccessibility},
+		"lightmap":      {layer: "system", handler: routeLightmap},
+		"save":          {layer: "system", handler: routeSave},
+		// Policy Layer
+		"policy": {layer: "policy", handler: routePolicy},
+		// Workflow Layer
+		"apply":    {layer: "workflow", handler: routeApply},
+		"plan":     {layer: "workflow", handler: routePlan},
+		"diff":     {layer: "workflow", handler: routeDiff},
+		"tx":       {layer: "workflow", handler: routeTx},
+		"workflow": {layer: "workflow", handler: routeWorkflow},
+		"scaffold": {layer: "workflow", handler: routeScaffold},
+		// Execution Layer
+		"asset": {layer: "execution", handler: routeAsset},
+		"lint":  {layer: "execution", handler: routeLint},
+		"test":  {layer: "execution", handler: routeTest},
+		"gate":  {layer: "execution", handler: routeGate},
+		"perf":  {layer: "execution", handler: routePerf},
+		// Recipe Layer
+		"recipe": {layer: "recipe", handler: routeRecipe},
+		// Infrastructure
+		"ping":     {layer: "infra", handler: routePing},
+		"doctor":   {layer: "infra", handler: routeDoctor},
+		"addon":    {layer: "infra", handler: routeAddon},
+		"bridge":   {layer: "infra", handler: routeBridge},
+		"autoload": {layer: "infra", handler: routeAutoload},
+		"input":    {layer: "infra", handler: routeInput},
+		"run":      {layer: "infra", handler: routeRun},
+		"signal":   {layer: "infra", handler: routeSignal},
+		"project":  {layer: "infra", handler: routeProject},
+		"import":   {layer: "infra", handler: routeImport},
+		"help":     {layer: "infra", handler: routeHelp},
 	}
 }
-
 
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	cfg, rest, err := parseGlobalFlags(args)

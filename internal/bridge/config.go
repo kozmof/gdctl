@@ -19,12 +19,12 @@ const (
 )
 
 type Config struct {
-	Host       string
-	Port       int
-	Protocol   string
-	Token      string
-	Project    string
-	GodotPath  string
+	Host      string
+	Port      int
+	Protocol  string
+	Token     string
+	Project   string
+	GodotPath string
 }
 
 func DefaultConfig() Config {

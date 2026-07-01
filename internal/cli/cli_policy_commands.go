@@ -41,9 +41,9 @@ func runPolicyValidate(ctx context.Context, client *bridge.Client, args []string
 	}
 
 	type checkResult struct {
-		Rule    string `json:"rule"`
-		Passed  bool   `json:"passed"`
-		Detail  string `json:"detail,omitempty"`
+		Rule   string `json:"rule"`
+		Passed bool   `json:"passed"`
+		Detail string `json:"detail,omitempty"`
 	}
 
 	var checks []checkResult

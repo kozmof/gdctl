@@ -11,9 +11,18 @@ import (
 	"time"
 )
 
+// DefaultRequestTimeout bounds how long a single bridge request may block when
+// the caller has not supplied its own context deadline. It guards against a
+// hung or unresponsive Godot editor holding the CLI open indefinitely.
+const DefaultRequestTimeout = 60 * time.Second
+
 type Client struct {
 	cfg        Config
 	httpClient *http.Client
+	// requestTimeout is applied per request only when the incoming context has
+	// no deadline of its own, so callers that set a shorter or longer deadline
+	// keep full control.
+	requestTimeout time.Duration
 }
 
 func NewClient(cfg Config) *Client {
@@ -30,11 +39,25 @@ func NewClient(cfg Config) *Client {
 				IdleConnTimeout:     30 * time.Second,
 			},
 		},
+		requestTimeout: DefaultRequestTimeout,
 	}
 }
 
 func NewClientWithHTTP(cfg Config, httpClient *http.Client) *Client {
-	return &Client{cfg: cfg, httpClient: httpClient}
+	return &Client{cfg: cfg, httpClient: httpClient, requestTimeout: DefaultRequestTimeout}
+}
+
+// requestContext derives a context carrying the client's default request
+// timeout, but only when the caller has not already set a deadline. The
+// returned cancel func must always be called.
+func (c *Client) requestContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if c.requestTimeout <= 0 {
+		return ctx, func() {}
+	}
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, c.requestTimeout)
 }
 
 // Phase 4 client methods
@@ -49,6 +72,8 @@ func (c *Client) Dial(ctx context.Context) error {
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, target any) error {
+	ctx, cancel := c.requestContext(ctx)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.cfg.BaseURL()+path, nil)
 	if err != nil {
 		return err
@@ -65,6 +90,8 @@ func (c *Client) getJSON(ctx context.Context, path string, target any) error {
 }
 
 func (c *Client) postEnvelope(ctx context.Context, path string, env RequestEnvelope) (map[string]any, error) {
+	ctx, cancel := c.requestContext(ctx)
+	defer cancel()
 	body, err := json.Marshal(env)
 	if err != nil {
 		return nil, err

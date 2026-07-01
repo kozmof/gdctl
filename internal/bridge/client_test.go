@@ -3,9 +3,11 @@ package bridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestClientAddNodeRequest(t *testing.T) {
@@ -51,6 +53,50 @@ func TestClientAddNodeRequest(t *testing.T) {
 	}
 	if result["path"] != "/root/Main/Marker" {
 		t.Fatalf("result path = %#v", result["path"])
+	}
+}
+
+func TestClientRequestTimesOutWhenCallerHasNoDeadline(t *testing.T) {
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release // hang until the test releases it
+	}))
+	defer server.Close()
+	defer close(release)
+
+	cfg := Config{Host: server.Listener.Addr().String(), Protocol: "http"}
+	client := NewClient(cfg)
+	client.requestTimeout = 50 * time.Millisecond
+
+	start := time.Now()
+	err := client.getJSON(context.Background(), "/ping", &PingResponse{})
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected DeadlineExceeded, got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("request did not honor default timeout, took %s", elapsed)
+	}
+}
+
+func TestClientRequestContextPreservesCallerDeadline(t *testing.T) {
+	client := NewClient(Config{Host: "127.0.0.1:1", Protocol: "http"})
+	client.requestTimeout = time.Hour
+
+	callerDeadline := time.Now().Add(10 * time.Millisecond)
+	parent, cancel := context.WithDeadline(context.Background(), callerDeadline)
+	defer cancel()
+
+	derived, cancel2 := client.requestContext(parent)
+	defer cancel2()
+	got, ok := derived.Deadline()
+	if !ok {
+		t.Fatal("derived context has no deadline")
+	}
+	if !got.Equal(callerDeadline) {
+		t.Fatalf("caller deadline overridden: got %v want %v", got, callerDeadline)
 	}
 }
 

@@ -382,8 +382,8 @@ func runWorkflowRun(ctx context.Context, _ *bridge.Client, args []string, stdout
 		enc.SetIndent("", "  ")
 		return enc.Encode(map[string]any{
 			"workflow": name,
-			"passed":  allPassed,
-			"steps":   results,
+			"passed":   allPassed,
+			"steps":    results,
 		})
 	}
 
