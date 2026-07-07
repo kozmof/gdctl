@@ -72,11 +72,11 @@ func parseWindowPos(s string) (int, int, error) {
 	}
 	x, err := strconv.Atoi(strings.TrimSpace(parts[0]))
 	if err != nil {
-		return 0, 0, fmt.Errorf("X: %w", err)
+		return 0, 0, fmt.Errorf("x: %w", err)
 	}
 	y, err := strconv.Atoi(strings.TrimSpace(parts[1]))
 	if err != nil {
-		return 0, 0, fmt.Errorf("Y: %w", err)
+		return 0, 0, fmt.Errorf("y: %w", err)
 	}
 	return x, y, nil
 }
